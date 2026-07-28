@@ -124,10 +124,10 @@
   .row .btn{flex:1;min-width:130px}
 
   /* Scanner */
-  .stat{border-radius:var(--r);padding:20px 16px;text-align:center;border:1px solid var(--line);
+  .stat{border-radius:var(--r);padding:30px 16px;text-align:center;border:1px solid var(--line);
     background:var(--surface);transition:.2s;margin-bottom:12px}
-  .stat .word{font-family:'Fraunces',serif;font-weight:700;font-size:30px;letter-spacing:.5px;line-height:1.05;margin:0}
-  .stat .who{font-size:17px;font-weight:600;margin:7px 0 2px}
+  .stat .word{font-family:'Inter',sans-serif;font-weight:800;font-size:20px;letter-spacing:1px;text-transform:uppercase;line-height:1.05;margin:0;opacity:.9}
+  .stat .who{font-family:'Fraunces',serif;font-size:44px;font-weight:700;line-height:1.03;margin:12px 0 4px}
   .stat .note{font-size:13px;color:var(--muted)}
   .stat.idle .word{color:var(--muted2);font-size:19px;font-weight:600;font-family:'Inter',sans-serif}
   .stat.valid{background:var(--green-bg);border-color:#1f6b4f}
@@ -237,7 +237,7 @@
     <div>
       <h1>Contrôle d'entrée</h1>
       <p>Un billet QR unique par personne · valable une seule fois</p>
-      <span class="comm-tag" id="commTag" style="display:none"><span id="commTagName"></span><button onclick="goHome()">Changer de commission</button><button onclick="openAccount()">Mon compte</button><button onclick="commLogout()">Se déconnecter</button></span>
+      <span class="comm-tag" id="commTag" style="display:none"><span id="commTagName"></span><button id="btnChangeComm" onclick="goHome()">Changer de commission</button><button id="btnMyAccount" onclick="openAccount()">Mon compte</button><button onclick="commLogout()">Se déconnecter</button></span>
     </div>
   </div>
 
@@ -334,6 +334,7 @@
       <div class="row" style="margin-top:12px">
         <button class="btn ghost sm" onclick="refreshAll()">Rafraîchir</button>
         <button class="btn ghost sm" onclick="exportCSV()">Liste en CSV</button>
+        <button class="btn ghost sm" onclick="exportXLSX()">Liste en Excel</button>
       </div>
       <div id="suiviAdminActions">
         <div class="row" style="margin-top:9px">
@@ -715,6 +716,28 @@
       setStat("used","Déjà scanné", guest.name, when ? ("Entré à "+when) : "Ce billet a déjà servi");
       flashSignal(false); beep(false); updateCounts(); return;
     }
+    // Sécurité renforcée : re-vérifie ce billet EN DIRECT dans le cloud (anti double-entrée entre téléphones)
+    var cidLive = currentCommId();
+    if(cidLive && navigator.onLine){
+      try{
+        var aLive = loadAuth(cidLive);
+        if(aLive && aLive.idToken){
+          var liveDoc = await fsGetDoc(ticketDocPath(cidLive), aLive.idToken);
+          if(liveDoc){
+            var lf = liveDoc.fields||{};
+            var liveUsed = {};
+            try{ liveUsed = JSON.parse((lf.used&&lf.used.stringValue)||"{}"); }catch(e){}
+            if(liveUsed[token]){
+              usedSet.add(token); usedAt[token]=liveUsed[token];
+              await Store.set("used:"+token, JSON.stringify({at:liveUsed[token]}));
+              var wLive=""; try{ wLive=fmtTime(liveUsed[token]); }catch(e){}
+              setStat("used","Déjà scanné", guest.name, wLive?("Entré à "+wLive+" · autre poste"):"Déjà entré sur un autre téléphone");
+              flashSignal(false); beep(false); updateCounts(); renderList(); return;
+            }
+          }
+        }
+      }catch(e){ /* hors ligne ou erreur : on garde la vérif locale, pas de blocage */ }
+    }
     var at = Date.now();
     await Store.set("used:"+token, JSON.stringify({at:at, name:guest.name}));
     usedSet.add(token); usedAt[token]=at;
@@ -898,6 +921,31 @@
     roster.forEach(function(g){ rows.push([g.name, g.token, usedSet.has(g.token)?"Entré":"En attente", g.extra||""]); });
     var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(","); }).join("\n");
     downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), sanitize(eventName||"evenement")+"_entrees.csv");
+  };
+
+  window.exportXLSX = async function(){
+    if(!roster.length){ flash("Rien à exporter."); return; }
+    flash("Préparation du fichier Excel…");
+    var XLSX;
+    try{ XLSX = await import("https://esm.sh/xlsx@0.18.5"); }
+    catch(e){ flash("Module Excel indisponible (vérifie la connexion)."); return; }
+    var entres = 0;
+    var aoa = [["Nom","Code","Statut","Heure d'entrée","Info"]];
+    roster.forEach(function(g){
+      var isIn = usedSet.has(g.token);
+      if(isIn) entres++;
+      var heure = "";
+      if(isIn && usedAt[g.token]){ try{ heure = new Date(usedAt[g.token]).toLocaleString("fr-BE"); }catch(e){ heure=""; } }
+      aoa.push([g.name, g.token, isIn?"Entré":"En attente", heure, g.extra||""]);
+    });
+    aoa.push([]);
+    aoa.push(["Total invités", roster.length, "Entrés", entres, "Restants : "+(roster.length-entres)]);
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [{wch:26},{wch:12},{wch:12},{wch:22},{wch:24}];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Entrées");
+    XLSX.writeFile(wb, sanitize(eventName||"evenement")+"_entrees.xlsx");
+    flash("Fichier Excel téléchargé.");
   };
 
   window.exportData = function(){
@@ -1639,7 +1687,7 @@
         var f = data.fields||{};
         var adminUid = f.adminUid && f.adminUid.stringValue;
         var scannerUid = f.scannerUid && f.scannerUid.stringValue;
-        if(scannerUid && a.uid===scannerUid && a.uid!==adminUid){ CURRENT_ROLE = "scanner"; }
+        if(adminUid && a.uid!==adminUid){ CURRENT_ROLE = "scanner"; }
       }
     }catch(e){}
     applyRoleUI();
@@ -1647,10 +1695,14 @@
   function applyRoleUI(){
     var isScanner = CURRENT_ROLE==="scanner";
     if($("t-guests")) $("t-guests").style.display = isScanner ? "none" : "flex";
+    if($("t-list")) $("t-list").style.display = isScanner ? "none" : "flex";
+    if($("gearBtn")) $("gearBtn").style.display = isScanner ? "none" : "flex";
+    if($("btnChangeComm")) $("btnChangeComm").style.display = isScanner ? "none" : "";
+    if($("btnMyAccount")) $("btnMyAccount").style.display = isScanner ? "none" : "";
     if($("suiviAdminActions")) $("suiviAdminActions").style.display = isScanner ? "none" : "block";
     if($("scannerBtn")) $("scannerBtn").style.display = isScanner ? "none" : "inline-flex";
     if($("newEvtBtn")) $("newEvtBtn").style.display = (isScanner || !roster.length) ? "none" : "inline-flex";
-    if(isScanner && currentTab==="guests"){ showTab("scan"); }
+    if(isScanner && (currentTab==="guests"||currentTab==="list")){ showTab("scan"); }
   }
 
   async function proceedCommission(id){
