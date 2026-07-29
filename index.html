@@ -1592,25 +1592,22 @@
     $("authErr").style.display="none";
     try{
       var hadNone = !loadAuth(id);
-      var d, justCreated=false;
+      var d;
       try{
-        d = await fbCall("signUp", {email:email, password:pwd, returnSecureToken:true});
-        justCreated = true;
+        d = await fbCall("signInWithPassword", {email:email, password:pwd, returnSecureToken:true});
       }catch(e1){
-        if((e1.message||"").indexOf("EMAIL_EXISTS")>=0){
-          d = await fbCall("signInWithPassword", {email:email, password:pwd, returnSecureToken:true});
-        } else { throw e1; }
+        var m1 = e1.message||"";
+        if(m1.indexOf("EMAIL_NOT_FOUND")>=0){ showAuthErr("Aucun compte pour cette adresse. Demandez un accès au responsable."); return; }
+        if(m1.indexOf("INVALID_PASSWORD")>=0 || m1.indexOf("INVALID_LOGIN_CREDENTIALS")>=0){ showAuthErr("Adresse ou mot de passe incorrect."); return; }
+        if(m1.indexOf("TOO_MANY_ATTEMPTS")>=0){ showAuthErr("Trop de tentatives. Réessayez dans quelques minutes."); return; }
+        throw e1;
       }
       saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:email });
       saveEmailFor(id, email);
       $("authModal").classList.remove("on"); proceedCommission(id);
-      if(justCreated){ flash("Compte créé pour "+commName(id)+"."); }
-      else if(hadNone){ setTimeout(function(){ showWelcome(id); }, 350); }
+      if(hadNone){ setTimeout(function(){ showWelcome(id); }, 350); }
     }catch(e){
-      var msg=e.message||"";
-      if(msg.indexOf("INVALID_PASSWORD")>=0 || msg.indexOf("INVALID_LOGIN_CREDENTIALS")>=0){
-        showAuthErr("Mot de passe incorrect pour cette adresse.");
-      } else { showAuthErr(cleanFbErr(msg)); }
+      showAuthErr(cleanFbErr(e.message||""));
     }
   };
   async function commBtnClick(id){
