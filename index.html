@@ -1030,7 +1030,22 @@
     }catch(e){}
     return { s: s||EJS_DEFAULT.s, t: t||EJS_DEFAULT.t, k: k||EJS_DEFAULT.k };
   }
-  function mailConfigured(){ var c=mailCfg(); return !!(c.s&&c.t&&c.k); }
+  function mailConfigured(){ return true; } // envoi via Amazon SES (fonction Supabase) — aucune config requise
+  var SUPA_URL="https://mlgzdfyqjhvyubrywuim.supabase.co";
+  var SUPA_ANON="sb_publishable_xoVRiE99YOepw-sb5Tmtcg_SJ3VE_0s";
+  var SEND_FN=SUPA_URL+"/functions/v1/send-email";
+  function mailEsc(x){ return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function billetHtml(name, ev, link, code){
+    return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + '<h2 style="margin:0 0 12px">Ton billet pour '+mailEsc(ev)+'</h2>'
+      + '<p>Bonjour '+mailEsc(name)+',</p>'
+      + '<p>Voici ton billet personnel. Présente-le à l\'entrée :</p>'
+      + '<p style="text-align:center;margin:26px 0"><a href="'+link+'" style="background:#e0b64d;color:#181233;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block">Afficher mon billet</a></p>'
+      + '<p style="color:#666;font-size:13px">Si le bouton ne marche pas, copie ce lien :<br><a href="'+link+'">'+link+'</a></p>'
+      + '<p style="color:#666;font-size:13px">Code du billet : <b>'+mailEsc(code)+'</b></p>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+      + '<p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+  }
   window.saveMailConfig=function(){
     try{
       window.localStorage.setItem("qrentry:ejs_service", $("ejsService").value.trim());
@@ -1080,26 +1095,28 @@
     }
   }
   window.sendAllMails=async function(){
-    if(typeof emailjs==="undefined"){ flash("Service e-mail non chargé — vérifie ta connexion."); return; }
-    var cfg=mailCfg(); if(!mailConfigured()){ flash("Renseigne d'abord les réglages e-mail."); return; }
     var list=mailableGuests();
     if(!list.length){ flash("Aucun invité avec e-mail."); return; }
     if(!confirm("Envoyer "+list.length+" billet(s) par mail ?")) return;
-    try{ emailjs.init({publicKey:cfg.k}); }catch(e){ try{ emailjs.init(cfg.k); }catch(_){} }
+    var ev = eventName||"notre événement";
     var prog=$("mailProgress"); prog.style.display="block";
     var ok=0, fail=0;
     for(var i=0;i<list.length;i++){
       var g=list[i];
       prog.textContent="Envoi "+(i+1)+"/"+list.length+" — "+g.name+"…";
       try{
-        await emailjs.send(cfg.s, cfg.t, {
-          to_email: emailOf(g), to_name: g.name, email: emailOf(g), name: g.name,
-          event_name: eventName||"notre événement",
-          ticket_link: ticketLinkFor(g), ticket_code: g.token
+        var r = await fetch(SEND_FN, {
+          method:"POST",
+          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+          body: JSON.stringify({
+            to: emailOf(g),
+            subject: "Ton billet pour "+ev,
+            html: billetHtml(g.name, ev, ticketLinkFor(g), g.token)
+          })
         });
-        ok++;
+        if(r.ok){ ok++; } else { fail++; }
       }catch(e){ fail++; }
-      await new Promise(function(r){ setTimeout(r,700); });
+      await new Promise(function(r){ setTimeout(r,600); });
     }
     prog.textContent = "Terminé : "+ok+" envoyé(s)"+(fail?(", "+fail+" échec(s)"):"")+".";
     flash(fail? (ok+" envoyé(s), "+fail+" échec(s).") : "Tous les billets ont été envoyés.");
