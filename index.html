@@ -1291,12 +1291,11 @@
   function showStoreBanner(){
     var b=$("storeBanner");
     if(native){ b.className="banner"; return; }
-    b.setAttribute("data-persist","1"); b.className="banner warn";
     if(hasLS){
-      b.textContent="Les données sont enregistrées sur CET appareil (elles restent après un rafraîchissement). Pour scanner depuis un autre téléphone, prépare la liste puis « Exporter » ici et « Importer » sur l'autre appareil (onglet Suivi).";
-    } else {
-      b.textContent="Mode démo : les données ne seront pas conservées. Héberge le fichier (voir la marche à suivre) pour tout garder.";
+      b.className="banner"; b.removeAttribute("data-persist"); b.textContent=""; return;
     }
+    b.setAttribute("data-persist","1"); b.className="banner warn";
+    b.textContent="Mode démo : les données ne seront pas conservées. Héberge le fichier (voir la marche à suivre) pour tout garder.";
   }
 
   // poll léger pour synchro multi-appareils
@@ -1316,7 +1315,7 @@
     {id:"culture", name:"Culture"},
     {id:"social", name:"Service Social"},
     {id:"crimino", name:"Crimino"},
-    {id:"salle", name:"Salle Fac"}
+    {id:"salle", name:"Communication"}
   ];
   function commName(id){ for(var i=0;i<COMMISSIONS.length;i++){ if(COMMISSIONS[i].id===id) return COMMISSIONS[i].name; } return id; }
   function saveComm(id){ try{ if(id) window.localStorage.setItem("qrentry:comm",id); else window.localStorage.removeItem("qrentry:comm"); }catch(e){} }
