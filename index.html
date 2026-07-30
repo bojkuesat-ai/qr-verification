@@ -1678,13 +1678,21 @@
     CURRENT_ROLE = "admin";
     var a = loadAuth(id);
     if(!a || !a.uid){ applyRoleUI(); return; }
+    var myEmail = ((a.email||"").trim().toLowerCase());
+    // Détection immédiate, indépendante du réseau : le compte scanner connu est toujours en mode scanner.
+    if(myEmail && myEmail==="scan@qrentry.app"){ CURRENT_ROLE = "scanner"; }
     try{
       var data = await fsGetDoc(ticketDocPath(id), a.idToken);
       if(data){
         var f = data.fields||{};
         var adminUid = f.adminUid && f.adminUid.stringValue;
         var scannerUid = f.scannerUid && f.scannerUid.stringValue;
-        if(adminUid && a.uid!==adminUid){ CURRENT_ROLE = "scanner"; }
+        var scannerEmail = f.scannerEmail && f.scannerEmail.stringValue;
+        if(
+          (scannerUid && a.uid===scannerUid) ||
+          (scannerEmail && myEmail===scannerEmail.trim().toLowerCase()) ||
+          (adminUid && a.uid!==adminUid)
+        ){ CURRENT_ROLE = "scanner"; }
       }
     }catch(e){}
     applyRoleUI();
