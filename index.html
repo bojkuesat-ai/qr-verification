@@ -10,7 +10,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
   :root{
     --bg:#141026; --bg2:#1b1436; --surface:#241c46; --surface2:#2d2456;
@@ -172,6 +171,10 @@
   .lst-row{display:flex;align-items:center;gap:11px;padding:11px 13px;border-bottom:1px solid var(--line);font-size:14px}
   .lst-row:last-child{border-bottom:none}
   .lst-row .nm{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lst-row{flex-wrap:wrap}
+  .lst-row .cd{color:#9b93bd;font-size:12px}
+  .lst-acts{display:flex;gap:6px;margin-left:8px;flex-shrink:0}
+  .btn.xs{padding:7px 11px;font-size:12.5px;border-radius:9px;min-width:0}
   .lst-row .cd{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);letter-spacing:1px}
   .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
   .badge.in{background:var(--green-bg);color:var(--green)}
@@ -289,6 +292,7 @@
       <p class="sub">Chaque invité reçoit un lien personnel qui affiche son QR. Écris la liste sous la forme « Prénom Nom, email ».</p>
       <div id="mailReady" style="display:none">
         <button class="btn gold block" onclick="sendAllMails()">Envoyer les billets par mail</button>
+        <button class="btn ghost sm block" onclick="showNoEmail()" style="margin-top:8px">Voir qui n'a pas d'e-mail</button>
         <p class="hint" id="mailCount" style="margin-top:8px"></p>
         <p class="hint" id="mailProgress" style="display:none;color:var(--gold-soft);margin-top:8px"></p>
       </div>
@@ -329,12 +333,14 @@
   <!-- SUIVI -->
   <section id="tab-list">
     <div class="card" style="padding:14px">
-      <div class="counter" style="margin:0 0 4px"><b id="listEntered">0</b><span>entrés sur <b id="listTotal" style="font-size:15px">0</b></span></div>
+      <div class="counter" style="margin:0 0 4px"><b id="listEntered">0</b><span>entrés sur <b id="listTotal" style="font-size:15px">0</b><span id="listStats" style="font-size:13px;color:#9b93bd"></span></span></div>
       <input class="search" type="text" id="search" placeholder="Rechercher un nom ou un code…" autocomplete="off" oninput="renderList()">
       <div class="row" style="margin-top:12px">
         <button class="btn ghost sm" onclick="refreshAll()">Rafraîchir</button>
+        <button class="btn ghost sm" id="noShowBtn" onclick="toggleNoShow()">Non entrés</button>
         <button class="btn ghost sm" onclick="exportCSV()">Liste en CSV</button>
         <button class="btn ghost sm" onclick="exportXLSX()">Liste en Excel</button>
+        <button class="btn ghost sm" onclick="exportNoShow()">Non-entrés (CSV)</button>
       </div>
       <div id="suiviAdminActions">
         <div class="row" style="margin-top:9px">
@@ -474,30 +480,10 @@
 <div class="modal" id="settingsModal" onclick="if(event.target===this)closeSettings()">
   <div class="modal-box">
     <div class="modal-head">
-      <h2>Réglages e-mail</h2>
+      <h2>Réglages</h2>
       <button class="x-btn" onclick="closeSettings()" aria-label="Fermer">&times;</button>
     </div>
-    <p class="sub">Déjà configuré — l'envoi par mail fonctionne. À modifier seulement si tu changes de compte EmailJS.</p>
-    <p class="steps">1. Crée un compte gratuit sur emailjs.com.<br>2. Email Services → connecte ta boîte Gmail → note le <b>Service ID</b>.<br>3. Email Templates → crée un modèle (bouton ci-dessous) → note le <b>Template ID</b>.<br>4. Account → API Keys → copie ta <b>Public Key</b>.<br>5. Colle les 3 ci-dessous et enregistre.</p>
-    <div class="row" style="margin-bottom:12px">
-      <button class="btn ghost sm" onclick="window.open('https://www.emailjs.com','_blank')">Ouvrir emailjs.com</button>
-      <button class="btn ghost sm" onclick="showMailTemplate()">Voir le modèle à copier</button>
-    </div>
-    <label class="fld" for="ejsService">Service ID</label>
-    <input type="text" id="ejsService" placeholder="service_xxxxxxx" autocomplete="off">
-    <div style="height:9px"></div>
-    <label class="fld" for="ejsTemplate">Template ID</label>
-    <input type="text" id="ejsTemplate" placeholder="template_xxxxxxx" autocomplete="off">
-    <div style="height:9px"></div>
-    <label class="fld" for="ejsKey">Public Key</label>
-    <input type="text" id="ejsKey" placeholder="xxxxxxxxxxxxxxxx" autocomplete="off">
-    <div class="row" style="margin-top:13px">
-      <button class="btn gold sm" onclick="saveMailConfig()">Enregistrer</button>
-      <button class="btn ghost sm" onclick="closeSettings()">Fermer</button>
-    </div>
-
-    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <h2 style="margin-top:18px">Compte scanner (toutes les commissions)</h2>
+    <h2 style="margin-top:4px">Compte scanner (toutes les commissions)</h2>
     <p class="sub">Enregistre un seul compte scanner sur toutes les commissions où tu es déjà connecté sur cet appareil — pas besoin d'entrer dans chacune.</p>
     <label class="fld" for="gScannerEmail">Adresse mail du compte scanner</label>
     <input type="email" id="gScannerEmail" placeholder="scan@qrentry.app" autocomplete="off">
@@ -865,13 +851,23 @@
     $("scanEntered").textContent=entered; $("scanTotal").textContent=roster.length;
     $("listEntered").textContent=entered; $("listTotal").textContent=roster.length;
     $("tabCount").textContent=roster.length;
+    var __tot=roster.length, __pct=__tot?Math.round(entered/__tot*100):0;
+    if($("listStats")) $("listStats").textContent = __tot ? ("  ·  "+(__tot-entered)+" restant(s)  ·  "+__pct+"%") : "";
   }
 
+  var listOnlyWaiting = false;
+  window.toggleNoShow = function(){
+    listOnlyWaiting = !listOnlyWaiting;
+    var b=$("noShowBtn"); if(b){ b.classList.toggle("gold", listOnlyWaiting); b.classList.toggle("ghost", !listOnlyWaiting); b.textContent = listOnlyWaiting ? "Voir tous" : "Non entrés"; }
+    renderList();
+  };
   window.renderList = function(){
     var wrap=$("listWrap"); var q=normalize($("search")?$("search").value:"");
     var qn=($("search")?$("search").value:"").trim().toLowerCase();
     if(!roster.length){ wrap.innerHTML='<p class="empty">Aucun invité pour l\'instant. Crée des billets dans l\'onglet « Invités ».</p>'; return; }
+    var scanner = (CURRENT_ROLE==="scanner");
     var rows = roster.filter(function(g){
+      if(listOnlyWaiting && usedSet.has(g.token)) return false;
       if(!qn) return true;
       return g.name.toLowerCase().indexOf(qn)>=0 || g.token.indexOf(q)>=0;
     });
@@ -879,12 +875,65 @@
     var box=document.createElement("div"); box.className="lst";
     rows.forEach(function(g){
       var isIn=usedSet.has(g.token);
+      var when = isIn && usedAt[g.token] ? fmtTime(usedAt[g.token]) : "";
+      var mail = emailOf(g);
+      var acts = "";
+      if(isIn){ acts += '<button class="btn ghost xs" onclick="undoEntry(\''+g.token+'\')">Annuler</button>'; }
+      else { acts += '<button class="btn gold xs" onclick="enterManual(\''+g.token+'\')">Entrer</button>'; }
+      if(mail && !scanner){ acts += '<button class="btn ghost xs" onclick="resendTicket(\''+g.token+'\')">Renvoyer</button>'; }
       var r=document.createElement("div"); r.className="lst-row";
-      r.innerHTML='<span class="nm">'+escapeHtml(g.name)+'</span><span class="cd">'+g.token+'</span>'+
-        '<span class="badge '+(isIn?"in":"wait")+'">'+(isIn?"Entré":"En attente")+'</span>';
+      r.innerHTML='<span class="nm">'+escapeHtml(g.name)+'</span>'+
+        '<span class="cd">'+g.token+(when?' · '+when:'')+'</span>'+
+        '<span class="badge '+(isIn?"in":"wait")+'">'+(isIn?"Entré":"En attente")+'</span>'+
+        '<span class="lst-acts">'+acts+'</span>';
       box.appendChild(r);
     });
     wrap.innerHTML=""; wrap.appendChild(box);
+  };
+  window.enterManual = async function(token){
+    var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
+    if(!guest) return;
+    if(usedSet.has(token) || (await Store.get("used:"+token))){ usedSet.add(token); updateCounts(); renderList(); flash(guest.name+" est déjà entré."); return; }
+    var at=Date.now();
+    await Store.set("used:"+token, JSON.stringify({at:at, name:guest.name}));
+    usedSet.add(token); usedAt[token]=at;
+    updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
+    flash(guest.name+" : entrée enregistrée.");
+  };
+  window.undoEntry = async function(token){
+    var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
+    var nom = guest?guest.name:"cette personne";
+    if(!confirm("Annuler l'entrée de "+nom+" ? La personne repassera « en attente ».")) return;
+    await Store.del("used:"+token);
+    usedSet.delete(token); delete usedAt[token];
+    updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudRemoveUsed(currentCommId(), token);
+    flash("Entrée annulée pour "+nom+".");
+  };
+  window.resendTicket = async function(token){
+    var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
+    if(!guest) return;
+    var to=emailOf(guest);
+    if(!to){ flash("Pas d'e-mail pour "+guest.name+"."); return; }
+    flash("Envoi du billet à "+guest.name+"…");
+    try{
+      var r= await fetch(SEND_FN, { method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+        body: JSON.stringify({ to:to, subject:"Ton billet pour "+(eventName||"notre événement"), html: billetHtml(guest.name, eventName||"notre événement", ticketLinkFor(guest), guest.token) }) });
+      flash(r.ok ? ("Billet renvoyé à "+guest.name+".") : "Envoi impossible.");
+    }catch(e){ flash("Envoi impossible (hors ligne ?)."); }
+  };
+  window.exportNoShow = function(){
+    var ns = roster.filter(function(g){ return !usedSet.has(g.token); });
+    if(!ns.length){ flash("Tout le monde est entré 🎉"); return; }
+    var rows=[["Nom","Code","Extra"]];
+    ns.forEach(function(g){ rows.push([g.name, g.token, g.extra||""]); });
+    var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(","); }).join("\n");
+    downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), sanitize(eventName||"evenement")+"_non_entres.csv");
+  };
+  window.showNoEmail = function(){
+    var none = roster.filter(function(g){ return !emailOf(g); });
+    if(!none.length){ flash("Tous les invités ont un e-mail."); return; }
+    alert(none.length+" invité(s) sans e-mail :\n\n"+none.map(function(g){ return "• "+g.name; }).join("\n"));
   };
 
   window.resetEntries = async function(){
@@ -1076,7 +1125,6 @@
     var p = $("settingsPwdInput").value;
     if(p.trim()!==SETTINGS_PWD){ $("settingsPwdErr").textContent="Mot de passe incorrect."; $("settingsPwdErr").style.display="block"; return; }
     $("settingsPwdModal").classList.remove("on");
-    var c=mailCfg(); $("ejsService").value=c.s; $("ejsTemplate").value=c.t; $("ejsKey").value=c.k;
     if(!$("gScannerEmail").value){ $("gScannerEmail").value="scan@qrentry.app"; }
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
@@ -1483,6 +1531,18 @@
       }
       var mergedUsed = Object.assign({}, remoteUsed, localUsedMapObj());
       await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(mergedUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+    }catch(e){}
+  }
+  async function cloudRemoveUsed(cid, token){
+    if(!cid) return;
+    var ok = await ensureAuth(cid); if(!ok) return;
+    var a = loadAuth(cid); if(!a || !a.idToken) return;
+    try{
+      var remoteUsed = {};
+      var data = await fsGetDoc(ticketDocPath(cid), a.idToken);
+      if(data){ var f=data.fields||{}; try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e0){} }
+      delete remoteUsed[token];
+      await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(remoteUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
     }catch(e){}
   }
   var cloudPollTimer=null;
