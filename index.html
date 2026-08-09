@@ -185,6 +185,26 @@
   .netbadge.on{color:#7fdca0;border-color:#2f6a45}
   .netbadge.off{color:#ff9b9b;border-color:#7a2b2b}
   body.guest-mode .netbadge{display:none!important}
+  .prow{display:flex;gap:10px;flex-wrap:wrap}
+  .prow>div{flex:1;min-width:120px}
+  select{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:11px;padding:11px 12px;font:inherit;font-size:14px}
+  select:focus{border-color:var(--gold-dim);box-shadow:0 0 0 3px rgba(232,176,75,.13);outline:none}
+  .g-cat{margin-top:8px;font-weight:700;font-size:14px;color:var(--gold)}
+  .catbadge{display:inline-block;margin:12px auto 0;padding:9px 20px;border-radius:999px;font-weight:800;font-size:17px;letter-spacing:.5px}
+  .catbadge.cp{background:linear-gradient(150deg,var(--gold),var(--gold-dim));color:#241100}
+  .catbadge.cf{background:linear-gradient(150deg,#b58bff,#8a5cf0);color:#fff}
+  .catbadge.ca{background:linear-gradient(150deg,#5ec9b8,#2f9e8c);color:#04231f}
+  .catsub{margin-top:7px;font-weight:700;font-size:15px;color:var(--muted)}
+  .cattable{margin-top:10px;font-weight:900;font-size:22px;color:var(--text);letter-spacing:.5px}
+  .parrcount{font-size:12.5px;color:var(--muted);line-height:1.7}
+  .parrcount b{color:var(--text)}
+  .parrcount .pp{color:var(--gold);font-weight:800}
+  .parrcount .pf{color:#b58bff;font-weight:800}
+  .parrcount .pa{color:#5ec9b8;font-weight:800}
+  .mrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .mrow:last-child{border-bottom:none}
+  .mrow .mf{flex:1;min-width:150px;font-size:14px}
+  .mrow select{flex:1;min-width:190px;max-width:100%}
   .lst-row .cd{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);letter-spacing:1px}
   .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
   .badge.in{background:var(--green-bg);color:var(--green)}
@@ -269,6 +289,10 @@
       <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       Suivi <span class="pill" id="tabCount">0</span>
     </button>
+    <button class="tab" id="t-parrainage" role="tab" aria-selected="false" onclick="showTab('parrainage')" style="display:none">
+      <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 21s-7-4.5-9.5-9C1 9 2.5 5.5 6 5.5c2 0 3 1.2 3.5 2 .5-.8 1.5-2 3.5-2 3.5 0 5 3.5 3.5 6.5C19 16.5 12 21 12 21z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      Parrainage
+    </button>
   </div>
 
   <!-- INVITÉS -->
@@ -319,6 +343,7 @@
   <!-- SCANNER -->
   <section id="tab-scan">
     <div class="counter"><b id="scanEntered">0</b><span>entrés sur <b id="scanTotal" style="font-size:15px">0</b></span></div>
+    <div class="parrcount" id="scanParr" style="display:none"></div>
     <div class="stat idle" id="stat"><p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p></div>
 
     <div class="card" style="padding:13px">
@@ -344,6 +369,7 @@
   <section id="tab-list">
     <div class="card" style="padding:14px">
       <div class="counter" style="margin:0 0 4px"><b id="listEntered">0</b><span>entrés sur <b id="listTotal" style="font-size:15px">0</b><span id="listStats" style="font-size:13px;color:#9b93bd"></span></span></div>
+      <div class="parrcount" id="listParr" style="display:none;margin-top:4px"></div>
       <input class="search" type="text" id="search" placeholder="Rechercher un nom ou un code…" autocomplete="off" oninput="renderList()">
       <div class="row" style="margin-top:12px">
         <button class="btn ghost sm" onclick="refreshAll()">Rafraîchir</button>
@@ -365,6 +391,63 @@
       </div>
     </div>
     <div id="listWrap"></div>
+  </section>
+
+  <!-- PARRAINAGE -->
+  <section id="tab-parrainage">
+    <div class="card gen-card">
+      <div class="gen-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>Parrainage — créer les billets</h2><button class="btn ghost sm" id="scannerBtnP" onclick="openScannerModal()" style="display:none">Compte scanner</button></div>
+      <p class="sub">Crée les QR par groupe : choisis le rôle, l'année et la section, colle la liste (Nom + e-mail), puis « Ajouter ce groupe ». Répète pour chaque groupe.</p>
+      <label class="fld" for="pEvName">Nom de l'événement</label>
+      <input type="text" id="pEvName" placeholder="Parrainage Droit &amp; Crimino 2026" autocomplete="off">
+      <div style="height:12px"></div>
+      <div class="prow">
+        <div><label class="fld" for="pRole">Rôle</label>
+          <select id="pRole" onchange="parrainRoleChange()">
+            <option value="parrain">Parrain / Marraine</option>
+            <option value="filleul">Filleul·e</option>
+            <option value="alumni">Alumni / Ancien·ne</option>
+          </select></div>
+        <div><label class="fld" for="pAnnee">Année</label><select id="pAnnee"></select></div>
+        <div><label class="fld" for="pSection">Section</label>
+          <select id="pSection"><option>Droit</option><option>Criminologie</option></select></div>
+      </div>
+      <label style="display:flex;align-items:center;gap:9px;margin-top:12px;font-size:13.5px;cursor:pointer"><input type="checkbox" id="pExPass"> Ancien·ne passerelle (parraine uniquement des Passerelle)</label>
+      <div style="height:10px"></div>
+      <label class="fld" for="pNames">Liste — une ligne par personne (Nom Prénom + e-mail). Collage Excel/Sheets accepté.</label>
+      <textarea id="pNames" placeholder="Belkacem Amina, amina.belkacem@mail.be&#10;Dupont Thomas, thomas.dupont@mail.be"></textarea>
+      <div style="height:12px"></div>
+      <button class="btn gold block" onclick="addParrainageGroup()">Ajouter ce groupe</button>
+    </div>
+
+    <div class="card" id="pSummaryCard" style="display:none">
+      <h2>Récapitulatif parrainage</h2>
+      <div id="pSummary" style="font-size:14px;line-height:1.7"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn gold sm" onclick="sendAllMails()">Envoyer les billets par mail</button>
+        <button class="btn ghost sm" onclick="exportPDF()">Télécharger tout (PDF)</button>
+      </div>
+      <p class="hint" style="margin-top:8px">L'envoi par mail se fait comme pour les autres événements. Les entrées se scannent dans l'onglet Scanner, et le suivi est dans Suivi.</p>
+    </div>
+
+    <div class="card" id="pMatchCard" style="display:none">
+      <h2>Matching parrain ↔ filleul·e</h2>
+      <p class="sub">Associe chaque filleul·e à un parrain éligible (même section, selon les règles). « Proposer » remplit automatiquement en équilibrant — 4 filleul·e·s maximum par parrain. Tu peux tout ajuster à la main.</p>
+      <div class="row">
+        <button class="btn gold sm" onclick="autoMatch()">Proposer les binômes</button>
+        <button class="btn ghost sm" onclick="clearMatches()">Réinitialiser</button>
+        <button class="btn ghost sm" onclick="exportMatches()">Binômes (CSV)</button>
+        <button class="btn ghost sm" onclick="mailMatches()">Envoyer par mail</button>
+      </div>
+      <div id="matchWarn" class="hint" style="margin-top:9px"></div>
+      <div id="matchWrap" style="margin-top:6px"></div>
+      <div style="border-top:1px solid var(--line);margin:14px 0 0;padding-top:12px">
+        <div class="row"><button class="btn gold sm" onclick="assignTables()">Attribuer les tables</button></div>
+        <p class="hint" style="margin-top:6px">1 famille (parrain + ses filleul·e·s) par table, dans l'ordre. Droit et Crimino sur des tables séparées, 20 tables max. Tu peux modifier un numéro à la main (ex. « 1-2 » pour coller deux tables).</p>
+        <div id="tablesWrap" style="margin-top:6px"></div>
+      </div>
+    </div>
+
   </section>
 
   <p class="foot-note">Les données (liste et entrées) sont enregistrées sur cet appareil. Pour l'entrée, utilise le lien envoyé au téléphone. N'y mets que des prénoms, pas d'infos sensibles.</p>
@@ -503,6 +586,11 @@
     <input type="password" id="gScannerPwd" placeholder="••••••••" autocomplete="off">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="createScannerAllCommissions()">Activer sur toutes les commissions</button></div>
     <div id="gScannerResult" style="margin-top:11px;font-size:13px;color:var(--muted);line-height:1.7"></div>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Événement Parrainage</h2>
+    <p class="sub">Affiche ou masque le bouton « Parrainage » sur l'accueil. Décoche quand l'événement est terminé pour le faire disparaître (les données restent conservées).</p>
+    <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="parrainToggle" onchange="toggleParrainage()"> Afficher « Parrainage » sur l'accueil</label>
   </div>
 </div>
 
@@ -513,6 +601,7 @@
       <div class="g-qr" id="gQr"></div>
       <div class="g-name" id="gName"></div>
       <div class="g-code" id="gCode"></div>
+      <div class="g-cat" id="gCat" style="display:none"></div>
     </div>
   </div>
   <p class="g-note">Présente ce QR à l'entrée. Garde l'écran allumé et la luminosité au maximum.</p>
@@ -583,6 +672,7 @@
     if(eventName) $("evName").value = eventName;
     await refreshUsed();
     renderTickets(); renderList(); updateCounts();
+    applyRoleUI();
     syncCode = syncLoadCode(); updateSyncUI();
     if(syncCode){ syncStartLoop(); syncPull(); }
   }
@@ -620,6 +710,270 @@
     cloudPushRoster(currentCommId());
     flash(lines.length + " billet(s) ajouté(s) · " + roster.length + " au total");
   };
+
+  /* ---------- Parrainage (étape 1 : création) ---------- */
+  var PARRAIN_ANNEES = ["BA2","BA3","MA2"];
+  var FILLEUL_ANNEES = ["Passerelle","BA1","MA1"];
+  var ALUMNI_ANNEES  = ["Alumni"];
+  function parrainageHidden(){ try{ return window.localStorage.getItem("qrentry:parrainHidden")==="1"; }catch(e){ return false; } }
+  window.toggleParrainage = function(){
+    var show = $("parrainToggle") && $("parrainToggle").checked;
+    try{ window.localStorage.setItem("qrentry:parrainHidden", show?"0":"1"); }catch(e){}
+    if(typeof renderHome==="function") renderHome();
+    flash(show ? "Parrainage affiché sur l'accueil." : "Parrainage masqué de l'accueil.");
+  };
+  window.parrainRoleChange = function(){
+    var role = $("pRole") ? $("pRole").value : "parrain";
+    var years = (role==="parrain") ? PARRAIN_ANNEES : (role==="filleul") ? FILLEUL_ANNEES : ALUMNI_ANNEES;
+    var sel = $("pAnnee"); if(!sel) return;
+    sel.innerHTML = years.map(function(y){ return "<option>"+y+"</option>"; }).join("");
+  };
+  function parseNameEmail(line){
+    var EMAIL_RE = /[^\s,;\t]+@[^\s,;\t]+\.[^\s,;\t]+/;
+    var fields = line.split(/[\t;,]+/).map(function(x){return x.trim();}).filter(Boolean);
+    var mail = ""; for(var i=0;i<fields.length;i++){ if(EMAIL_RE.test(fields[i])){ mail=fields[i]; break; } }
+    var nameParts = fields.filter(function(f){ return f!==mail; });
+    var nm = (nameParts.join(" ").trim()) || (fields[0]||"").trim();
+    return { name:nm, email:mail };
+  }
+  window.addParrainageGroup = async function(){
+    var evn = $("pEvName").value.trim(); if(evn) eventName = evn;
+    var role = $("pRole").value, annee = $("pAnnee").value, section = $("pSection").value;
+    var exPass = !!($("pExPass") && $("pExPass").checked);
+    var lines = $("pNames").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
+    if(!lines.length){ flash("Colle au moins un nom."); return; }
+    var existing = new Set(roster.map(function(g){return g.token;}));
+    var added = 0;
+    lines.forEach(function(line){
+      var pe = parseNameEmail(line); if(!pe.name && !pe.email) return;
+      var tok = genToken(existing); existing.add(tok);
+      var g = { token:tok, name:pe.name, extra:pe.email, role:role, annee:annee, section:section };
+      if(exPass) g.exPasserelle = true;
+      roster.push(g);
+      added++;
+    });
+    localRosterVersion = Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("eventName", JSON.stringify(eventName));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    $("pNames").value = "";
+    if($("pExPass")) $("pExPass").checked = false;
+    renderTickets(); renderList(); updateCounts(); renderParrainageSummary(); renderMatching();
+    if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
+    flash(added + " billet(s) ajouté(s) · " + (role==="parrain"?"Parrain/Marraine":"Filleul") + " " + annee + " " + section);
+  };
+  function renderParrainageSummary(){
+    var card = $("pSummaryCard"); if(!card) return;
+    var pg = roster.filter(function(g){ return g.role; });
+    if(!pg.length){ card.style.display="none"; return; }
+    card.style.display = "block";
+    function cnt(role,sec){ return pg.filter(function(g){ return g.role===role && g.section===sec; }).length; }
+    function byYear(role,sec){
+      var years = (role==="parrain") ? PARRAIN_ANNEES : (role==="filleul") ? FILLEUL_ANNEES : ALUMNI_ANNEES;
+      var out = years.map(function(y){ var n = pg.filter(function(g){ return g.role===role && g.section===sec && g.annee===y; }).length; return n ? (y+": "+n) : null; }).filter(Boolean).join(", ");
+      return out || "—";
+    }
+    var html = "";
+    ["Droit","Criminologie"].forEach(function(sec){
+      html += '<div style="margin-bottom:10px"><b style="color:var(--gold)">'+sec+'</b><br>'
+        + 'Parrains / Marraines : <b>'+cnt("parrain",sec)+'</b> <span style="color:var(--muted)">('+byYear("parrain",sec)+')</span><br>'
+        + 'Filleul·e·s : <b>'+cnt("filleul",sec)+'</b> <span style="color:var(--muted)">('+byYear("filleul",sec)+')</span><br>'
+        + 'Alumni / Ancien·ne·s : <b>'+cnt("alumni",sec)+'</b></div>';
+    });
+    html += '<div style="border-top:1px solid var(--line);padding-top:8px;margin-top:2px">Total billets parrainage : <b>'+pg.length+'</b></div>';
+    $("pSummary").innerHTML = html;
+  }
+
+  /* ---------- Parrainage — étape 3 : matching ---------- */
+  var MATCH_MAX = 4;
+  function candidatsParrains(){ return roster.filter(function(g){ return g.role==="parrain" || g.role==="alumni"; }); }
+  function eligibleMatch(C, F){
+    if(!C || !F) return false;
+    if(C.section !== F.section) return false;                 // jamais Droit/Crimino croisés
+    if(!(C.role==="parrain"||C.role==="alumni")) return false;
+    if(F.role!=="filleul") return false;
+    if(C.exPasserelle){ return F.annee==="Passerelle"; }       // ex-passerelle : uniquement Passerelle
+    if(F.annee==="Passerelle"){ return C.role==="alumni" || C.annee==="MA2"; }
+    if(F.annee==="BA1"){ return C.role==="alumni" || C.annee==="BA2" || C.annee==="BA3"; }
+    if(F.annee==="MA1"){ return C.role==="alumni" || C.annee==="MA2"; }
+    return false;
+  }
+  function eligibleParrains(F){ return candidatsParrains().filter(function(C){ return eligibleMatch(C,F); }); }
+  function loadOf(token){ return roster.filter(function(g){ return g.role==="filleul" && g.parrain===token; }).length; }
+  function tokenGuest(tok){ for(var i=0;i<roster.length;i++){ if(roster[i].token===tok) return roster[i]; } return null; }
+  async function saveRosterMatches(){
+    localRosterVersion = Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
+  }
+  window.setMatch = async function(filleulTok, parrainTok){
+    var F = tokenGuest(filleulTok); if(!F) return;
+    if(parrainTok){
+      if(loadOf(parrainTok) >= MATCH_MAX && F.parrain!==parrainTok){ flash("Ce parrain a déjà "+MATCH_MAX+" filleul·e·s."); renderMatching(); return; }
+      F.parrain = parrainTok;
+      var Pp = tokenGuest(parrainTok); if(Pp && Pp.table){ F.table = Pp.table; } else { delete F.table; }
+    } else { delete F.parrain; delete F.table; }
+    await saveRosterMatches(); renderMatching();
+  };
+  window.autoMatch = async function(){
+    var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
+    var ordre = {Droit:0, Criminologie:1};
+    filleuls.sort(function(a,b){ return (ordre[a.section]||0)-(ordre[b.section]||0) || String(a.annee).localeCompare(String(b.annee)) || a.name.localeCompare(b.name); });
+    var n=0;
+    filleuls.forEach(function(F){
+      if(F.parrain) return;                                    // conserver les choix déjà faits
+      var cands = eligibleParrains(F).filter(function(c){ return loadOf(c.token) < MATCH_MAX; });
+      if(!cands.length) return;                                // laissé non attribué
+      cands.sort(function(a,b){ return loadOf(a.token)-loadOf(b.token) || a.name.localeCompare(b.name); }); // équilibrage : le moins chargé d'abord
+      F.parrain = cands[0].token; n++;
+    });
+    await saveRosterMatches(); renderMatching();
+    flash(n+" binôme(s) proposé(s).");
+  };
+  window.clearMatches = async function(){
+    if(!confirm("Effacer tous les binômes ?")) return;
+    roster.forEach(function(g){ if(g.role==="filleul") delete g.parrain; });
+    await saveRosterMatches(); renderMatching();
+    flash("Binômes réinitialisés.");
+  };
+  function renderMatching(){
+    var card=$("pMatchCard"); if(!card) return;
+    var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
+    var parrains = candidatsParrains();
+    if(!filleuls.length || !parrains.length){ card.style.display="none"; return; }
+    card.style.display="block";
+    var html=""; var sansEligible=0, nonAttrib=0;
+    ["Droit","Criminologie"].forEach(function(sec){
+      var fs = filleuls.filter(function(f){ return f.section===sec; });
+      if(!fs.length) return;
+      html += '<div style="margin:12px 0 6px"><b style="color:var(--gold)">'+sec+'</b></div>';
+      fs.forEach(function(F){
+        var elig = eligibleParrains(F);
+        if(!elig.length) sansEligible++;
+        if(!F.parrain) nonAttrib++;
+        elig.sort(function(a,b){ return loadOf(a.token)-loadOf(b.token) || a.name.localeCompare(b.name); });
+        var opts = '<option value="">— non attribué —</option>';
+        elig.forEach(function(C){
+          var load=loadOf(C.token);
+          var sel = (F.parrain===C.token) ? " selected" : "";
+          var full = (load>=MATCH_MAX && F.parrain!==C.token) ? " disabled" : "";
+          opts += '<option value="'+C.token+'"'+sel+full+'>'+escapeHtml(C.name)+' ('+escapeHtml(C.annee)+(C.role==="alumni"?" · alumni":"")+(C.exPasserelle?" · ex-pass.":"")+' · '+load+'/'+MATCH_MAX+')</option>';
+        });
+        var warn = (!elig.length) ? ' <span style="color:#ff9b9b">aucun parrain éligible</span>' : (!F.parrain ? ' <span style="color:var(--muted)">à attribuer</span>' : '');
+        html += '<div class="mrow"><div class="mf">'+escapeHtml(F.name)+' <span style="color:var(--muted)">('+escapeHtml(F.annee)+')</span>'+warn+'</div>'
+          + '<select onchange="setMatch(\''+F.token+'\', this.value)">'+opts+'</select></div>';
+      });
+    });
+    $("matchWrap").innerHTML = html;
+    var charge = parrains.map(function(P){ return loadOf(P.token); });
+    var used = parrains.filter(function(P){ return loadOf(P.token)>0; }).length;
+    var maxLoad = charge.length ? Math.max.apply(null,charge) : 0;
+    var w = filleuls.length+" filleul·e·s · "+parrains.length+" parrains (dont "+used+" utilisés) · charge max "+maxLoad+"/"+MATCH_MAX;
+    if(nonAttrib) w += ' · <b>'+nonAttrib+' non attribué·e·s</b>';
+    if(sansEligible) w += ' · <b style="color:#ff9b9b">'+sansEligible+' sans parrain éligible</b>';
+    $("matchWarn").innerHTML = w;
+    renderTables();
+  }
+  window.exportMatches = function(){
+    var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
+    if(!filleuls.length){ flash("Aucun filleul."); return; }
+    var rows=[["Section","Filleul","Annee filleul","Email filleul","Parrain","Annee parrain","Email parrain"]];
+    filleuls.forEach(function(F){
+      var P = F.parrain ? tokenGuest(F.parrain) : null;
+      rows.push([F.section, F.name, F.annee, emailOf(F)||"", P?P.name:"(non attribue)", P?P.annee:"", P?(emailOf(P)||""):""]);
+    });
+    var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(","); }).join("\n");
+    downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), sanitize(eventName||"parrainage")+"_binomes.csv");
+  };
+  async function sendMailQR(to, subject, html){
+    if(!to) return false;
+    try{
+      var r = await fetch(SEND_FN, { method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+        body: JSON.stringify({ to:to, subject:subject, html:html }) });
+      return r.ok;
+    }catch(e){ return false; }
+  }
+  window.mailMatches = async function(){
+    var filleuls = roster.filter(function(g){ return g.role==="filleul" && g.parrain; });
+    var parrains = candidatsParrains().filter(function(P){ return loadOf(P.token)>0; });
+    var total = filleuls.filter(function(f){return emailOf(f);}).length + parrains.filter(function(p){return emailOf(p);}).length;
+    if(!total){ flash("Aucune adresse e-mail à notifier."); return; }
+    if(!confirm("Envoyer les binômes par mail à "+total+" personne(s) ?")) return;
+    var ev = eventName||"le parrainage";
+    var ok=0;
+    for(var i=0;i<filleuls.length;i++){
+      var F=filleuls[i]; var to=emailOf(F); if(!to) continue;
+      var P=tokenGuest(F.parrain);
+      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+        +'<h2 style="margin:0 0 12px">Ton parrain / ta marraine — '+mailEsc(ev)+'</h2>'
+        +'<p>Bonjour '+mailEsc(F.name)+',</p>'
+        +'<p>Ton parrain / ta marraine est : <b>'+mailEsc(P?P.name:"")+'</b>'+(P&&emailOf(P)?(' (<a href="mailto:'+mailEsc(emailOf(P))+'">'+mailEsc(emailOf(P))+'</a>)'):'')+'.</p>'
+        +'<p>N\'hésite pas à prendre contact avec lui/elle. 🙂</p>'
+        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+      if(await sendMailQR(to, "Ton parrain/marraine — "+ev, html)) ok++;
+      await new Promise(function(r){ setTimeout(r,120); });
+    }
+    for(var j=0;j<parrains.length;j++){
+      var P2=parrains[j]; var to2=emailOf(P2); if(!to2) continue;
+      var mine = roster.filter(function(g){ return g.role==="filleul" && g.parrain===P2.token; });
+      var lis = mine.map(function(f){ return '<li>'+mailEsc(f.name)+(emailOf(f)?(' — <a href="mailto:'+mailEsc(emailOf(f))+'">'+mailEsc(emailOf(f))+'</a>'):'')+' <span style="color:#777">('+mailEsc(f.annee)+')</span></li>'; }).join("");
+      var html2='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+        +'<h2 style="margin:0 0 12px">Tes filleul·e·s — '+mailEsc(ev)+'</h2>'
+        +'<p>Bonjour '+mailEsc(P2.name)+',</p>'
+        +'<p>Voici la ou les personne(s) que tu parraines :</p><ul style="line-height:1.7">'+lis+'</ul>'
+        +'<p>Prends contact avec elle(s) pour faire connaissance. 🙂</p>'
+        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+      if(await sendMailQR(to2, "Tes filleul·e·s — "+ev, html2)) ok++;
+      await new Promise(function(r){ setTimeout(r,120); });
+    }
+    flash(ok+" mail(s) envoyé(s).");
+  };
+
+  /* ---------- Parrainage — tables ---------- */
+  var TABLE_MAX = 20;
+  window.assignTables = async function(){
+    roster.forEach(function(g){ if(g.role==="filleul"||g.role==="parrain"||g.role==="alumni") delete g.table; });
+    var num=0, overflow=0;
+    ["Droit","Criminologie"].forEach(function(sec){
+      var fams = candidatsParrains().filter(function(P){ return P.section===sec && loadOf(P.token)>0; });
+      fams.sort(function(a,b){ return a.name.localeCompare(b.name); });
+      fams.forEach(function(P){
+        num++;
+        if(num>TABLE_MAX){ overflow++; return; }
+        P.table=String(num);
+        roster.forEach(function(f){ if(f.role==="filleul" && f.parrain===P.token) f.table=String(num); });
+      });
+    });
+    await saveRosterMatches(); renderMatching();
+    flash(overflow ? ("Tables attribuées, mais "+overflow+" table(s) au-delà de 20 !") : ("Tables attribuées (1 à "+Math.min(num,TABLE_MAX)+")."));
+  };
+  window.setTable = async function(parrainTok, val){
+    var P=tokenGuest(parrainTok); if(!P) return;
+    val=String(val||"").trim();
+    if(val){ P.table=val; } else { delete P.table; }
+    roster.forEach(function(f){ if(f.role==="filleul" && f.parrain===parrainTok){ if(val) f.table=val; else delete f.table; } });
+    await saveRosterMatches(); renderMatching();
+  };
+  function renderTables(){
+    var wrap=$("tablesWrap"); if(!wrap) return;
+    var parrains=candidatsParrains();
+    var html="";
+    ["Droit","Criminologie"].forEach(function(sec){
+      var fams=parrains.filter(function(P){ return P.section===sec && loadOf(P.token)>0; });
+      if(!fams.length) return;
+      fams.sort(function(a,b){ return (String(a.table||"")).localeCompare(String(b.table||""), undefined, {numeric:true}) || a.name.localeCompare(b.name); });
+      html+='<div style="margin:10px 0 4px"><b style="color:var(--gold)">'+sec+'</b></div>';
+      fams.forEach(function(P){
+        html+='<div class="mrow"><div class="mf">'+escapeHtml(P.name)+' <span style="color:var(--muted)">('+escapeHtml(P.annee)+(P.role==="alumni"?"/alumni":"")+' · '+loadOf(P.token)+' filleul·e·s)</span></div>'
+          +'<input type="text" value="'+escapeHtml(P.table||"")+'" placeholder="Table" style="max-width:120px" onchange="setTable(\''+P.token+'\', this.value)"></div>';
+      });
+    });
+    wrap.innerHTML = html || '<p class="hint">Fais d\'abord le matching, puis clique « Attribuer les tables ».</p>';
+  }
+
+
 
   function renderTickets(){
     var wrap = $("ticketWrap");
@@ -715,7 +1069,7 @@
     if(existing || usedSet.has(token)){
       var when=""; try{ when = existing ? fmtTime(JSON.parse(existing).at) : (usedAt[token]?fmtTime(usedAt[token]):""); }catch(e){}
       usedSet.add(token);
-      setStat("used","Déjà scanné", guest.name, when ? ("Entré à "+when) : "Ce billet a déjà servi");
+      setStat("used","Déjà scanné", guest.name, when ? ("Entré à "+when) : "Ce billet a déjà servi", guest);
       flashSignal(false); beep(false); updateCounts(); return;
     }
     // Sécurité renforcée : re-vérifie ce billet EN DIRECT dans le cloud (anti double-entrée entre téléphones)
@@ -733,7 +1087,7 @@
               usedSet.add(token); usedAt[token]=liveUsed[token];
               await Store.set("used:"+token, JSON.stringify({at:liveUsed[token]}));
               var wLive=""; try{ wLive=fmtTime(liveUsed[token]); }catch(e){}
-              setStat("used","Déjà scanné", guest.name, wLive?("Entré à "+wLive+" · autre poste"):"Déjà entré sur un autre téléphone");
+              setStat("used","Déjà scanné", guest.name, wLive?("Entré à "+wLive+" · autre poste"):"Déjà entré sur un autre téléphone", guest);
               flashSignal(false); beep(false); updateCounts(); renderList(); return;
             }
           }
@@ -743,7 +1097,7 @@
     var at = Date.now();
     await Store.set("used:"+token, JSON.stringify({at:at, name:guest.name}));
     usedSet.add(token); usedAt[token]=at;
-    setStat("valid","Valide", guest.name, "Entrée enregistrée · "+fmtTime(at));
+    setStat("valid","Valide", guest.name, "Entrée enregistrée · "+fmtTime(at), guest);
     flashSignal(true); beep(true); updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
   }
 
@@ -767,9 +1121,18 @@
   }
 
   var clearT=null;
-  function setStat(kind, word, who, note){
+  function setStat(kind, word, who, note, guest){
     var s=$("stat"); s.className="stat "+kind;
-    s.innerHTML='<p class="word">'+escapeHtml(word)+'</p>'+(who?'<p class="who">'+escapeHtml(who)+'</p>':'')+(note?'<p class="note">'+escapeHtml(note)+'</p>':'');
+    var cat="";
+    if(guest && guest.role){
+      var LB={parrain:"PARRAIN / MARRAINE",filleul:"FILLEUL·E",alumni:"ALUMNI / ANCIEN·NE"};
+      var CC={parrain:"cp",filleul:"cf",alumni:"ca"};
+      var label = LB[guest.role] || guest.role;
+      var sub = (guest.role==="alumni") ? (guest.section||"") : [guest.annee, guest.section].filter(Boolean).join(" · ");
+      var tbl = guest.table ? '<div class="cattable">Table '+escapeHtml(guest.table)+'</div>' : '';
+      cat = '<div class="catbadge '+(CC[guest.role]||"cp")+'">'+escapeHtml(label)+'</div>'+(sub?'<div class="catsub">'+escapeHtml(sub)+'</div>':'')+tbl;
+    }
+    s.innerHTML='<p class="word">'+escapeHtml(word)+'</p>'+(who?'<p class="who">'+escapeHtml(who)+'</p>':'')+cat+(note?'<p class="note">'+escapeHtml(note)+'</p>':'');
     if(clearT) clearTimeout(clearT);
     clearT=setTimeout(function(){ s.className="stat idle"; s.innerHTML='<p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p>'; }, 4500);
   }
@@ -869,6 +1232,18 @@
     $("tabCount").textContent=roster.length;
     var __tot=roster.length, __pct=__tot?Math.round(entered/__tot*100):0;
     if($("listStats")) $("listStats").textContent = __tot ? ("  ·  "+(__tot-entered)+" restant(s)  ·  "+__pct+"%") : "";
+
+    var pg = roster.filter(function(g){ return g.role; });
+    if(pg.length){
+      function ec(role,sec){ var arr=pg.filter(function(g){return g.role===role&&g.section===sec;}); var e=arr.filter(function(g){return usedSet.has(g.token);}).length; return e+"/"+arr.length; }
+      var txt="";
+      ["Droit","Criminologie"].forEach(function(sec){
+        txt += '<div>'+sec+' — <span class="pp">Parrains</span> <b>'+ec("parrain",sec)+'</b> · <span class="pf">Filleuls</span> <b>'+ec("filleul",sec)+'</b> · <span class="pa">Alumni</span> <b>'+ec("alumni",sec)+'</b></div>';
+      });
+      ["scanParr","listParr"].forEach(function(id){ var el=$(id); if(el){ el.style.display="block"; el.innerHTML=txt; } });
+    } else {
+      ["scanParr","listParr"].forEach(function(id){ var el=$(id); if(el){ el.style.display="none"; } });
+    }
   }
 
   var listOnlyWaiting = false;
@@ -1144,6 +1519,7 @@
     if(!$("gScannerEmail").value){ $("gScannerEmail").value="scan@qrentry.app"; }
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
+    if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
     $("settingsModal").classList.add("on");
   };
   window.closeSettings=function(){ $("settingsModal").classList.remove("on"); };
@@ -1189,6 +1565,8 @@
   function ticketLinkFor(g){
     var base=(location.origin&&location.origin!=="null")?(location.origin+location.pathname):location.href.split("#")[0];
     var payload={t:g.token,n:g.name,e:eventName||""};
+    if(g.role){ payload.r=g.role; payload.y=g.annee||""; payload.sc=g.section||""; }
+    if(g.table) payload.tb=g.table;
     return base+"#t="+encodeURIComponent(b64encode(JSON.stringify(payload)));
   }
   function showGuestTicket(data){
@@ -1196,6 +1574,14 @@
     $("gEvent").textContent = data.e || "Billet";
     $("gName").textContent = data.n || "";
     $("gCode").textContent = data.t || "";
+    if($("gCat")){
+      if(data.r){
+        var LBL={parrain:"Parrain / Marraine",filleul:"Filleul·e",alumni:"Alumni / Ancien·ne"};
+        var ex = (data.r==="alumni") ? (data.sc?(" · "+data.sc):"") : ((data.y?" · "+data.y:"")+(data.sc?" · "+data.sc:""));
+        $("gCat").style.display="block"; $("gCat").textContent = (LBL[data.r]||data.r) + ex + (data.tb?(" · Table "+data.tb):"");
+      }
+      else { $("gCat").style.display="none"; }
+    }
     try{
       var cv=document.createElement("canvas");
       new QRious({element:cv,value:data.t,size:600,level:"M",background:"#ffffff",foreground:"#181233"});
@@ -1351,12 +1737,13 @@
   /* ---------- UI ---------- */
   window.showTab = function(name){
     currentTab=name;
-    ["guests","scan","list"].forEach(function(n){
+    ["guests","scan","list","parrainage"].forEach(function(n){
       $("tab-"+n).classList.toggle("on", n===name);
       $("t-"+n).setAttribute("aria-selected", n===name?"true":"false");
     });
     if(name!=="scan"){ stopCam(); }
     if(name==="list"){ refreshAll(); }
+    if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); }
     if(name==="scan"){ setTimeout(function(){ var mc=$("manualCode"); }, 0); }
   };
 
@@ -1396,7 +1783,8 @@
     {id:"culture", name:"Culture"},
     {id:"social", name:"Service Social"},
     {id:"crimino", name:"Crimino"},
-    {id:"salle", name:"Communication"}
+    {id:"salle", name:"Communication"},
+    {id:"parrainage", name:"Parrainage"}
   ];
   function commName(id){ for(var i=0;i<COMMISSIONS.length;i++){ if(COMMISSIONS[i].id===id) return COMMISSIONS[i].name; } return id; }
   function saveComm(id){ try{ if(id) window.localStorage.setItem("qrentry:comm",id); else window.localStorage.removeItem("qrentry:comm"); }catch(e){} }
@@ -1410,6 +1798,7 @@
   function renderHome(){
     var g=$("commGrid"); if(!g) return; g.innerHTML="";
     COMMISSIONS.forEach(function(c){
+      if(c.id==="parrainage" && parrainageHidden()) return;
       var b=document.createElement("button"); b.className="comm-btn";
       var n=commCount(c.id);
       b.innerHTML='<span>'+c.name+'</span><span class="cnt">'+(n? (n+" billet"+(n>1?"s":"")) : "vide")+'</span>';
@@ -1421,6 +1810,7 @@
     stopCam();
     if(cloudPollTimer){ clearInterval(cloudPollTimer); cloudPollTimer=null; }
     if($("scannerBtn")) $("scannerBtn").style.display="none";
+    if($("scannerBtnP")) $("scannerBtnP").style.display="none";
     CURRENT_ROLE = "admin";
     saveComm(null);
     document.body.classList.add("home-mode");
@@ -1793,11 +2183,13 @@
     var isScanner = CURRENT_ROLE==="scanner";
     if($("t-guests")) $("t-guests").style.display = isScanner ? "none" : "flex";
     if($("t-list")) $("t-list").style.display = isScanner ? "none" : "flex";
+    if($("t-parrainage")) $("t-parrainage").style.display = (currentCommId()==="parrainage" && !isScanner) ? "flex" : "none";
     if($("gearBtn")) $("gearBtn").style.display = isScanner ? "none" : "flex";
     if($("btnChangeComm")) $("btnChangeComm").style.display = isScanner ? "none" : "";
     if($("btnMyAccount")) $("btnMyAccount").style.display = isScanner ? "none" : "";
     if($("suiviAdminActions")) $("suiviAdminActions").style.display = isScanner ? "none" : "block";
     if($("scannerBtn")) $("scannerBtn").style.display = isScanner ? "none" : "inline-flex";
+    if($("scannerBtnP")) $("scannerBtnP").style.display = (isScanner || currentCommId()!=="parrainage") ? "none" : "inline-flex";
     if($("newEvtBtn")) $("newEvtBtn").style.display = (isScanner || !roster.length) ? "none" : "inline-flex";
     if(isScanner && (currentTab==="guests"||currentTab==="list")){ showTab("scan"); }
   }
@@ -1812,7 +2204,7 @@
     if($("phoneLinkWrap")) $("phoneLinkWrap").style.display="none";
     $("names").value="";
     if($("scannerBtn")) $("scannerBtn").style.display="inline-flex";
-    showTab("guests");
+    showTab(id==="parrainage" ? "parrainage" : "guests");
     await loadAll();
     await determineRole(id);
     cloudPull(id);
