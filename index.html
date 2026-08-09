@@ -2092,11 +2092,49 @@
       showAuthErr(cleanFbErr(e.message||""));
     }
   };
+  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" } };
+  async function autoLoginFixed(id){
+    var acc = FIXED_ACCOUNTS[id]; if(!acc) return false;
+    try{
+      var d;
+      try{ d = await fbCall("signInWithPassword", {email:acc.email, password:acc.pwd, returnSecureToken:true}); }
+      catch(e1){
+        var m1=(e1.message||"");
+        if(m1.indexOf("EMAIL_NOT_FOUND")>=0 || m1.indexOf("INVALID_LOGIN_CREDENTIALS")>=0 || m1.indexOf("INVALID_PASSWORD")>=0){
+          try{ d = await fbCall("signUp", {email:acc.email, password:acc.pwd, returnSecureToken:true}); }
+          catch(e2){ if((e2.message||"").indexOf("EMAIL_EXISTS")>=0){ return false; } throw e2; }
+        } else { throw e1; }
+      }
+      saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:acc.email });
+      saveEmailFor(id, acc.email);
+      return true;
+    }catch(e){ return false; }
+  }
   async function commBtnClick(id){
     if(FIREBASE_API_KEY.indexOf("REPLACE_WITH")===0){ flash("Comptes pas encore configurés — proceedCommission direct."); proceedCommission(id); return; }
     var ok = await ensureAuth(id);
-    if(ok){ proceedCommission(id); } else { openAuthModal(id); }
+    if(ok){ proceedCommission(id); return; }
+    if(FIXED_ACCOUNTS[id]){
+      var auto = await autoLoginFixed(id);
+      if(auto){ proceedCommission(id); return; }
+    }
+    openAuthModal(id);
   }
+  window.__autoLoginFixed = autoLoginFixed;
+  async function ensureParrainageScanner(){
+    var cid="parrainage";
+    var a=loadAuth(cid); if(!a || !a.idToken || !a.uid) return;
+    try{
+      var data = await fsGetDoc(ticketDocPath(cid), a.idToken).catch(function(){ return null; });
+      var f = data && data.fields;
+      if(f && f.scannerEmail && f.scannerEmail.stringValue) return;      // déjà activé
+      var uid;
+      try{ var d=await fbCall("signInWithPassword",{email:"scan@qrentry.app",password:"123456",returnSecureToken:true}); uid=d.localId; }
+      catch(e1){ try{ var d2=await fbCall("signUp",{email:"scan@qrentry.app",password:"123456",returnSecureToken:true}); uid=d2.localId; }catch(e2){ return; } }
+      await fsPatchFields(ticketDocPath(cid), { adminUid: fsField(a.uid), scannerUid: fsField(uid), scannerEmail: fsField("scan@qrentry.app"), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+    }catch(e){}
+  }
+  window.__ensureParrainageScanner = ensureParrainageScanner;
   window.commLogout=function(){
     var cid=(NS.match(/^c:([a-z]+):$/)||[])[1];
     if(cid) clearAuthTok(cid);
@@ -2207,6 +2245,7 @@
     showTab(id==="parrainage" ? "parrainage" : "guests");
     await loadAll();
     await determineRole(id);
+    if(id==="parrainage" && CURRENT_ROLE==="admin"){ ensureParrainageScanner(); }
     cloudPull(id);
     startCloudPoll();
   }
