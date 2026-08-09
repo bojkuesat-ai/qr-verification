@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#120a1e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Entrée">
+<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAIAAADdvvtQAAAD6ElEQVR42u3dQU7rMBRGYWplxJAFsAAkNsQC2RAS63kDJFSVpzZxHMf3+jtjRGP75Pe146aXl+fXJ6CWogtAIBAIBAKBAAKBQCAQCAQQCAQCgZCUpc/HfH++6+v+vH18Hf0Rl0OfxvMmvUmHCMSbeUxqLBB1ZtOopUD37ekwH6P/cDQT6L+XS5qRZWoyOg0Eos7MGu0V6O81USecRnuGrLBHBb1n6VPYw6E9Di0HXRBCOLR/26Uygez3zLbsbynQzSeJnzRzWYVDhT0c2uNQafjZSFNTHyWQ0kcx1CyBxI8QenIiEf2W8dfJJn5yh9D6WUwCoVcCAfUCWX9ZizVLIAWQtZgpDGogDMAywkU0L7CGnWTztXRJ1qHX/3YojbK2tOTr0wFXjolbWrL26TgO5W5pSdynIziUvqVWYYgmUP8b5awQmqGlEggEAoFAIBAI2Mgy+PXd2aRPdkQpaEtL0D59ynUsKW5LS9A+zeRQ6JaWuH2aw6HoLVVEg0AgEAgEAgEEAoFAIBDoRNY//Yn+RCx6S0vons3xPDV0S0vcns30ND5uS5cEd+cMDqmBoIgGCAQCgUAgUDX9T9addZZvhpZKIAQUqOeNcu5R4vQtLbl7doSD6LlbWhL37DhfY0jc0mWEnp3hLa1ZW7rMcIOOppEiGiAQCAQCgUAgEEAgEAgEAoEAAoFAIBAIBBAIBAKBQCCAQCAQCAQCgUAAgUAgEAgEAggEAoFAIBBAIBAIBAKBAAKBQBiIRRd04OHbfa/f3rrpjwm0qsu2Ms97g2cX6KAfCv35tzRKXgMd/TOz8/xg74wC9RldDuUUqOe4csgyHgQ6NRKEkAQCgUAg4AaPMnqwaUsz1v6nBELqBLpzO1pbSaBdYe5RlwTaWwq8fXyFyKHjTmicfvajxLVHDpnCQCAQCCAQCAQCgUAAgTC5QOv3lz0RO5dxH2V8f74/3GWOYs9x2+Wnb8QPPYXd90P2SCAzlBoIEgixQneoAwgSCAQCgUCgtfSfwp1alEAg0EmRIH5yJlCfcWVP5ins6NFlTwdO3kj8GWNvaSWQ8SYQxiDW7USgHvhq87aLRlbR6wVSpphJh1vGIwEEQi+BNv0kEUIXQOsrFgmEk6YwITT5+qtGIGsx66+WU5gQmjx+agS60ZNDyezZOslcXp5f+38qcthTP4UxZvLS55elocismqTuaVNE/9VFPRTXnuqbf9cqjEOT21NfRD+UxnQWZdraOVINBKLRnOo0Fujh/EWmocrkVsPRUiA1UO4Vew+BaDSPOgcKxKT03nQSiElZvektELLiRCIIBAKBQCAQQCAQCAQCgQACgUAYmH+hM4M4P6mJtQAAAABJRU5ErkJggg==">
+<link rel="manifest" href="data:application/manifest+json;base64,eyJuYW1lIjogIkNvbnRyw7RsZSBkJ2VudHLDqWUg4oCUIEJpbGxldHMgUVIiLCAic2hvcnRfbmFtZSI6ICJFbnRyw6llIiwgInN0YXJ0X3VybCI6ICJodHRwczovL2Jvamt1ZXNhdC1haS5naXRodWIuaW8vcXItdmVyaWZpY2F0aW9uLyIsICJzY29wZSI6ICJodHRwczovL2Jvamt1ZXNhdC1haS5naXRodWIuaW8vcXItdmVyaWZpY2F0aW9uLyIsICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLCAib3JpZW50YXRpb24iOiAicG9ydHJhaXQiLCAiYmFja2dyb3VuZF9jb2xvciI6ICIjMTIwYTFlIiwgInRoZW1lX2NvbG9yIjogIiMxMjBhMWUiLCAiaWNvbnMiOiBbeyJzcmMiOiAiZGF0YTppbWFnZS9wbmc7YmFzZTY0LGlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFNQUFBQURBQ0FJQUFBRGR2dnRRQUFBRDZFbEVRVlI0MnUzZFFVN3JNQlJHWVdwbHhKQUZzQUFrTnNRQzJSQVM2M2tESkZTVnB6WnhITWYzK2p0alJHUDc1UGUxNDZhWGwrZlhKNkNXb2d0QUlCQUlCQUtCQUFLQlFDQVFDQVFRQ0FRQ2daQ1VwYy9IZkgrKzYrdit2SDE4SGYwUmwwT2Z4dk1tdlVtSENNU2JlVXhxTEJCMVp0T29wVUQzN2Vrd0g2UC9jRFFUNkwrWFM1cVJaV295T2cwRW9zN01HdTBWNk84MVVTZWNSbnVHckxCSEJiMW42VlBZdzZFOURpMEhYUkJDT0xSLzI2VXlnZXozekxic2J5blF6U2VKbnpSeldZVkRoVDBjMnVOUWFmalpTRk5USHlXUTBrY3gxQ3lCeEk4UWVuSWlFZjJXOGRmSkpuNXloOUQ2V1V3Q29WY0NBZlVDV1g5Wml6VkxJQVdRdFpncERHb2dETUF5d2tVMEw3Q0duV1R6dFhSSjFxSFgvM1lvamJLMnRPVHIwd0ZYam9sYldyTDI2VGdPNVc1cFNkeW5JemlVdnFWV1lZZ21VUDhiNWF3UW1xR2xFZ2dFQW9GQUlCQUkyTWd5K1BYZDJhUlBka1FwYUV0TDBENTl5blVzS1c1TFM5QSt6ZVJRNkphV3VIMmF3NkhvTFZWRWcwQWdFQWdFQWdFRUFvRkFJQkRvUk5ZLy9ZbitSQ3g2UzB2b25zM3hQRFYwUzB2Y25zMzBORDV1UzVjRWQrY01EcW1Cb0lnR0NBUUNnVUFnVURYOVQ5YWRkWlp2aHBaS0lBUVVxT2VOY3U1UjR2UXRMYmw3ZG9TRDZMbGJXaEwzN0RoZlkwamMwbVdFbnAzaExhMVpXN3JNY0lPT3BwRWlHaUFRQ0FRQ2dVQWdFRUFnRUFnRUFvRUFBb0ZBSUJBSUJCQUlCQUtCUUNDQVFDQVFDQVFDZ1VBQWdVQWdFQWdFQWdnRUFvRkFJQkJBSUJBSUJBS0JBQUtCUUJpSVJSZDA0T0hiZmEvZjNycnBqd20wcXN1Mk1zOTdnMmNYNktBZkN2MzV0elJLWGdNZC9UT3o4L3hnNzR3QzlSbGREdVVVcU9lNGNzZ3lIZ1E2TlJLRWtBUUNnVUFnNEFhUE1ucXdhVXN6MXY2bkJFTHFCTHB6TzFwYlNhQmRZZTVSbHdUYVd3cThmWHlGeUtIalRtaWNmdmFqeExWSERwbkNRQ0FRQ0NBUUNBUUNnVUFBZ1RDNVFPdjNsejBSTzVkeEgyVjhmNzQvM0dXT1lzOXgyK1duYjhRUFBZWGQ5MFAyU0NBemxCb0lFZ2l4UW5lb0F3Z1NDQVFDZ1VDZ3RmU2Z3cDFhbEVBZzBFbVJJSDV5SmxDZmNXVlA1aW5zNk5GbFR3ZE8za2o4R1dOdmFTV1E4U1lReGlEVzdVU2dIdmhxODdhTFJsYlI2d1ZTcHBoSmgxdkdJd0VFUWkrQk52MGtFVUlYUU9zckZnbUVrNll3SVRUNStxdEdJR3N4NjYrV1U1Z1FtangrYWdTNjBaTkR5ZXpaT3NsY1hwNWYrMzhxY3RoVFA0VXhadkxTNTVlbG9jaXNtcVR1YVZORS85VkZQUlRYbnVxYmY5Y3FqRU9UMjFOZlJEK1V4blFXWmRyYU9WSU5CS0xSbk9vMEZ1amgvRVdtb2Nya1ZzUFJVaUExVU80VmV3K0JhRFNQT2djS3hLVDAzblFTaUVsWnZla3RFTExpUkNJSUJBS0JRQ0FRUUNBUUNBUUNnUUFDZ1VBWW1IK2hNNE00UDZtSnRRQUFBQUJKUlU1RXJrSmdnZz09IiwgInNpemVzIjogIjE5MngxOTIiLCAidHlwZSI6ICJpbWFnZS9wbmciLCAicHVycG9zZSI6ICJhbnkgbWFza2FibGUifSwgeyJzcmMiOiAiZGF0YTppbWFnZS9wbmc7YmFzZTY0LGlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFnQUFBQUlBQ0FJQUFBQjdHa090QUFBSzZrbEVRVlI0MnUzZFRVNGpXUkNGVVdONXhKQUZzQUFrTnNRQzJSQVM2K2tCVWtsbHVsdTI4eThpN2puajZtcjUrV1Y4K2RJdWVIcDVmajBCa09kc0NRQUVBQUFCQUVBQUFCQUFBQVFBQUFFQVFBQUFFQUFBQkFBQUFRQkFBQUFRQUFBRUFBQUJBRUFBQUJBQUFBUUFBQUVBUUFBQUVBQUFCQUFBQVFCQUFBQUVBQUFCQUVBQUFCQUFBQVFBQUFFQVFBQUFFQUFBQkFBQUFRQ2dsSXNsdU1YMzU3dEZnRjdlUHI0c3d2OTdlbmwrdFFyR1BVaUNBQmo2Z0JnSWdLRVBpSUVBR1AyQURBaUF1UThvZ1FBWS9ZQU1DSURSRDhpQUFCajlnQXdJZ05FUHlJQUFHUDJBREZRejZtY0JtZjZBT1JOM0F0amhMZkh2QnNGTUdEWVRKZ1JnaTNmYXVBZEpHRDhvMmdkZ3hUZlYwQWN4aUpvYmpRT3cxbHRvN29NU1pJNlJyZ0ZZNVcweitvSGtlZEl5QUF2ZkxYTWZNRnRhQm1ESk8yVDBBNFpNMXdBOC9NWVkvWUJwYytYcy9RQlljVzQwK3BkaWJVNEFqNjJwMFE4WVByMVBBS1kvME9zbzBPSWMwT0FFOE1BNkd2MkFXZFQrQkdENkEzMlBBc1hQQWFVRFlQb0RHckNkdW8rQTdsMDFveDh3b0NhY0FFeC9ZTkpSb09ZNTRCejRUZ0NZUEVVRGNGY3FUWCtnUlFNS0hnTEtCY0QwQnpRZ01RQ21QNkFCdVNjQTB4OHdrZUlDME9nbktBRU1tSFhuaml2aTloOW9mUWdvMG9EejdGVUdNSjFLQitEMkdKcit3SXdHVkRnRW5MMWhBSm1PRDREYmY4QWh3QW5BOUFleUdoQWRBRi85QkpJZE93TjduQURjL2dNT0FhTUNjR1A2VEg5Z2NBTU9QQVQ0RmhCQXFNTUM0UFlmY0FnNDloRGdCQURnQk5BMm5nRG1XSnNBK1BZbndPRlQwU01nZ0ZBSEJNREh2MENVc2g4Rk93RUFPQUUwRENiQXBFT0FBQUF3TVFDKy93TlFaRUpXUEFGNC9nUE1VM0N5ZVFRRUVFb0FBQVJnZXo0QUFLZ3pKOHVkQUh3QUFFeFZiYjU1QkFRUVNnQUFCQUFBQVFCQUFGYmpLMEFBcGFabHJST0Fyd0FCczVXYWNoNEJBWVFTQUlCUUYwdXdqekVmZ1hoTVo2ZlphUUpBMXRYNCt4VzVQdTAwTzAwQWlMZ2FYWjkybXAwMmo4OEFYSk5lcjVYM2VwMEFzRUdYdlhBM2FIYWFuZVlFNEpxMEFsaG5LeUFBZHFSMXdBcGJCd0d3RjYwRzF0WnFDSUJkYUUyd3F0WkVBT3cvSzRQMXRESUNBSUFBdVBXd1BsaEo2eU1BOXB4VnNvWllKUUVBUUFBQUVBRG5UV3RsOWJCV0FnQ0FBQUFnQUU2YVZzeTZXVEVFQUFBQkFCQUFBQVFBQUFFQVFBQUFFQUFBQkFBQUFRQkFBQUFRQUFBRUFBQUJBRUFBQUJBQUFIWjNzUVJOdlgxODNmTEgvSVIwN0RRRUlPdHEvUDNuWFovWWFWenhDR2p5TmJuV2Y0dWRacWM1QWREeWdyejZTOXlnWWFmaEJKQjFUYnBCdzA1REFLS3ZTVmNtZGhvQ0FDQUFoTjJVdVRYRFRrTUFjcTlKVnlaMkdnSUFJQUFBQ0FBSnAzSm5jK3cwQkFCQUFBQVFBQUFFQUFBQkFFQUFBQkFBQUFRQUFBRUFRQUFBRUFBQUJBQUFBZUJmN1BNTHRmM2FidXcwQVFCQUFBQVFBR2FmelozS3NkTUVnTVFyMHpXSm5ZWUFBQWdBTWJkbWJzcXcweENBeEN2VE5ZbWR4bytMSldoMFpTNzh6ZG91U093MG5BQVNiOUJjazlocE9BRU11VEp2dkVkek5XS25JUUR1MGNCTzR5OGVBUUVJQUFBQ0FJQUFBQ0FBQUFnQUFBSUFnQUFBSUFBQUNBQUFBZ0NBQUFBZ0FBQUlBQUFDQUlBQTFMTHd0K1ZaTWF5YkZSTUFBQVFBQUFGdzByUldXRDFySlFBQUNBQUFBdUM4YVpXc0lWWkpBT3c1NjJNbHNUNENBSUFBdVBXd010YlR5aUFBOXA4MXNhcldCQUd3QzYyR3RiVWFDSUM5YUIyc3NIVkFBT3hJSzJDZHJVQ3VpeVZZZlY5K2Y3NjdJTEhUN0RRbkFMY25YaTlXM3V0MUFvamNxWVB2MFZ5TmRwcWRKZ0JrWFordVJqdk5UaE1BN0dic05IcnpHUUNBQUFBZ0FBQUlBQUFDQUlBQUFDQUFBQWdBQUFJQWdBQUFJQUFBQ0FBQUFnQ0FBQUFnQUFBSUFBQUNBSUFBQUNBQUFBZ0FBQUlBZ0FBQUlBQUFDQUNBQUFBZ0FBQUlBQUFDQUlBQUFDQUFBQWdBQUFJQWdBQUFJQUFBQ0FBQUFnQ0FBQUFnQUFBSUFBQUNBSUFBQUNBQUFBZ0FBQUlBZ0FBQUlBQUFDQUNBQUZnQ0FBRUFRQUFBRUFBQUJBQUFBUUJBQUFBUUFBQUVBQUFCQUVBQUFCQUFBQVFBQUFFQVFBQUFFQUFBQkFBQUFRQkFBQUFRQUFBRUFBQUJBRUFBQUJBQUFBRUFRQUFBRUFBQUJBQUFBUUJBQUFBUUFBQUVBQUFCQUVBQUFCQUFBQVFBQUFFQVFBQUFFQUFBQkFBQUFRQkFBQUFRQUFBRUFBQUJBRUFBQUJBQUFBRUFRQUFBRUFBQUJBQUFBUUJBQUFBUUFBQWF1bGdDYU9mNzgzMkx2L2J0NDZ2eS94b0JjTVVleklVS0FrRFczUC85aXBRQUJJQ0l1YThFTUk4UGdVMS9yeGVjQURBS2w3MXdSd0Z3QWpEOXJRQWdBR2FmZFFBRXdOU3pHb0FBbUhmV0JCQUFrODdLQUFJQWdBQzR5YlUrZ0FDWWJsWUpFQUFBQkFBQUFUaUNKeHZXQ2dRQUFBRUFRQUJtODB6RGlvRUFBQ0FBQUFnQUFBSUFnQUFBSUFBQUNBQUFBZ0NBQUFDd2c0c2xnSGJlUHI0Qy85YzRBUUFnQUFBSUFBQUNBSUFBQVBEZmZBdW9xeHUvak9GbjhRTUNrRFgzZi85NUpRQ3VlQVEwZWZxdjlkOENUZ0MwSFAxWGY0bWpBT0FFa0RYOUhRVUFBWWllL2hvQS9PRVJFUFN6MFhPODRuY0dtYS9hQ2NEdHYwMFBDSURwcndHQUFBQWdBQUFJd0JUN1BKL3hGQWdFQUFBQkFFQUFBQkFBQUFRQUFBRUFRQUFBRUFBQUJBQUFBUUJBQUFBUUFBQUVnTC9zODZ2Yi9ZSjRFQUFBQkFBQUFlQllXeitmOGZ3SEJJREVCcGorZ0FBQUNBQXhod0MzLzRBQUpEYkE5QWQrWEN4Qm93WXMvQjN1UmovZ0JKQjRGREQ5QVNlQUlRMjQ4VFJnN2dNQzREVEFIQXNmQm5yVi9QQUlDRUFBQUJBQUFBUUFBQUVBUUFBQUVBQUFCQUFBQVFCQUFBQVFBQURLOExPQWdEdHM5RU9vL0p3Zkp3QUFCQUFBQVFCQUFFcndzTktLZ1FBQUlBQUFDRUFDenpTc0ZRZ0FBQUlBZ0FBazhHVERLb0VBbUc1WUh4QUFBQVRBVGE2VnNRZ2dBQ2FkTlFFRXdMeXpHb0FBbUhyV0FSQUFzODhLQUFmd0c4SFduNEFiL2Nva294OXdBakFOdlY3QUNhRDhUQng4R2pEM1FRRElLb0c1RHdLQXVRbjA1ak1BQUFFQVFBQ09FdmdGU2lCS3FTbTNYd0E4QkFjb05TMDlBZ0lJSlFBQW9Yd05GTGlEWjdrQ0FCeHBvdzhTaXcvM3pGZTlxWFBJZXd4Z3ZoMFpBSWRIZ0RwejBvZkFBS0VFQUVBQXl2QXhBREJQd2NtMmR3QjhEQUJRWkVKNkJBUVFxbWdBUEFVQ0pxazUwNXdBQUp3QTluTGpReTZIQUNEcTluLy9qMGlkQUFDY0FPb2RBZ0JDSERJVlM1OEFQQVVDdXFzOHh6d0NBZ2gxV0FCOEZBeTQvYjlySGpvQkFOQS9BQTRCZ052L0E3OFVjNTYwamdDbVZwc0ErRDRva096WUdkam1Nd0NIQU1DOG1oYUEyd09vQWNDazZYLzRJeERmQWdJSVZTSUFEZ0dBMjM4bkFBMEE1azkvSjRESFk2Z0JRT3ZwWCtRTGtJVk9BTDRTQ2lTb00rdTZmZ2pzRUFDWVNLTUM0RUVRTUh2NmwzclU4ZlR5L0dvMUFRTG5WY1ZIUU00QmdPa2ZHb0JOM3dNQWs2ZDBBTzVOcFFZQWxhZC96WWZWRlQ4RFdETFdmU1FBbUV1OVR3QVByNXFqQUdENlR3aUFCZ0NtLzNaS1B3SmFPTk05RGdLTW9NWW5nQ1hyNkNnQW1QN3RUd0FMQjdxakFHRG1kRDBCTEZ4VFJ3SEE5Tzk5QWxnK3pSMEZBRU9tY1FDVzM5SExBR0MyZEEzQWFhV25Pa29BSk0rVHJnRTRyZmRrWHdiQTZNOGNJNDBEc083N3B3Umc3cWZOamZZQk9HM3pKUjh4QUVOLy9LQ1lFSURUTGwvMGxBUXdFNGJOaENFQjJPMHRCeGh6TzNqMnJnQmt6cGxSSndCSEFjRG9UdytBREFCR2YzUUFaQUF3K3FNRElBT0EwUjhkQUJrQWpQN29BQ2dCWU82bkIwQUdnT1RSTHdCaUFJWitOQUVRQXpEMEJRQkpBT05lQUFBWTcyd0pBQVFBQUFFQVFBQUFFQUFBQkFBQUFRQkFBQUFRQUFBRUFBQUJBRUFBQUJBQUFBUUFBQUVBUUFBQUVBQUFCQUFBQVFCQUFBQVFBQUFFQUFBQkFFQUFBQVFBQUFFQVFBQUFFQUFBQkFBQUFRQkFBQUFRQUFBRUFJQ3EvZ0gwckxvc3V4RGNWQUFBQUFCSlJVNUVya0pnZ2c9PSIsICJzaXplcyI6ICI1MTJ4NTEyIiwgInR5cGUiOiAiaW1hZ2UvcG5nIiwgInB1cnBvc2UiOiAiYW55IG1hc2thYmxlIn1dfQ==">
 <title>Contrôle d'entrée — Billets QR</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -175,6 +181,10 @@
   .lst-row .cd{color:#9b93bd;font-size:12px}
   .lst-acts{display:flex;gap:6px;margin-left:8px;flex-shrink:0}
   .btn.xs{padding:7px 11px;font-size:12.5px;border-radius:9px;min-width:0}
+  .netbadge{position:fixed;top:14px;left:14px;z-index:78;font-size:11.5px;font-weight:700;padding:5px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface2);letter-spacing:.2px}
+  .netbadge.on{color:#7fdca0;border-color:#2f6a45}
+  .netbadge.off{color:#ff9b9b;border-color:#7a2b2b}
+  body.guest-mode .netbadge{display:none!important}
   .lst-row .cd{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted);letter-spacing:1px}
   .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
   .badge.in{background:var(--green-bg);color:var(--green)}
@@ -275,9 +285,9 @@
       <label class="fld" for="evName">Nom de l'événement</label>
       <input type="text" id="evName" placeholder="Dîner de Noël 2026" autocomplete="off">
       <div style="height:12px"></div>
-      <label class="fld" for="names">Invités — une ligne par personne : Nom Prénom, adresse mail</label>
+      <label class="fld" for="names">Invités — une ligne par personne (Nom Prénom + adresse mail). Tu peux coller directement depuis Excel ou Google Sheets.</label>
       <textarea id="names" placeholder="Belkacem Amina, amina.belkacem@gmail.com&#10;Dupont Thomas, thomas.dupont@gmail.com&#10;Vermeulen Léa, lea.vermeulen@gmail.com"></textarea>
-      <p class="hint">Respecte bien la virgule entre le nom et l'adresse mail. Sans adresse mail, le billet est créé mais ne pourra pas être envoyé par mail.</p>
+      <p class="hint">Séparateur virgule, point-virgule ou tabulation (collage Excel/Sheets) — peu importe. L'adresse mail est détectée automatiquement. Sans e-mail, le billet est créé mais ne pourra pas être envoyé par mail. Un simple nom par ligne fonctionne aussi.</p>
       <div style="height:13px"></div>
       <button class="btn gold block" onclick="generate()">Générer les billets</button>
     </div>
@@ -360,6 +370,7 @@
   <p class="foot-note">Les données (liste et entrées) sont enregistrées sur cet appareil. Pour l'entrée, utilise le lien envoyé au téléphone. N'y mets que des prénoms, pas d'infos sensibles.</p>
 </div>
 
+<div id="netBadge" class="netbadge on">● en ligne</div>
 <button class="gear" id="gearBtn" onclick="openSettings()" title="Réglages" aria-label="Réglages" style="position:fixed;top:18px;right:18px;z-index:77">
   <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.1" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 13.5a7.9 7.9 0 0 0 0-3l1.7-1.3-1.9-3.3-2 .8a7.8 7.8 0 0 0-2.6-1.5L14.3 3H9.7l-.3 2.2a7.8 7.8 0 0 0-2.6 1.5l-2-.8-1.9 3.3 1.7 1.3a7.9 7.9 0 0 0 0 3l-1.7 1.3 1.9 3.3 2-.8a7.8 7.8 0 0 0 2.6 1.5l.3 2.2h4.6l.3-2.2a7.8 7.8 0 0 0 2.6-1.5l2 .8 1.9-3.3-1.7-1.3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
 </button>
@@ -587,11 +598,16 @@
     var lines = $("names").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
     if(!lines.length){ flash("Ajoute au moins un nom dans la liste."); return; }
     var existing = new Set(roster.map(function(g){return g.token;}));
+    var EMAIL_RE = /[^\s,;\t]+@[^\s,;\t]+\.[^\s,;\t]+/;
     lines.forEach(function(line){
-      var parts = line.split(",");
-      var nm = parts.shift().trim();
+      var fields = line.split(/[\t;,]+/).map(function(x){return x.trim();}).filter(Boolean);
+      var mail = "";
+      for(var i=0;i<fields.length;i++){ if(EMAIL_RE.test(fields[i])){ mail=fields[i]; break; } }
+      var nameParts = fields.filter(function(f){ return f!==mail; });
+      var nm = (nameParts.join(" ").trim()) || (fields[0]||"").trim();
+      if(!nm && !mail) return;
       var tok = genToken(existing); existing.add(tok);
-      roster.push({ token: tok, name: nm, extra: parts.join(",").trim() });
+      roster.push({ token: tok, name: nm, extra: mail });
     });
     eventName = name;
     localRosterVersion = Date.now();
@@ -1825,6 +1841,16 @@
     }
     else { document.body.classList.add("home-mode"); renderHome(); }
   })();
+})();
+</script>
+<script>
+(function(){
+  function net(){ var b=document.getElementById("netBadge"); if(!b) return;
+    var on=navigator.onLine; b.textContent=on?"\u25cf en ligne":"\u25cf hors ligne";
+    b.className="netbadge "+(on?"on":"off"); }
+  window.addEventListener("online",net); window.addEventListener("offline",net);
+  document.addEventListener("DOMContentLoaded",net); net();
+  if("serviceWorker" in navigator){ window.addEventListener("load",function(){ navigator.serviceWorker.register("sw.js").catch(function(){}); }); }
 })();
 </script>
 </body>
