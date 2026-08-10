@@ -2044,7 +2044,7 @@
     authPendingId=id;
     $("authCommName").textContent=commName(id);
     $("authTitle2").textContent="Adresse mail et mot de passe du responsable";
-    $("authEmailInput").value=savedEmailFor(id);
+    $("authEmailInput").value = savedEmailFor(id) || (FIXED_ACCOUNTS[id] ? FIXED_ACCOUNTS[id].email : "");
     $("authPwd").value=""; $("authPwd2").value="";
     $("authConfirmWrap").style.display="none";
     $("authErr").style.display="none";
@@ -2083,10 +2083,16 @@
         d = await fbCall("signInWithPassword", {email:email, password:pwd, returnSecureToken:true});
       }catch(e1){
         var m1 = e1.message||"";
-        if(m1.indexOf("EMAIL_NOT_FOUND")>=0){ showAuthErr("Aucun compte pour cette adresse. Demandez un accès au responsable."); return; }
-        if(m1.indexOf("INVALID_PASSWORD")>=0 || m1.indexOf("INVALID_LOGIN_CREDENTIALS")>=0){ showAuthErr("Adresse ou mot de passe incorrect."); return; }
-        if(m1.indexOf("TOO_MANY_ATTEMPTS")>=0){ showAuthErr("Trop de tentatives. Réessayez dans quelques minutes."); return; }
-        throw e1;
+        var isFixed = !!(FIXED_ACCOUNTS[id] && email===FIXED_ACCOUNTS[id].email);
+        if(isFixed && (m1.indexOf("EMAIL_NOT_FOUND")>=0 || m1.indexOf("INVALID_LOGIN_CREDENTIALS")>=0)){
+          try{ d = await fbCall("signUp", {email:email, password:pwd, returnSecureToken:true}); }
+          catch(e2){ if((e2.message||"").indexOf("EMAIL_EXISTS")>=0){ showAuthErr("Mot de passe incorrect pour ce compte."); return; } showAuthErr(cleanFbErr(e2.message||"")); return; }
+        } else {
+          if(m1.indexOf("EMAIL_NOT_FOUND")>=0){ showAuthErr("Aucun compte pour cette adresse. Demandez un accès au responsable."); return; }
+          if(m1.indexOf("INVALID_PASSWORD")>=0 || m1.indexOf("INVALID_LOGIN_CREDENTIALS")>=0){ showAuthErr("Adresse ou mot de passe incorrect."); return; }
+          if(m1.indexOf("TOO_MANY_ATTEMPTS")>=0){ showAuthErr("Trop de tentatives. Réessayez dans quelques minutes."); return; }
+          throw e1;
+        }
       }
       saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:email });
       saveEmailFor(id, email);
@@ -2118,10 +2124,6 @@
     if(FIREBASE_API_KEY.indexOf("REPLACE_WITH")===0){ flash("Comptes pas encore configurés — proceedCommission direct."); proceedCommission(id); return; }
     var ok = await ensureAuth(id);
     if(ok){ proceedCommission(id); return; }
-    if(FIXED_ACCOUNTS[id]){
-      var auto = await autoLoginFixed(id);
-      if(auto){ proceedCommission(id); return; }
-    }
     openAuthModal(id);
   }
   window.__autoLoginFixed = autoLoginFixed;
