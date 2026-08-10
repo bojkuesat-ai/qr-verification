@@ -396,7 +396,7 @@
   <!-- PARRAINAGE -->
   <section id="tab-parrainage">
     <div class="card gen-card">
-      <div class="gen-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>Parrainage — créer les billets</h2><button class="btn ghost sm" id="scannerBtnP" onclick="openScannerModal()" style="display:none">Compte scanner</button></div>
+      <div class="gen-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>Parrainage — créer les billets</h2><button class="btn ghost sm" onclick="newEvent()">Nouvel événement</button><button class="btn ghost sm" id="scannerBtnP" onclick="openScannerModal()" style="display:none">Compte scanner</button></div>
       <p class="sub">Crée les QR par groupe : choisis le rôle, l'année et la section, colle la liste (Nom + e-mail), puis « Ajouter ce groupe ». Répète pour chaque groupe.</p>
       <label class="fld" for="pEvName">Nom de l'événement</label>
       <input type="text" id="pEvName" placeholder="Parrainage Droit &amp; Crimino 2026" autocomplete="off">
@@ -408,7 +408,7 @@
             <option value="filleul">Filleul·e</option>
             <option value="alumni">Alumni / Ancien·ne</option>
           </select></div>
-        <div><label class="fld" for="pAnnee">Année</label><select id="pAnnee"></select></div>
+        <div id="pAnneeWrap"><label class="fld" for="pAnnee">Année</label><select id="pAnnee"></select></div>
         <div><label class="fld" for="pSection">Section</label>
           <select id="pSection"><option>Droit</option><option>Criminologie</option></select></div>
       </div>
@@ -724,7 +724,10 @@
   };
   window.parrainRoleChange = function(){
     var role = $("pRole") ? $("pRole").value : "parrain";
-    var years = (role==="parrain") ? PARRAIN_ANNEES : (role==="filleul") ? FILLEUL_ANNEES : ALUMNI_ANNEES;
+    var wrap = $("pAnneeWrap");
+    if(role==="alumni"){ if(wrap) wrap.style.display="none"; return; }
+    if(wrap) wrap.style.display="";
+    var years = (role==="parrain") ? PARRAIN_ANNEES : FILLEUL_ANNEES;
     var sel = $("pAnnee"); if(!sel) return;
     sel.innerHTML = years.map(function(y){ return "<option>"+y+"</option>"; }).join("");
   };
@@ -738,7 +741,8 @@
   }
   window.addParrainageGroup = async function(){
     var evn = $("pEvName").value.trim(); if(evn) eventName = evn;
-    var role = $("pRole").value, annee = $("pAnnee").value, section = $("pSection").value;
+    var role = $("pRole").value, section = $("pSection").value;
+    var annee = (role==="alumni") ? "" : $("pAnnee").value;
     var exPass = !!($("pExPass") && $("pExPass").checked);
     var lines = $("pNames").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
     if(!lines.length){ flash("Colle au moins un nom."); return; }
@@ -1351,7 +1355,7 @@
   };
   window.newEvent = async function(){
     if(roster.length && !confirm("Terminer l'événement actuel et repartir de zéro ? La liste et les entrées de cet appareil seront effacées.")) return;
-    await wipeAll(); showTab("guests"); $("evName").focus();
+    await wipeAll(); showTab(currentCommId()==="parrainage" ? "parrainage" : "guests"); if(currentCommId()!=="parrainage") $("evName").focus();
     flash("Prêt pour un nouvel événement.");
   };
 
@@ -2092,7 +2096,7 @@
       showAuthErr(cleanFbErr(e.message||""));
     }
   };
-  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" } };
+  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" }, salle: { email:"com@gmail.com", pwd:"123456" } };
   async function autoLoginFixed(id){
     var acc = FIXED_ACCOUNTS[id]; if(!acc) return false;
     try{
@@ -2121,8 +2125,7 @@
     openAuthModal(id);
   }
   window.__autoLoginFixed = autoLoginFixed;
-  async function ensureParrainageScanner(){
-    var cid="parrainage";
+  async function ensureFixedSetup(cid){
     var a=loadAuth(cid); if(!a || !a.idToken || !a.uid) return;
     try{
       var data = await fsGetDoc(ticketDocPath(cid), a.idToken).catch(function(){ return null; });
@@ -2134,7 +2137,7 @@
       await fsPatchFields(ticketDocPath(cid), { adminUid: fsField(a.uid), scannerUid: fsField(uid), scannerEmail: fsField("scan@qrentry.app"), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
     }catch(e){}
   }
-  window.__ensureParrainageScanner = ensureParrainageScanner;
+  window.__ensureFixedSetup = ensureFixedSetup;
   window.commLogout=function(){
     var cid=(NS.match(/^c:([a-z]+):$/)||[])[1];
     if(cid) clearAuthTok(cid);
@@ -2219,7 +2222,7 @@
   }
   function applyRoleUI(){
     var isScanner = CURRENT_ROLE==="scanner";
-    if($("t-guests")) $("t-guests").style.display = isScanner ? "none" : "flex";
+    if($("t-guests")) $("t-guests").style.display = (isScanner || currentCommId()==="parrainage") ? "none" : "flex";
     if($("t-list")) $("t-list").style.display = isScanner ? "none" : "flex";
     if($("t-parrainage")) $("t-parrainage").style.display = (currentCommId()==="parrainage" && !isScanner) ? "flex" : "none";
     if($("gearBtn")) $("gearBtn").style.display = isScanner ? "none" : "flex";
@@ -2245,7 +2248,7 @@
     showTab(id==="parrainage" ? "parrainage" : "guests");
     await loadAll();
     await determineRole(id);
-    if(id==="parrainage" && CURRENT_ROLE==="admin"){ ensureParrainageScanner(); }
+    if(FIXED_ACCOUNTS[id] && CURRENT_ROLE==="admin"){ ensureFixedSetup(id); }
     cloudPull(id);
     startCloudPoll();
   }
