@@ -312,6 +312,9 @@
       <label class="fld" for="names">Invités — une ligne par personne (Nom Prénom + adresse mail). Tu peux coller directement depuis Excel ou Google Sheets.</label>
       <textarea id="names" placeholder="Belkacem Amina, amina.belkacem@gmail.com&#10;Dupont Thomas, thomas.dupont@gmail.com&#10;Vermeulen Léa, lea.vermeulen@gmail.com"></textarea>
       <p class="hint">Séparateur virgule, point-virgule ou tabulation (collage Excel/Sheets) — peu importe. L'adresse mail est détectée automatiquement. Sans e-mail, le billet est créé mais ne pourra pas être envoyé par mail. Un simple nom par ligne fonctionne aussi.</p>
+      <div style="height:12px"></div>
+      <label class="fld" for="genCat">Catégorie (facultatif — se configure dans les Réglages ⚙)</label>
+      <select id="genCat"><option value="">Sans catégorie</option></select>
       <div style="height:13px"></div>
       <button class="btn gold block" onclick="generate()">Générer les billets</button>
     </div>
@@ -377,6 +380,7 @@
         <button class="btn ghost sm" onclick="exportCSV()">Liste en CSV</button>
         <button class="btn ghost sm" onclick="exportXLSX()">Liste en Excel</button>
         <button class="btn ghost sm" onclick="exportNoShow()">Non-entrés (CSV)</button>
+        <button class="btn ghost sm" onclick="mailNoShow()">Relancer les non-venus</button>
       </div>
       <div id="suiviAdminActions">
         <div class="row" style="margin-top:9px">
@@ -591,6 +595,16 @@
     <h2 style="margin-top:18px">Événement Parrainage</h2>
     <p class="sub">Affiche ou masque le bouton « Parrainage » sur l'accueil. Décoche quand l'événement est terminé pour le faire disparaître (les données restent conservées).</p>
     <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="parrainToggle" onchange="toggleParrainage()"> Afficher « Parrainage » sur l'accueil</label>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Catégories de billets</h2>
+    <p class="sub">Crée tes propres catégories (ex. Cooptés, Professeurs…). À la création des billets tu pourras en choisir une ; elle s'affiche en couleur au moment du scan.</p>
+    <div class="row" style="gap:8px;align-items:center">
+      <input type="text" id="catName" placeholder="Nom (ex. Professeurs)" style="flex:1" autocomplete="off">
+      <input type="color" id="catColor" value="#7c5cff" style="width:46px;height:40px;padding:0;border:none;background:none;cursor:pointer">
+      <button class="btn gold sm" onclick="addCat()">Ajouter</button>
+    </div>
+    <div id="catList" style="margin-top:10px"></div>
   </div>
 </div>
 
@@ -683,6 +697,17 @@
   async function refreshAll(){ await refreshUsed(); updateCounts(); renderList(); }
 
   /* ---------- Génération ---------- */
+  function getCats(){ try{ return JSON.parse(window.localStorage.getItem("qrentry:cats")||"[]"); }catch(e){ return []; } }
+  function setCats(a){ try{ window.localStorage.setItem("qrentry:cats", JSON.stringify(a)); }catch(e){} }
+  function renderCats(){
+    var cats=getCats();
+    var box=$("catList");
+    if(box){ box.innerHTML = cats.length ? cats.map(function(c,i){ return '<div style="display:flex;align-items:center;gap:8px;margin:5px 0"><span style="width:16px;height:16px;border-radius:4px;background:'+escapeHtml(c.color||"#888")+';display:inline-block"></span><span style="flex:1">'+escapeHtml(c.name)+'</span><button class="btn ghost xs" onclick="delCat('+i+')">✕</button></div>'; }).join("") : '<p class="hint">Aucune catégorie pour l\'instant.</p>'; }
+    var sel=$("genCat");
+    if(sel){ var cur=sel.value; sel.innerHTML='<option value="">Sans catégorie</option>'+cats.map(function(c){ return '<option value="'+escapeHtml(c.name)+'">'+escapeHtml(c.name)+'</option>'; }).join(""); sel.value=cur; }
+  }
+  window.addCat=function(){ var n=($("catName")&&$("catName").value||"").trim(); var col=($("catColor")&&$("catColor").value)||"#7c5cff"; if(!n) return; var cats=getCats(); cats.push({name:n,color:col}); setCats(cats); if($("catName")) $("catName").value=""; renderCats(); };
+  window.delCat=function(i){ var cats=getCats(); cats.splice(i,1); setCats(cats); renderCats(); };
   window.generate = async function(){
     var name = $("evName").value.trim();
     var lines = $("names").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
@@ -697,7 +722,8 @@
       var nm = (nameParts.join(" ").trim()) || (fields[0]||"").trim();
       if(!nm && !mail) return;
       var tok = genToken(existing); existing.add(tok);
-      roster.push({ token: tok, name: nm, extra: mail });
+      var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
+      roster.push({ token: tok, name: nm, extra: mail, cat:_gc, cc:_cc });
     });
     eventName = name;
     localRosterVersion = Date.now();
@@ -1074,7 +1100,7 @@
       var when=""; try{ when = existing ? fmtTime(JSON.parse(existing).at) : (usedAt[token]?fmtTime(usedAt[token]):""); }catch(e){}
       usedSet.add(token);
       setStat("used","Déjà scanné", guest.name, when ? ("Entré à "+when) : "Ce billet a déjà servi", guest);
-      flashSignal(false); beep(false); updateCounts(); return;
+      flashSignal(false); alertUsed(); updateCounts(); return;
     }
     // Sécurité renforcée : re-vérifie ce billet EN DIRECT dans le cloud (anti double-entrée entre téléphones)
     var cidLive = currentCommId();
@@ -1092,7 +1118,7 @@
               await Store.set("used:"+token, JSON.stringify({at:liveUsed[token]}));
               var wLive=""; try{ wLive=fmtTime(liveUsed[token]); }catch(e){}
               setStat("used","Déjà scanné", guest.name, wLive?("Entré à "+wLive+" · autre poste"):"Déjà entré sur un autre téléphone", guest);
-              flashSignal(false); beep(false); updateCounts(); renderList(); return;
+              flashSignal(false); alertUsed(); updateCounts(); renderList(); return;
             }
           }
         }
@@ -1136,6 +1162,7 @@
       var tbl = guest.table ? '<div class="cattable">Table '+escapeHtml(guest.table)+'</div>' : '';
       cat = '<div class="catbadge '+(CC[guest.role]||"cp")+'">'+escapeHtml(label)+'</div>'+(sub?'<div class="catsub">'+escapeHtml(sub)+'</div>':'')+tbl;
     }
+    if(guest && (guest.cat||guest.ct)){ cat += '<div class="catbadge" style="background:'+escapeHtml(guest.cc||"#555")+';color:#fff;border:none">'+escapeHtml(guest.cat||guest.ct)+'</div>'; }
     s.innerHTML='<p class="word">'+escapeHtml(word)+'</p>'+(who?'<p class="who">'+escapeHtml(who)+'</p>':'')+cat+(note?'<p class="note">'+escapeHtml(note)+'</p>':'');
     if(clearT) clearTimeout(clearT);
     clearT=setTimeout(function(){ s.className="stat idle"; s.innerHTML='<p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p>'; }, 4500);
@@ -1144,6 +1171,7 @@
   function ensureAudio(){
     try{ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); if(actx.state==="suspended"){ actx.resume(); } }catch(e){}
   }
+  function alertUsed(){ try{ beep(false); setTimeout(function(){ beep(false); },230); }catch(e){} try{ if(navigator.vibrate) navigator.vibrate([140,70,140]); }catch(e){} }
   function beep(ok){
     try{
       ensureAudio();
@@ -1303,6 +1331,19 @@
     usedSet.delete(token); delete usedAt[token];
     updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudRemoveUsed(currentCommId(), token);
     flash("Entrée annulée pour "+nom+".");
+  };
+  window.mailNoShow = async function(){
+    var cibles = roster.filter(function(g){ return !usedSet.has(g.token) && emailOf(g); });
+    if(!cibles.length){ flash("Aucun non-venu avec e-mail."); return; }
+    if(window.confirm && !window.confirm("Envoyer un rappel à "+cibles.length+" personne(s) non entrée(s) ?")) return;
+    flash("Envoi des rappels…");
+    var ok=0;
+    for(var i=0;i<cibles.length;i++){ var g=cibles[i];
+      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)})}); if(r.ok) ok++; }catch(e){}
+      await new Promise(function(res){setTimeout(res,120);});
+    }
+    flash("Rappel envoyé à "+ok+" personne(s).");
   };
   window.resendTicket = async function(token){
     var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
@@ -1524,6 +1565,7 @@
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
     if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
+    try{ renderCats(); }catch(e){}
     $("settingsModal").classList.add("on");
   };
   window.closeSettings=function(){ $("settingsModal").classList.remove("on"); };
@@ -1571,6 +1613,7 @@
     var payload={t:g.token,n:g.name,e:eventName||""};
     if(g.role){ payload.r=g.role; payload.y=g.annee||""; payload.sc=g.section||""; }
     if(g.table) payload.tb=g.table;
+    if(g.cat){ payload.ct=g.cat; payload.cc=g.cc||""; }
     return base+"#t="+encodeURIComponent(b64encode(JSON.stringify(payload)));
   }
   function showGuestTicket(data){
@@ -2276,6 +2319,7 @@
       commBtnClick(saved);
     }
     else { document.body.classList.add("home-mode"); renderHome(); }
+    try{ renderCats(); }catch(e){}
   })();
 })();
 </script>
