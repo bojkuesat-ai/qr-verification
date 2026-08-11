@@ -406,6 +406,8 @@
       <input type="text" id="pEvName" placeholder="Parrainage Droit &amp; Crimino 2026" autocomplete="off">
       <div style="height:12px"></div>
       <div class="prow">
+        <div><label class="fld" for="pSection">Section</label>
+          <select id="pSection" onchange="parrainRoleChange()"><option>Droit</option><option>Criminologie</option></select></div>
         <div><label class="fld" for="pRole">Rôle</label>
           <select id="pRole" onchange="parrainRoleChange()">
             <option value="parrain">Parrain / Marraine</option>
@@ -413,8 +415,6 @@
             <option value="alumni">Alumni / Ancien·ne</option>
           </select></div>
         <div id="pAnneeWrap"><label class="fld" for="pAnnee">Année</label><select id="pAnnee"></select></div>
-        <div><label class="fld" for="pSection">Section</label>
-          <select id="pSection"><option>Droit</option><option>Criminologie</option></select></div>
       </div>
       <label style="display:flex;align-items:center;gap:9px;margin-top:12px;font-size:13.5px;cursor:pointer"><input type="checkbox" id="pExPass"> Ancien·ne passerelle (parraine uniquement des Passerelle)</label>
       <div style="height:10px"></div>
@@ -750,10 +750,20 @@
   };
   window.parrainRoleChange = function(){
     var role = $("pRole") ? $("pRole").value : "parrain";
+    var section = $("pSection") ? $("pSection").value : "Droit";
     var wrap = $("pAnneeWrap");
-    if(role==="alumni"){ if(wrap) wrap.style.display="none"; return; }
+    var exWrap = $("pExPass") ? $("pExPass").closest("label") : null;
+    if(role==="alumni"){ if(wrap) wrap.style.display="none"; if(exWrap) exWrap.style.display="none"; return; }
     if(wrap) wrap.style.display="";
-    var years = (role==="parrain") ? PARRAIN_ANNEES : FILLEUL_ANNEES;
+    var years;
+    if(section==="Criminologie"){
+      years = (role==="parrain") ? ["MA2"] : ["MA1"];          // crimino : MA2 -> MA1 uniquement
+      if(exWrap) exWrap.style.display="none";                   // pas de passerelle en crimino
+      if($("pExPass")) $("pExPass").checked=false;
+    } else {
+      years = (role==="parrain") ? PARRAIN_ANNEES : FILLEUL_ANNEES;
+      if(exWrap) exWrap.style.display = (role==="filleul") ? "" : "none";
+    }
     var sel = $("pAnnee"); if(!sel) return;
     sel.innerHTML = years.map(function(y){ return "<option>"+y+"</option>"; }).join("");
   };
