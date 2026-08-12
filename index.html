@@ -1671,17 +1671,26 @@
     eventName=v; await Store.set("event", v);
     if($("evName")) $("evName").value=v;
     cloudPushRoster(currentCommId());
-    await publierNomEvent(v);
-    flash(v?"Nom de l'événement enregistré.":"Nom effacé.");
+    var pub = await publierNomEvent(v);
+    if(pub) flash(v?"Nom publié : il s'affichera sur le formulaire.":"Nom effacé.");
     refreshSignups();
   };
-  async function publierNomEvent(v){
-    var cid=currentCommId(); if(!cid) return;
+  async function publierNomEvent(v, silencieux){
+    var cid=currentCommId();
+    if(!cid){ if(!silencieux) flash("Ouvre d'abord une commission."); return false; }
+    var ok=await ensureAuth(cid);
+    if(!ok){ if(!silencieux) flash("Connexion requise pour publier le nom."); return false; }
+    var a=loadAuth(cid);
+    if(!a||!a.idToken){ if(!silencieux) flash("Session expirée, reconnecte-toi."); return false; }
     try{
-      var ok=await ensureAuth(cid); if(!ok) return;
-      var a=loadAuth(cid); if(!a) return;
-      await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken);
-    }catch(e){}
+      var r = await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken);
+      if(!r || r.ok!==true){
+        var msg = (r && r.data && r.data.error && r.data.error.message) || "droits Firestore";
+        if(!silencieux) flash("Nom non publié : "+msg);
+        return false;
+      }
+      return true;
+    }catch(e){ if(!silencieux) flash("Publication impossible : "+(e.message||e)); return false; }
   }
   function countRole(r){ return roster.filter(function(g){ return g.role===r; }).length; }
   function notifKey(){ return "qrentry:notifmail:"+(currentCommId()||""); }
@@ -1734,7 +1743,7 @@
     var _nw=$("suEvName"); if(_nw && cid==="parrainage"){ var w=_nw.parentNode&&_nw.parentNode.previousElementSibling; if(w&&w.className==="fld") w.style.display="none"; _nw.parentNode.style.display="none"; }
     if($("suNotif") && !$("suNotif").value){ var _nm=getNotifMail(); if(_nm) $("suNotif").value=_nm; }
     if($("suEvName") && !$("suEvName").value && eventName) $("suEvName").value=eventName;
-    if(eventName) publierNomEvent(eventName);
+    if(eventName) publierNomEvent(eventName, true);
     var ok=await ensureAuth(cid); if(!ok) return;
     var a=loadAuth(cid); if(!a) return;
     try{
