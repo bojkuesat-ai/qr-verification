@@ -1732,7 +1732,7 @@
     setSeen(n);
   }
   window.copySignupLink=function(pay){ var i=$(pay?"suLinkPay":"suLink"); if(!i) return; try{ navigator.clipboard.writeText(i.value); flash("Lien copié !"); }catch(e){ i.select(); } };
-  function signupLink(pay){ var cid=currentCommId(); return location.origin+location.pathname+"#signup="+(cid||"")+(pay?":pay":""); }
+  function signupLink(pay){ var cid=currentCommId(); var base=location.origin+location.pathname.replace(/[^\/]*$/,""); return base+"inscription.html?c="+(cid||"")+(pay?"&pay=1":""); }
   window.refreshSignups=async function(){
     var cid=currentCommId(); if(!cid) return;
     if(["parrainage","festif","culture","aca"].indexOf(cid)<0) return;

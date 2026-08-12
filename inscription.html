@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#120a1e">
+<title>Inscription</title>
+<style>
+  :root{ --bg:#120a1e; --card:#1c1330; --line:#332a4a; --text:#efeaf7; --muted:#a99fc4;
+         --gold:#d8b45a; --gold2:#b8933f; --red:#e05a5a; --green:#4caf7d; }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       line-height:1.5;padding:24px 16px 60px}
+  .wrap{max-width:520px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--muted);margin:0 0 22px;font-size:15px}
+  label{display:block;font-size:13px;color:var(--muted);margin:14px 0 6px}
+  input,select{width:100%;padding:12px 13px;border-radius:11px;border:1px solid var(--line);
+       background:#150e26;color:var(--text);font-size:16px;font-family:inherit}
+  input[type=file]{padding:10px;font-size:14px}
+  .chk{display:flex;align-items:center;gap:10px;margin:14px 0;font-size:14.5px;color:var(--text)}
+  .chk input{width:auto}
+  button{width:100%;margin-top:20px;padding:15px;border:none;border-radius:12px;
+       background:linear-gradient(150deg,var(--gold),var(--gold2));color:#241100;
+       font-size:16.5px;font-weight:700;cursor:pointer;font-family:inherit}
+  button:disabled{opacity:.6}
+  .hint{color:var(--muted);font-size:13px;margin-top:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;text-align:center;margin-top:18px}
+  .err{color:var(--red);font-size:14.5px;margin-top:14px}
+  .big{font-size:38px;margin:0}
+  .req{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Inscription</h1>
+  <p class="sub" id="titre">Chargement…</p>
+
+  <div id="form">
+    <label for="f_nom">Nom et prénom</label>
+    <input type="text" id="f_nom" autocomplete="name">
+
+    <label for="f_mail">Adresse e-mail</label>
+    <input type="email" id="f_mail" autocomplete="email" inputmode="email">
+
+    <label for="f_mail2">Confirmez votre adresse e-mail</label>
+    <input type="email" id="f_mail2" autocomplete="off" inputmode="email" onpaste="return false">
+
+    <label for="f_sec">Section</label>
+    <select id="f_sec"><option>Droit</option><option>Criminologie</option></select>
+
+    <div id="wrapRole" style="display:none">
+      <label for="f_role">Je m'inscris comme</label>
+      <select id="f_role">
+        <option value="parrain">Parrain / Marraine</option>
+        <option value="filleul">Filleul·e</option>
+        <option value="alumni">Alumni / Ancien·ne</option>
+      </select>
+    </div>
+
+    <div id="wrapAnnee">
+      <label for="f_annee">Année d'études</label>
+      <select id="f_annee"></select>
+    </div>
+
+    <label class="chk" id="wrapPass" style="display:none">
+      <input type="checkbox" id="f_pass"> J'ai fait la passerelle
+    </label>
+
+    <div id="wrapPreuve" style="display:none">
+      <label for="f_preuve">Preuve de paiement <span class="req">*</span></label>
+      <input type="file" id="f_preuve" accept="image/*">
+      <p class="hint">Photo ou capture de votre virement. Obligatoire.</p>
+    </div>
+
+    <button id="btn">Je m'inscris</button>
+    <p class="hint">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.
+       Si vous ne le trouvez pas, pensez à vérifier vos <b>spams / courriers indésirables</b>.</p>
+  </div>
+
+  <div id="msg"></div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var API_KEY = "AIzaSyBLmGXcSQHQsba-Rw5CtUhuD-UpCuWKSQA";
+  var FS_BASE = "https://firestore.googleapis.com/v1/projects/be-events-13c5c/databases/(default)/documents/";
+  var NOMS = { parrainage:"Parrainage", festif:"Festif", culture:"Culture", aca:"ACA" };
+
+  function q(id){ return document.getElementById(id); }
+  function par(n){ var u=new URLSearchParams(location.search); return u.get(n)||""; }
+
+  var CID = (par("c")||"").toLowerCase();
+  var PAY = par("pay")==="1";
+  if(!NOMS[CID]){ CID="festif"; }
+  if(CID==="parrainage") PAY=false;
+  var isP = (CID==="parrainage");
+
+  q("titre").textContent = NOMS[CID] + (PAY?" — événement payant":"");
+  if(isP) q("wrapRole").style.display="";
+  if(PAY) q("wrapPreuve").style.display="";
+
+  function majAnnees(){
+    var sec=q("f_sec").value, sel=q("f_annee"), ys;
+    if(isP){
+      var role=q("f_role").value;
+      if(role==="alumni"){ q("wrapAnnee").style.display="none"; q("wrapPass").style.display="none"; return; }
+      q("wrapAnnee").style.display="";
+      ys = (sec==="Criminologie") ? ((role==="parrain")?["MA2"]:["MA1"])
+         : ((role==="parrain")?["BA2","BA3","MA1","MA2"]:["Passerelle","BA1","MA1"]);
+    } else {
+      ys = (sec==="Criminologie") ? ["MA1","MA2"] : ["BA1","BA2","BA3","Passerelle","MA1","MA2"];
+    }
+    sel.innerHTML = ys.map(function(y){ return "<option>"+y+"</option>"; }).join("");
+    majPass();
+  }
+  function majPass(){
+    if(!isP) return;
+    var ok = (q("f_role").value==="parrain" && q("f_sec").value==="Droit" &&
+              (q("f_annee").value==="MA1"||q("f_annee").value==="MA2"));
+    q("wrapPass").style.display = ok ? "flex" : "none";
+    if(!ok) q("f_pass").checked=false;
+  }
+  q("f_sec").onchange=majAnnees;
+  if(isP) q("f_role").onchange=majAnnees;
+  q("f_annee").onchange=majPass;
+  majAnnees();
+
+  // récupérer le nom de l'événement (sans bloquer l'affichage)
+  setTimeout(function(){
+    fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
+      { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) })
+    .then(function(r){ return r.json(); })
+    .then(function(a){
+      if(!a.idToken) throw 0;
+      window.__tok = a.idToken;
+      return fetch(FS_BASE+"commission_signups/"+CID, { headers:{ "Authorization":"Bearer "+a.idToken } });
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      var v = d && d.fields && d.fields.evName && d.fields.evName.stringValue;
+      if(v) q("titre").textContent = v + (PAY?" — événement payant":"");
+    }).catch(function(){});
+  }, 0);
+
+  function compresser(file){
+    return new Promise(function(res, rej){
+      if(!file || !/^image\//.test(file.type)) return rej(new Error("format"));
+      var fr=new FileReader();
+      fr.onerror=function(){ rej(new Error("read")); };
+      fr.onload=function(){
+        var img=new Image();
+        img.onerror=function(){ rej(new Error("img")); };
+        img.onload=function(){
+          var max=1000, w=img.width, h=img.height;
+          if(w>max||h>max){ var r=Math.min(max/w,max/h); w=Math.round(w*r); h=Math.round(h*r); }
+          var c=document.createElement("canvas"); c.width=w; c.height=h;
+          c.getContext("2d").drawImage(img,0,0,w,h);
+          var qy=0.6, out=c.toDataURL("image/jpeg",qy);
+          while(out.length>700000 && qy>0.25){ qy-=0.1; out=c.toDataURL("image/jpeg",qy); }
+          res(out);
+        };
+        img.src=fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+
+  q("btn").onclick = async function(){
+    var msg=q("msg"); msg.innerHTML="";
+    var nom=(q("f_nom").value||"").trim();
+    var m1=(q("f_mail").value||"").trim();
+    var m2=(q("f_mail2").value||"").trim();
+    if(!nom || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m1)){
+      msg.innerHTML='<p class="err">Merci d\'indiquer votre nom et une adresse e-mail valide.</p>'; return; }
+    if(m1.toLowerCase()!==m2.toLowerCase()){
+      msg.innerHTML='<p class="err"><b>Les deux adresses e-mail ne correspondent pas.</b><br>Sans e-mail correct, vous ne recevrez pas votre billet.</p>'; return; }
+
+    var preuve="";
+    if(PAY){
+      var f=q("f_preuve");
+      if(!f.files || !f.files.length){
+        msg.innerHTML='<p class="err"><b>La preuve de paiement est obligatoire.</b></p>'; return; }
+      try{ preuve = await compresser(f.files[0]); }
+      catch(e){ msg.innerHTML='<p class="err">Impossible de lire ce fichier. Essayez une photo (JPG/PNG).</p>'; return; }
+    }
+
+    var btn=q("btn"); btn.disabled=true; btn.textContent="Envoi…";
+    try{
+      var tok = window.__tok;
+      if(!tok){
+        var ra = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
+          { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) });
+        var a = await ra.json();
+        if(!a.idToken) throw new Error("auth");
+        tok = a.idToken;
+      }
+      var path = "commission_signups/"+CID;
+      var rc = await fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+tok } });
+      var cur = rc.ok ? await rc.json() : null;
+      var list=[];
+      try{ if(cur && cur.fields && cur.fields.list) list=JSON.parse(cur.fields.list.stringValue||"[]"); }catch(e){}
+
+      if(list.some(function(x){ return String(x.email||"").toLowerCase()===m1.toLowerCase(); })){
+        msg.innerHTML='<p class="err">Cette adresse est déjà inscrite. Vérifiez votre boîte mail.</p>';
+        btn.disabled=false; btn.textContent="Je m'inscris"; return;
+      }
+
+      var rec = { name:nom, email:m1, section:q("f_sec").value,
+                  annee:(isP && q("f_role").value==="alumni") ? "" : q("f_annee").value,
+                  ts:Date.now(), statut: PAY?"apayer":"nouveau" };
+      if(isP){ rec.role=q("f_role").value; rec.exPasserelle=!!q("f_pass").checked; }
+      if(PAY) rec.preuve=preuve;
+      list.push(rec);
+
+      var fields = { list:{ stringValue: JSON.stringify(list) },
+                     updatedAt:{ stringValue: new Date().toISOString() } };
+      var qs = Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
+      var rp = await fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
+        headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" },
+        body: JSON.stringify({ fields:fields }) });
+      if(!rp.ok) throw new Error("save");
+
+      q("form").style.display="none";
+      msg.innerHTML='<div class="card"><p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
+        + '<p class="hint">'+(PAY
+            ? 'Votre paiement va être <b>vérifié par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.'
+            : 'Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.')+'</p>'
+        + '<p class="hint">📩 <b>Vous ne recevez rien ?</b> Vérifiez vos <b>spams</b>.</p></div>';
+    }catch(e){
+      msg.innerHTML='<p class="err">Échec de l\'inscription. Vérifiez votre connexion et réessayez.</p>';
+      btn.disabled=false; btn.textContent="Je m'inscris";
+    }
+  };
+})();
+</script>
+</body>
+</html>
