@@ -1679,7 +1679,6 @@
   var SIGNUPS=[];
   window.majNomEvent=async function(v){
     v=(v||"").trim();
-    if(v===eventName) return;
     eventName=v; await Store.set("eventName", JSON.stringify(v));
     if($("suEvName")) $("suEvName").value=v;
     if($("evName") && $("evName").value!==v) $("evName").value=v;
@@ -1704,7 +1703,8 @@
     var a=loadAuth(cid);
     if(!a||!a.idToken){ if(!silencieux) flash("Session expirée, reconnecte-toi."); return false; }
     try{
-      var r = await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken);
+      var r = await fsPatchFields(ticketDocPath(cid), { event: fsField(v||""), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      try{ await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken); }catch(_){}
       if(!r || r.ok!==true){
         var msg = (r && r.data && r.data.error && r.data.error.message) || "droits Firestore";
         if(!silencieux) flash("Nom non publié : "+msg);
