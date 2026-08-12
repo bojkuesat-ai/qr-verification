@@ -1704,6 +1704,14 @@
     try{ await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken); }catch(_){}
     gros(v ? ("ENREGISTRE : "+v) : "NOM EFFACE", true);
   };
+  document.addEventListener("click", function(e){
+    var t=e.target;
+    if(!t || !t.id) return;
+    if(t.id==="btnSaveEv"){ e.preventDefault(); saveEvName(); }
+    else if(t.id==="btnRefreshSu"){ e.preventDefault(); refreshSignups(); }
+    else if(t.id==="btnCopy1"){ e.preventDefault(); copySignupLink(false); }
+    else if(t.id==="btnCopy2"){ e.preventDefault(); copySignupLink(true); }
+  }, true);
   window.saveEvName=async function(){
     var v=(($("suEvName")&&$("suEvName").value)||"").trim();
     await majNomEvent(v);
@@ -1854,24 +1862,24 @@
     await saveSignups(); renderSignups(); flash("Billet envoyé à "+x.name+".");
   };
   var SIGNUP_HTML = `    <div class="card gen-card" id="signupCard">
-      <div class="gen-head"><h2>Inscriptions en ligne</h2><button class="btn ghost sm" onclick="refreshSignups()">Actualiser</button></div>
+      <div class="gen-head"><h2>Inscriptions en ligne</h2><button class="btn ghost sm" id="btnRefreshSu" type="button">Actualiser</button></div>
       <p class="sub">Partage le lien ci-dessous : les gens s'inscrivent seuls et reçoivent leur billet par e-mail.</p>
       <label class="fld" for="suEvName">Nom de l'événement</label>
       <div class="row" style="gap:8px;align-items:center">
         <input type="text" id="suEvName" placeholder="Ex. Soirée de parrainage 2026" style="flex:1">
-        <button class="btn ghost sm" onclick="saveEvName()">Enregistrer</button>
+        <button class="btn ghost sm" id="btnSaveEv" type="button">Enregistrer</button>
       </div>
       <div style="height:12px"></div>
       <label class="fld">Lien inscription (gratuit)</label>
       <div class="row" style="gap:8px;align-items:center">
         <input type="text" id="suLink" readonly style="flex:1;font-size:12px">
-        <button class="btn ghost sm" onclick="copySignupLink()">Copier</button>
+        <button class="btn ghost sm" id="btnCopy1" type="button">Copier</button>
       </div>
       <div id="suPayWrap" style="margin-top:10px">
         <label class="fld">Lien inscription (événement payant)</label>
         <div class="row" style="gap:8px;align-items:center">
           <input type="text" id="suLinkPay" readonly style="flex:1;font-size:12px">
-          <button class="btn ghost sm" onclick="copySignupLink(true)">Copier</button>
+          <button class="btn ghost sm" id="btnCopy2" type="button">Copier</button>
         </div>
       </div>
       <div style="height:12px"></div>
@@ -1890,6 +1898,18 @@
     if(autre) autre.innerHTML="";
     if(!cible) return;
     if(!cible.firstChild) cible.innerHTML = SIGNUP_HTML;
+    brancherBoutonsSignup();
+  }
+  function brancherBoutonsSignup(){
+    var b;
+    b=$("btnSaveEv");    if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ saveEvName(); }; }
+    b=$("btnRefreshSu"); if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ refreshSignups(); }; }
+    b=$("btnCopy1");     if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ copySignupLink(false); }; }
+    b=$("btnCopy2");     if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ copySignupLink(true); }; }
+    var i=$("suEvName"); if(i && !i.__ok){ i.__ok=1;
+      i.onchange=function(){ saveEvName(); };
+      i.onkeydown=function(e){ if(e.key==="Enter"){ e.preventDefault(); saveEvName(); } };
+    }
   }
   function renderSignups(){
     majPayBadge();
