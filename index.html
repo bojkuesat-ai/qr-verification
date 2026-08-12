@@ -1403,19 +1403,30 @@
     roster=[]; eventName=""; usedSet.clear(); usedAt={};
     localRosterVersion = Date.now(); await Store.set("rosterVersion", String(localRosterVersion));
     if($("phoneLinkWrap")) $("phoneLinkWrap").style.display="none";
-    $("evName").value=""; renderTickets(); renderList(); updateCounts();
+    if($("evName")) $("evName").value=""; if($("pEvName")) $("pEvName").value=""; renderTickets(); renderList(); updateCounts();
     if(syncCode){ syncPushFull(); }
     cloudPushRoster(currentCommId());
   }
   window.clearAll = async function(){
     if(!confirm("Tout effacer : la liste d'invités, les entrées ET les inscriptions en ligne ? Action définitive.")) return;
     await resetSignups();
-    await wipeAll(); flash("Tout a été effacé.");
+    await wipeAll();
+    if($("suEvName")) $("suEvName").value="";
+    if($("pEvName")) $("pEvName").value="";
+    await publierNomEvent("", true);
+    renderSignups();
+    flash("Tout a été effacé.");
   };
   window.newEvent = async function(){
     if(!confirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne (y compris les paiements en attente) seront effacées.")) return;
     await resetSignups();
-    await wipeAll(); showTab(currentCommId()==="parrainage" ? "parrainage" : "guests"); if(currentCommId()!=="parrainage") $("evName").focus();
+    await wipeAll();
+    if($("suEvName")) $("suEvName").value="";
+    if($("pEvName")) $("pEvName").value="";
+    await publierNomEvent("", true);      // le formulaire public ne garde plus l'ancien nom
+    renderSignups();
+    showTab(currentCommId()==="parrainage" ? "parrainage" : "guests");
+    if(currentCommId()!=="parrainage") $("evName").focus();
     flash("Prêt pour un nouvel événement.");
   };
   async function resetSignups(){
@@ -1669,7 +1680,7 @@
   window.majNomEvent=async function(v){
     v=(v||"").trim();
     if(v===eventName) return;
-    eventName=v; await Store.set("event", v);
+    eventName=v; await Store.set("eventName", JSON.stringify(v));
     if($("suEvName")) $("suEvName").value=v;
     if($("evName") && $("evName").value!==v) $("evName").value=v;
     if($("pEvName") && $("pEvName").value!==v) $("pEvName").value=v;
@@ -1678,7 +1689,7 @@
   };
   window.saveEvName=async function(){
     var v=(($("suEvName")&&$("suEvName").value)||"").trim();
-    eventName=v; await Store.set("event", v);
+    eventName=v; await Store.set("eventName", JSON.stringify(v));
     if($("evName")) $("evName").value=v;
     cloudPushRoster(currentCommId());
     var pub = await publierNomEvent(v);
