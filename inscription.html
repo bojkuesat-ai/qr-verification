@@ -136,11 +136,13 @@
     .then(function(a){
       if(!a.idToken) throw 0;
       window.__tok = a.idToken;
-      return fetch(FS_BASE+"commission_signups/"+CID, { headers:{ "Authorization":"Bearer "+a.idToken } });
+      // le nom de l'événement est enregistré par l'app dans commission_tickets (champ "event")
+      return fetch(FS_BASE+"commission_tickets/"+CID, { headers:{ "Authorization":"Bearer "+a.idToken } });
     })
     .then(function(r){ return r.json(); })
     .then(function(d){
-      var v = d && d.fields && d.fields.evName && d.fields.evName.stringValue;
+      var f = d && d.fields;
+      var v = f && ((f.event && f.event.stringValue) || (f.evName && f.evName.stringValue));
       if(v) q("titre").textContent = v + (PAY?" — événement payant":"");
     }).catch(function(){});
   }, 0);
