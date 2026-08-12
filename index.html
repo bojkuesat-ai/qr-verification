@@ -1678,21 +1678,10 @@
   function signupDocPath(cid){ return "commission_signups/"+cid; }
   var SIGNUPS=[];
   function gros(txt, ok){
-    var d=document.getElementById("bigMsg");
-    if(!d){ d=document.createElement("div"); d.id="bigMsg";
-      d.style.cssText="position:fixed;left:0;right:0;top:0;z-index:2147483647;padding:26px 20px;"
-        +"font:700 26px/1.35 -apple-system,Helvetica,Arial,sans-serif;text-align:center;"
-        +"box-shadow:0 6px 30px rgba(0,0,0,.5);cursor:pointer";
-      d.onclick=function(){ d.style.display="none"; };
-      document.body.appendChild(d);
-    }
-    d.style.background = ok ? "#1e7d4f" : "#b3261e";
-    d.style.color = "#fff";
-    d.textContent = txt;
-    d.style.display = "block";
-    clearTimeout(window.__bigT);
-    window.__bigT = setTimeout(function(){ d.style.display="none"; }, 9000);
+    try{ if(window.alert) window.alert(txt); }catch(e){}
+    try{ flash(txt); }catch(e){}
   }
+
   window.majNomEvent=async function(v){
     v=(v||"").trim();
     eventName=v; await Store.set("eventName", JSON.stringify(v));
