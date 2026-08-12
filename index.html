@@ -851,7 +851,10 @@
     if(C.section !== F.section) return false;                 // jamais Droit/Crimino croisés
     if(!(C.role==="parrain"||C.role==="alumni")) return false;
     if(F.role!=="filleul") return false;
-    if(C.exPasserelle){ return F.annee==="Passerelle"; }       // ex-passerelle : uniquement Passerelle
+    if(C.exPasserelle){                                        // ex-passerelle
+      if(C.annee==="MA2") return F.annee==="Passerelle" || F.annee==="MA1";
+      return F.annee==="Passerelle";
+    }
     if(F.annee==="Passerelle"){ return C.role==="alumni" || C.annee==="MA2"; }
     if(F.annee==="BA1"){ return C.role==="alumni" || C.annee==="BA2" || C.annee==="BA3"; }
     if(F.annee==="MA1"){ return C.role==="alumni" || C.annee==="MA2"; }
@@ -1724,7 +1727,7 @@
   async function creerBilletDepuisInscription(x){
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
-    roster.push({ token:tok, name:x.name, extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"" });
+    roster.push({ token:tok, name:x.name, extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle });
     localRosterVersion=Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
@@ -1768,14 +1771,17 @@
       + '<div style="height:10px"></div>'
       + '<label class="fld" for="su_mail">Adresse e-mail</label><input type="email" id="su_mail" autocomplete="email">'
       + '<div style="height:10px"></div>'
+      + '<label class="fld" for="su_mail2">Confirmez votre adresse e-mail</label><input type="email" id="su_mail2" autocomplete="off" onpaste="return false" oncontextmenu="return false">'
+      + '<div style="height:10px"></div>'
       + '<label class="fld" for="su_sec">Section</label><select id="su_sec"><option>Droit</option><option>Criminologie</option></select>'
       + '<div style="height:10px"></div>'
       + '<label class="fld" for="su_role">Je m\'inscris comme</label><select id="su_role"><option value="parrain">Parrain / Marraine</option><option value="filleul">Filleul\u00b7e</option><option value="alumni">Alumni / Ancien\u00b7ne</option></select>'
       + '<div style="height:10px"></div>'
       + '<div id="su_anneeWrap"><label class="fld" for="su_annee">Ann\u00e9e</label><select id="su_annee"></select></div>'
+      + '<label id="su_passWrap" style="display:none;align-items:center;gap:9px;margin-top:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="su_pass"> J\'ai fait la passerelle</label>'
       + '<div style="height:16px"></div>'
       + '<button class="btn gold block" id="su_btn">Je m\'inscris</button>'
-      + '<p class="hint" style="margin-top:12px">Votre billet vous sera envoyé par e-mail. Si l\'événement est complet, vous serez placé·e en liste d\'attente.</p>'
+      + '<p class="hint" style="margin-top:12px">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>. Si vous ne le trouvez pas dans votre boîte de réception, <b>pensez à vérifier vos spams / courriers indésirables</b>. Si l\'événement est complet, vous serez placé·e en liste d\'attente.</p>'
       + '</div><div id="suMsg" style="margin-top:16px"></div></div>';
     function majAnnees(){
       var role=document.getElementById("su_role").value, sec=document.getElementById("su_sec").value;
@@ -1783,9 +1789,19 @@
       if(role==="alumni"){ wrap.style.display="none"; return; }
       wrap.style.display="";
       var years = (sec==="Criminologie") ? ((role==="parrain")?["MA2"]:["MA1"])
-                : ((role==="parrain")?["BA2","BA3","MA2"]:["Passerelle","BA1","MA1"]);
+                : ((role==="parrain")?["BA2","BA3","MA1","MA2"]:["Passerelle","BA1","MA1"]);
       sel.innerHTML=years.map(function(y){ return '<option>'+y+'</option>'; }).join("");
+      majPass();
     }
+    function majPass(){
+      var role=document.getElementById("su_role").value, sec=document.getElementById("su_sec").value;
+      var an=document.getElementById("su_annee").value;
+      var w=document.getElementById("su_passWrap");
+      var ok = (role==="parrain" && sec==="Droit" && (an==="MA1"||an==="MA2"));
+      w.style.display = ok ? "flex" : "none";
+      if(!ok) document.getElementById("su_pass").checked=false;
+    }
+    document.getElementById("su_annee").onchange=majPass;
     document.getElementById("su_role").onchange=majAnnees;
     document.getElementById("su_sec").onchange=majAnnees;
     majAnnees();
@@ -1795,8 +1811,10 @@
   async function submitSignup(cid){
     var nm=(document.getElementById("su_name").value||"").trim();
     var mail=(document.getElementById("su_mail").value||"").trim();
+    var mail2=(document.getElementById("su_mail2").value||"").trim();
     var msg=document.getElementById("suMsg");
     if(!nm || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ msg.innerHTML='<p style="color:var(--red)">Merci d\'indiquer votre nom et une adresse e-mail valide.</p>'; return; }
+    if(mail.toLowerCase()!==mail2.toLowerCase()){ msg.innerHTML='<p style="color:var(--red)"><b>Les deux adresses e-mail ne correspondent pas.</b><br>Vérifiez votre saisie : sans e-mail correct, vous ne recevrez pas votre billet.</p>'; return; }
     var btn=document.getElementById("su_btn"); btn.disabled=true; btn.textContent="Envoi…";
     try{
       var a = await fbCall("signUp", { returnSecureToken:true });        // connexion anonyme
@@ -1811,10 +1829,11 @@
       var _role=document.getElementById("su_role").value;
       var _sec=document.getElementById("su_sec").value;
       var _an=(_role==="alumni")?"":document.getElementById("su_annee").value;
-      list.push({ name:nm, email:mail, role:_role, section:_sec, annee:_an, ts:Date.now(), statut:"nouveau" });
+      var _xp = !!(document.getElementById("su_pass") && document.getElementById("su_pass").checked);
+      list.push({ name:nm, email:mail, role:_role, section:_sec, annee:_an, exPasserelle:_xp, ts:Date.now(), statut:"nouveau" });
       await fsPatchFields(path, { list: fsField(JSON.stringify(list)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
       document.getElementById("suForm").style.display="none";
-      msg.innerHTML='<div class="card" style="padding:18px;text-align:center"><p style="font-size:34px;margin:0">✅</p><p style="margin:8px 0 0"><b>Inscription enregistrée</b></p><p class="hint" style="margin-top:6px">Vous recevrez votre billet par e-mail. Merci !</p></div>';
+      msg.innerHTML='<div class="card" style="padding:18px;text-align:center"><p style="font-size:34px;margin:0">✅</p><p style="margin:8px 0 0"><b>Inscription enregistrée</b></p><p class="hint" style="margin-top:8px">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.</p><p class="hint" style="margin-top:8px">📩 <b>Vous ne recevez rien ?</b> Vérifiez vos <b>spams / courriers indésirables</b> avant de nous contacter.</p></div>';
     }catch(e){
       msg.innerHTML='<p style="color:var(--red)">Échec de l\'inscription. Réessayez plus tard.</p>';
       btn.disabled=false; btn.textContent="Je m\'inscris";
