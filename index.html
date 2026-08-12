@@ -279,7 +279,7 @@
   <div class="tabs" role="tablist">
     <button class="tab" id="t-guests" role="tab" aria-selected="true" onclick="showTab('guests')">
       <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M16 11a4 4 0 1 0-8 0m10 8a6 6 0 0 0-12 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-      Invités
+      Invités<span id="payBadge" style="display:none;background:#c0392b;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:5px">0</span>
     </button>
     <button class="tab" id="t-scan" role="tab" aria-selected="false" onclick="showTab('scan')">
       <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8m8 0h2.5A1.5 1.5 0 0 1 20 5.5V8m0 8v2.5a1.5 1.5 0 0 1-1.5 1.5H16m-8 0H5.5A1.5 1.5 0 0 1 4 18.5V16M4 12h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
@@ -330,9 +330,23 @@
         <button class="btn ghost sm" onclick="saveQuota()">Enregistrer</button>
       </div>
       <div style="height:12px"></div>
+      <label class="fld">Lien inscription (gratuit)</label>
       <div class="row" style="gap:8px;align-items:center">
         <input type="text" id="suLink" readonly style="flex:1;font-size:12px">
         <button class="btn ghost sm" onclick="copySignupLink()">Copier</button>
+      </div>
+      <div id="suPayWrap" style="margin-top:10px">
+        <label class="fld">Lien inscription (\u00e9v\u00e9nement payant)</label>
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="text" id="suLinkPay" readonly style="flex:1;font-size:12px">
+          <button class="btn ghost sm" onclick="copySignupLink(true)">Copier</button>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+      <label class="fld" for="suNotif">E-mail de notification (alerte \u00e0 chaque nouvelle preuve)</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <input type="email" id="suNotif" placeholder="responsable@exemple.be" style="flex:1">
+        <button class="btn ghost sm" onclick="saveNotifMail()">Enregistrer</button>
       </div>
       <div id="suStats" class="hint" style="margin-top:10px"></div>
       <div id="suList" style="margin-top:8px"></div>
@@ -1423,11 +1437,12 @@
     cloudPushRoster(currentCommId());
   }
   window.clearAll = async function(){
-    if(!confirm("Tout effacer : la liste d'invités ET les entrées ? Action définitive.")) return;
+    if(!confirm("Tout effacer : la liste d'invités, les entrées ET les inscriptions en ligne ? Action définitive.")) return;
+    await resetSignups();
     await wipeAll(); flash("Tout a été effacé.");
   };
   window.newEvent = async function(){
-    if(roster.length && !confirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne seront effacées.")) return;
+    if(!confirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne (y compris les paiements en attente) seront effacées.")) return;
     await resetSignups();
     await wipeAll(); showTab(currentCommId()==="parrainage" ? "parrainage" : "guests"); if(currentCommId()!=="parrainage") $("evName").focus();
     flash("Prêt pour un nouvel événement.");
@@ -1690,11 +1705,52 @@
     flash("Quotas enregistrés."); refreshSignups();
   };
   function countRole(r){ return roster.filter(function(g){ return g.role===r; }).length; }
-  window.copySignupLink=function(){ var i=$("suLink"); if(!i) return; try{ navigator.clipboard.writeText(i.value); flash("Lien copié !"); }catch(e){ i.select(); } };
-  function signupLink(){ var cid=currentCommId(); return location.origin+location.pathname+"#signup="+(cid||""); }
+  function notifKey(){ return "qrentry:notifmail:"+(currentCommId()||""); }
+  function getNotifMail(){ try{ return window.localStorage.getItem(notifKey())||""; }catch(e){ return ""; } }
+  window.saveNotifMail=function(){
+    var v=(($("suNotif")&&$("suNotif").value)||"").trim();
+    if(v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ flash("Adresse e-mail invalide."); return; }
+    try{ window.localStorage.setItem(notifKey(), v); }catch(e){}
+    flash(v?"E-mail de notification enregistr\u00e9.":"Notification par e-mail d\u00e9sactiv\u00e9e.");
+  };
+  function seenKey(){ return "qrentry:seenpay:"+(currentCommId()||""); }
+  function getSeen(){ try{ return parseInt(window.localStorage.getItem(seenKey())||"0",10)||0; }catch(e){ return 0; } }
+  function setSeen(n){ try{ window.localStorage.setItem(seenKey(), String(n)); }catch(e){} }
+  function majPayBadge(){
+    var n=SIGNUPS.filter(function(x){return x.statut==="apayer";}).length;
+    var b=$("payBadge");
+    if(b){ b.textContent=String(n); b.style.display = n>0 ? "inline-block" : "none"; }
+    return n;
+  }
+  async function alerterNouvellesPreuves(){
+    var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
+    var n=apay.length, vus=getSeen();
+    if(n>vus){
+      var nouveaux=n-vus;
+      flash(nouveaux+" nouvelle(s) preuve(s) de paiement \u00e0 v\u00e9rifier !");
+      try{ beep(true); }catch(e){}
+      var to=getNotifMail();
+      if(to){
+        var lien=location.origin+location.pathname;
+        var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
+          +'<h2 style="margin:0 0 10px">Nouvelle(s) preuve(s) de paiement</h2>'
+          +'<p><b>'+nouveaux+'</b> nouvelle(s) inscription(s) payante(s) attendent votre v\u00e9rification pour <b>'+escapeHtml(commName(currentCommId())||"")+'</b>.</p>'
+          +'<p>Total en attente : <b>'+n+'</b></p>'
+          +'<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Ouvrir l\'application</a></p></div>';
+        try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+          body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" preuve(s) de paiement \u00e0 v\u00e9rifier",html:html})}); }catch(e){}
+      }
+    }
+    setSeen(n);
+  }
+  window.copySignupLink=function(pay){ var i=$(pay?"suLinkPay":"suLink"); if(!i) return; try{ navigator.clipboard.writeText(i.value); flash("Lien copié !"); }catch(e){ i.select(); } };
+  function signupLink(pay){ var cid=currentCommId(); return location.origin+location.pathname+"#signup="+(cid||"")+(pay?":pay":""); }
   window.refreshSignups=async function(){
     var cid=currentCommId(); if(!cid) return;
-    if($("suLink")) $("suLink").value=signupLink();
+    if($("suLink")) $("suLink").value=signupLink(false);
+    if($("suLinkPay")) $("suLinkPay").value=signupLink(true);
+    if($("suPayWrap")) $("suPayWrap").style.display = (cid==="parrainage") ? "none" : "";
+    if($("suNotif") && !$("suNotif").value){ var _nm=getNotifMail(); if(_nm) $("suNotif").value=_nm; }
     var _q=getQuotas();
     if($("suQP") && !$("suQP").value && _q.parrain) $("suQP").value=String(_q.parrain);
     if($("suQF") && !$("suQF").value && _q.filleul) $("suQF").value=String(_q.filleul);
@@ -1705,6 +1761,8 @@
       var d=await fsGetDoc(signupDocPath(cid), a.idToken);
       SIGNUPS=[]; if(d&&d.fields&&d.fields.list){ try{ SIGNUPS=JSON.parse(d.fields.list.stringValue||"[]"); }catch(e){} }
       await processSignups();
+      majPayBadge();
+      await alerterNouvellesPreuves();
     }catch(e){}
     renderSignups();
   };
@@ -1714,7 +1772,7 @@
   }
   async function processSignups(){
     var q=getQuotas();
-    var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });
+    var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });   // "apayer" = validation manuelle
     if(!nouveaux.length) return;
     var changed=false;
     for(var i=0;i<nouveaux.length;i++){
@@ -1737,21 +1795,57 @@
     try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
       body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)})}); }catch(e){}
   }
+  window.voirPreuve=function(i){
+    var x=SIGNUPS[i]; if(!x||!x.preuve) return flash("Aucune preuve.");
+    var w=window.open("","_blank");
+    if(w) w.document.write('<title>Preuve de paiement</title><body style="margin:0;background:#111;display:flex;align-items:center;justify-content:center;min-height:100vh"><img src="'+x.preuve+'" style="max-width:100%;max-height:100vh"></body>');
+  };
+  window.refuserInscrit=async function(i){
+    var x=SIGNUPS[i]; if(!x) return;
+    var motif = window.prompt ? (window.prompt("Motif du refus (visible par la personne) :","La preuve de paiement n'est pas lisible ou ne correspond pas au montant attendu.")||"") : "";
+    if(motif===null) return;
+    if(window.confirm && !window.confirm("Refuser l'inscription de "+x.name+" et lui demander de renvoyer sa preuve ?")) return;
+    x.statut="refuse"; x.motif=motif; await saveSignups(); renderSignups();
+    if(x.email){
+      var lien = location.origin+location.pathname+"#signup="+(currentCommId()||"")+":pay";
+      var html = '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
+        + '<h2 style="margin:0 0 10px">Preuve de paiement \u00e0 renvoyer</h2>'
+        + '<p>Bonjour '+escapeHtml(x.name)+',</p>'
+        + '<p>Nous n\'avons pas pu valider votre inscription \u00e0 <b>'+escapeHtml(eventName||commName(currentCommId())||"notre \u00e9v\u00e9nement")+'</b>.</p>'
+        + (motif ? '<p style="background:#fdf3f3;border:1px solid #eccfcf;border-radius:8px;padding:12px"><b>Motif :</b><br>'+escapeHtml(motif)+'</p>' : '')
+        + '<p>Merci de refaire votre inscription en joignant une preuve de paiement lisible :</p>'
+        + '<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Renvoyer ma preuve</a></p>'
+        + '<p style="color:#999;font-size:12px">Si le bouton ne fonctionne pas, copiez ce lien : '+lien+'</p></div>';
+      try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:x.email,subject:"Preuve de paiement \u00e0 renvoyer \u2014 "+(eventName||"inscription"),html:html})}); flash("Refus enregistr\u00e9 et e-mail envoy\u00e9."); }
+      catch(e){ flash("Refus enregistr\u00e9 (e-mail non envoy\u00e9)."); }
+    }
+  };
   window.accepterInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
     await creerBilletDepuisInscription(x); x.statut="accepte";
     await saveSignups(); renderSignups(); flash("Billet envoyé à "+x.name+".");
   };
   function renderSignups(){
+    majPayBadge();
     var box=$("suList"), st=$("suStats"); if(!box) return;
     var q=getQuotas();
     var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";}).length;
     var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
     if(st) st.textContent = SIGNUPS.length+" inscription(s) · "+acc+" envoyé(s) · "+att.length+" en attente · Parrains "+countRole("parrain")+(q.parrain?"/"+q.parrain:"")+" · Filleuls "+countRole("filleul")+(q.filleul?"/"+q.filleul:"")+" · Alumni "+countRole("alumni")+(q.alumni?"/"+q.alumni:"");
-    box.innerHTML = att.length
+    var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
+    var htmlPay = apay.length
+      ? '<p class="fld" style="margin-top:10px">Paiements \u00e0 v\u00e9rifier ('+apay.length+')</p>'+apay.map(function(x){ var i=SIGNUPS.indexOf(x);
+          var info=(x.annee||"")+(x.section?" \u00b7 "+x.section:"");
+          return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)"><span style="flex:1">'+escapeHtml(x.name)+'<br><span class="hint">'+escapeHtml(info)+' \u2014 '+escapeHtml(x.email)+'</span></span>'
+            +'<button class="btn ghost xs" onclick="voirPreuve('+i+')">Preuve</button>'
+            +'<button class="btn gold xs" onclick="accepterInscrit('+i+')">Valider</button>'
+            +'<button class="btn ghost xs" onclick="refuserInscrit('+i+')">Refuser</button></div>'; }).join("")
+      : '';
+    box.innerHTML = htmlPay + (att.length
       ? '<p class="fld" style="margin-top:10px">Liste d\'attente</p>'+att.map(function(x){ var i=SIGNUPS.indexOf(x);
           return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)"><span style="flex:1">'+escapeHtml(x.name)+'<br><span class="hint">'+escapeHtml(x.email)+'</span></span><button class="btn ghost xs" onclick="accepterInscrit('+i+')">Accepter</button></div>'; }).join("")
-      : '';
+      : '');
   }
   function checkSignupLink(){
     var m=(location.hash||"").match(/[#&]signup=([a-z]+)/);
@@ -1759,9 +1853,11 @@
     if(m[1]!=="parrainage") return false;
     showSignupForm(m[1]); return true;
   }
-  function showSignupForm(cid){
+  function showSignupForm(cid, pay){
     document.body.classList.remove("home-mode");
+    var isP = (cid==="parrainage");
     var nm = commName(cid) || "l'événement";
+    if(pay) nm += " — événement payant";
     var el = document.getElementById("app") || document.body;
     el.innerHTML = '<div class="wrap" style="max-width:520px;margin:0 auto;padding:26px 18px">'
       + '<h1 class="ttl" style="margin-bottom:6px">Inscription</h1>'
@@ -1775,16 +1871,23 @@
       + '<div style="height:10px"></div>'
       + '<label class="fld" for="su_sec">Section</label><select id="su_sec"><option>Droit</option><option>Criminologie</option></select>'
       + '<div style="height:10px"></div>'
-      + '<label class="fld" for="su_role">Je m\'inscris comme</label><select id="su_role"><option value="parrain">Parrain / Marraine</option><option value="filleul">Filleul\u00b7e</option><option value="alumni">Alumni / Ancien\u00b7ne</option></select>'
-      + '<div style="height:10px"></div>'
-      + '<div id="su_anneeWrap"><label class="fld" for="su_annee">Ann\u00e9e</label><select id="su_annee"></select></div>'
-      + '<label id="su_passWrap" style="display:none;align-items:center;gap:9px;margin-top:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="su_pass"> J\'ai fait la passerelle</label>'
+      + (isP ? '<label class="fld" for="su_role">Je m\'inscris comme</label><select id="su_role"><option value="parrain">Parrain / Marraine</option><option value="filleul">Filleul\u00b7e</option><option value="alumni">Alumni / Ancien\u00b7ne</option></select><div style="height:10px"></div>' : '')
+      + '<div id="su_anneeWrap"><label class="fld" for="su_annee">Ann\u00e9e d\'\u00e9tudes</label><select id="su_annee"></select></div>'
+      + (isP ? '<label id="su_passWrap" style="display:none;align-items:center;gap:9px;margin-top:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="su_pass"> J\'ai fait la passerelle</label>' : '')
+      + (pay ? '<div style="height:12px"></div><label class="fld" for="su_proof">Preuve de paiement <span style="color:var(--red)">*</span></label><input type="file" id="su_proof" accept="image/*"><p class="hint" style="margin-top:6px">Photo ou capture de votre virement. Obligatoire.</p>' : '')
       + '<div style="height:16px"></div>'
       + '<button class="btn gold block" id="su_btn">Je m\'inscris</button>'
       + '<p class="hint" style="margin-top:12px">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>. Si vous ne le trouvez pas dans votre boîte de réception, <b>pensez à vérifier vos spams / courriers indésirables</b>. Si l\'événement est complet, vous serez placé·e en liste d\'attente.</p>'
       + '</div><div id="suMsg" style="margin-top:16px"></div></div>';
     function majAnnees(){
-      var role=document.getElementById("su_role").value, sec=document.getElementById("su_sec").value;
+      var sec=document.getElementById("su_sec").value;
+      var selA=document.getElementById("su_annee");
+      if(!isP){
+        var ys = (sec==="Criminologie") ? ["MA1","MA2"] : ["BA1","BA2","BA3","Passerelle","MA1","MA2"];
+        selA.innerHTML=ys.map(function(y){ return '<option>'+y+'</option>'; }).join("");
+        return;
+      }
+      var role=document.getElementById("su_role").value;
       var wrap=document.getElementById("su_anneeWrap"), sel=document.getElementById("su_annee");
       if(role==="alumni"){ wrap.style.display="none"; return; }
       wrap.style.display="";
@@ -1794,6 +1897,7 @@
       majPass();
     }
     function majPass(){
+      if(!isP) return;
       var role=document.getElementById("su_role").value, sec=document.getElementById("su_sec").value;
       var an=document.getElementById("su_annee").value;
       var w=document.getElementById("su_passWrap");
@@ -1801,20 +1905,51 @@
       w.style.display = ok ? "flex" : "none";
       if(!ok) document.getElementById("su_pass").checked=false;
     }
-    document.getElementById("su_annee").onchange=majPass;
-    document.getElementById("su_role").onchange=majAnnees;
+    if(isP){
+      document.getElementById("su_annee").onchange=majPass;
+      document.getElementById("su_role").onchange=majAnnees;
+    }
     document.getElementById("su_sec").onchange=majAnnees;
     majAnnees();
     var btn=document.getElementById("su_btn");
-    if(btn) btn.onclick=function(){ submitSignup(cid); };
+    if(btn) btn.onclick=function(){ submitSignup(cid, pay); };
   }
-  async function submitSignup(cid){
+  function compressProof(file){
+    return new Promise(function(res,rej){
+      if(!file || !/^image\//.test(file.type)) return rej(new Error("format"));
+      var fr=new FileReader();
+      fr.onerror=function(){ rej(new Error("read")); };
+      fr.onload=function(){
+        var img=new Image();
+        img.onerror=function(){ rej(new Error("img")); };
+        img.onload=function(){
+          var max=1000, w=img.width, h=img.height;
+          if(w>max||h>max){ var r=Math.min(max/w,max/h); w=Math.round(w*r); h=Math.round(h*r); }
+          var c=document.createElement("canvas"); c.width=w; c.height=h;
+          c.getContext("2d").drawImage(img,0,0,w,h);
+          var q=0.6, out=c.toDataURL("image/jpeg",q);
+          while(out.length>700000 && q>0.25){ q-=0.1; out=c.toDataURL("image/jpeg",q); }
+          res(out);
+        };
+        img.src=fr.result;
+      };
+      fr.readAsDataURL(file);
+    });
+  }
+  async function submitSignup(cid, pay){
     var nm=(document.getElementById("su_name").value||"").trim();
     var mail=(document.getElementById("su_mail").value||"").trim();
     var mail2=(document.getElementById("su_mail2").value||"").trim();
     var msg=document.getElementById("suMsg");
     if(!nm || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ msg.innerHTML='<p style="color:var(--red)">Merci d\'indiquer votre nom et une adresse e-mail valide.</p>'; return; }
     if(mail.toLowerCase()!==mail2.toLowerCase()){ msg.innerHTML='<p style="color:var(--red)"><b>Les deux adresses e-mail ne correspondent pas.</b><br>Vérifiez votre saisie : sans e-mail correct, vous ne recevrez pas votre billet.</p>'; return; }
+    var PROOF_DATA="";
+    if(pay){
+      var fEl=document.getElementById("su_proof");
+      if(!fEl || !fEl.files || !fEl.files.length){ msg.innerHTML='<p style="color:var(--red)"><b>La preuve de paiement est obligatoire.</b><br>Ajoutez une photo ou une capture de votre virement.</p>'; return; }
+      try{ PROOF_DATA = await compressProof(fEl.files[0]); }
+      catch(e){ msg.innerHTML='<p style="color:var(--red)">Impossible de lire ce fichier. Essayez une photo (JPG/PNG).</p>'; return; }
+    }
     var btn=document.getElementById("su_btn"); btn.disabled=true; btn.textContent="Envoi…";
     try{
       var a = await fbCall("signUp", { returnSecureToken:true });        // connexion anonyme
@@ -1826,14 +1961,18 @@
         msg.innerHTML='<p style="color:var(--amber)">Cette adresse est déjà inscrite. Vérifiez votre boîte mail.</p>';
         btn.disabled=false; btn.textContent="Je m\'inscris"; return;
       }
-      var _role=document.getElementById("su_role").value;
+      var _isP=(cid==="parrainage");
+      var _role=_isP?document.getElementById("su_role").value:"";
       var _sec=document.getElementById("su_sec").value;
-      var _an=(_role==="alumni")?"":document.getElementById("su_annee").value;
+      var _an=(_isP&&_role==="alumni")?"":document.getElementById("su_annee").value;
       var _xp = !!(document.getElementById("su_pass") && document.getElementById("su_pass").checked);
-      list.push({ name:nm, email:mail, role:_role, section:_sec, annee:_an, exPasserelle:_xp, ts:Date.now(), statut:"nouveau" });
+      var _rec = { name:nm, email:mail, section:_sec, annee:_an, ts:Date.now(), statut: pay?"apayer":"nouveau" };
+      if(_isP){ _rec.role=_role; _rec.exPasserelle=_xp; }
+      if(pay) _rec.preuve = PROOF_DATA;
+      list.push(_rec);
       await fsPatchFields(path, { list: fsField(JSON.stringify(list)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
       document.getElementById("suForm").style.display="none";
-      msg.innerHTML='<div class="card" style="padding:18px;text-align:center"><p style="font-size:34px;margin:0">✅</p><p style="margin:8px 0 0"><b>Inscription enregistrée</b></p><p class="hint" style="margin-top:8px">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.</p><p class="hint" style="margin-top:8px">📩 <b>Vous ne recevez rien ?</b> Vérifiez vos <b>spams / courriers indésirables</b> avant de nous contacter.</p></div>';
+      msg.innerHTML='<div class="card" style="padding:18px;text-align:center"><p style="font-size:34px;margin:0">✅</p><p style="margin:8px 0 0"><b>Inscription enregistrée</b></p><p class="hint" style="margin-top:8px">'+(pay?'Votre paiement va être <b>vérifié par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.':'Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.')+'</p><p class="hint" style="margin-top:8px">📩 <b>Vous ne recevez rien ?</b> Vérifiez vos <b>spams / courriers indésirables</b> avant de nous contacter.</p></div>';
     }catch(e){
       msg.innerHTML='<p style="color:var(--red)">Échec de l\'inscription. Réessayez plus tard.</p>';
       btn.disabled=false; btn.textContent="Je m\'inscris";
@@ -2479,7 +2618,7 @@
     if($("suiviAdminActions")) $("suiviAdminActions").style.display = isScanner ? "none" : "block";
     if($("scannerBtn")) $("scannerBtn").style.display = isScanner ? "none" : "inline-flex";
     if($("scannerBtnP")) $("scannerBtnP").style.display = (isScanner || currentCommId()!=="parrainage") ? "none" : "inline-flex";
-    if($("signupCard")) $("signupCard").style.display = (isScanner || currentCommId()!=="parrainage") ? "none" : "";
+    if($("signupCard")) $("signupCard").style.display = (isScanner || ["parrainage","festif","culture","aca"].indexOf(currentCommId())<0) ? "none" : "";
     if($("newEvtBtn")) $("newEvtBtn").style.display = (isScanner || !roster.length) ? "none" : "inline-flex";
     if(isScanner && (currentTab==="guests"||currentTab==="list")){ showTab("scan"); }
   }
