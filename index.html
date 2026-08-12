@@ -1877,18 +1877,27 @@
     var cid=m[1], pay=!!m[2];
     if(["parrainage","festif","culture","aca"].indexOf(cid)<0) return false;
     if(cid==="parrainage" && pay) return false;
-    showSignupForm(cid, pay); return true;
+    SIGNUP_MODE = true;
+    try{ showSignupForm(cid, pay); }catch(e){ console.error(e); }
+    return true;
   }
-  async function showSignupForm(cid, pay){
+  var SIGNUP_MODE = false;
+  function showSignupForm(cid, pay){
     document.body.classList.remove("home-mode");
     var isP = (cid==="parrainage");
     var nm = commName(cid) || "l'événement";
-    try{
-      var a0 = await fbCall("signUp", { returnSecureToken:true });
-      var d0 = await fsGetDoc(signupDocPath(cid), a0.idToken);
-      if(d0 && d0.fields && d0.fields.evName && d0.fields.evName.stringValue) nm = d0.fields.evName.stringValue;
-    }catch(e){}
     if(pay) nm += " — événement payant";
+    // le nom exact de l'événement est récupéré ensuite, sans bloquer l'affichage
+    setTimeout(function(){
+      (async function(){
+        try{
+          var a0 = await fbCall("signUp", { returnSecureToken:true });
+          var d0 = await fsGetDoc(signupDocPath(cid), a0.idToken);
+          var v = d0 && d0.fields && d0.fields.evName && d0.fields.evName.stringValue;
+          if(v){ var t=document.getElementById("suTitre"); if(t) t.textContent = v + (pay?" — événement payant":""); }
+        }catch(e){}
+      })();
+    }, 0);
     document.body.className = "signup-mode";
     var el = document.createElement("div");
     el.id = "signupPage";
@@ -1897,7 +1906,7 @@
     document.body.appendChild(el);
     el.innerHTML = '<div class="wrap" style="max-width:520px;margin:0 auto;padding:26px 18px">'
       + '<h1 class="ttl" style="margin-bottom:6px">Inscription</h1>'
-      + '<p class="sub" style="margin-bottom:18px">'+escapeHtml(nm)+'</p>'
+      + '<p class="sub" id="suTitre" style="margin-bottom:18px">'+escapeHtml(nm)+'</p>'
       + '<div id="suForm">'
       + '<label class="fld" for="su_name">Nom et prénom</label><input type="text" id="su_name" autocomplete="name">'
       + '<div style="height:10px"></div>'
@@ -2221,6 +2230,7 @@
     }catch(e){ return 0; }
   }
   function renderHome(){
+    if(SIGNUP_MODE) return;
     var g=$("commGrid"); if(!g) return; g.innerHTML="";
     COMMISSIONS.forEach(function(c){
       if(c.id==="parrainage" && parrainageHidden()) return;
@@ -2681,7 +2691,7 @@
   }
   function startApp(){
     showStoreBanner();
-    window.addEventListener("hashchange", function(){ loadFromHash(); });
+    window.addEventListener("hashchange", function(){ if(SIGNUP_MODE) return; loadFromHash(); });
   }
   (function(){
     if(checkSignupLink()) return;
@@ -2715,6 +2725,7 @@
   document.addEventListener("DOMContentLoaded",net); net();
   if("serviceWorker" in navigator){
     window.addEventListener("load",function(){
+      if(/[#&]signup=/.test(location.hash||"")) return;
       navigator.serviceWorker.register("sw.js").then(function(reg){
         reg.update();
         if(reg.waiting) reg.waiting.postMessage("skipWaiting");
