@@ -1740,10 +1740,11 @@
     if($("suLink")) $("suLink").value=signupLink(false);
     if($("suLinkPay")) $("suLinkPay").value=signupLink(true);
     if($("suPayWrap")) $("suPayWrap").style.display = (cid==="parrainage") ? "none" : "";
-    var _nw=$("suEvName"); if(_nw && cid==="parrainage"){ var w=_nw.parentNode&&_nw.parentNode.previousElementSibling; if(w&&w.className==="fld") w.style.display="none"; _nw.parentNode.style.display="none"; }
+
     if($("suNotif") && !$("suNotif").value){ var _nm=getNotifMail(); if(_nm) $("suNotif").value=_nm; }
-    if($("suEvName") && !$("suEvName").value && eventName) $("suEvName").value=eventName;
-    if(eventName) publierNomEvent(eventName, true);
+    var _nomActuel = eventName || ($("pEvName")&&$("pEvName").value.trim()) || ($("evName")&&$("evName").value.trim()) || "";
+    if($("suEvName") && !$("suEvName").value && _nomActuel) $("suEvName").value=_nomActuel;
+    if(_nomActuel) publierNomEvent(_nomActuel, true);
     var ok=await ensureAuth(cid); if(!ok) return;
     var a=loadAuth(cid); if(!a) return;
     try{
