@@ -1671,9 +1671,18 @@
     eventName=v; await Store.set("event", v);
     if($("evName")) $("evName").value=v;
     cloudPushRoster(currentCommId());
+    await publierNomEvent(v);
     flash(v?"Nom de l'événement enregistré.":"Nom effacé.");
     refreshSignups();
   };
+  async function publierNomEvent(v){
+    var cid=currentCommId(); if(!cid) return;
+    try{
+      var ok=await ensureAuth(cid); if(!ok) return;
+      var a=loadAuth(cid); if(!a) return;
+      await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken);
+    }catch(e){}
+  }
   function countRole(r){ return roster.filter(function(g){ return g.role===r; }).length; }
   function notifKey(){ return "qrentry:notifmail:"+(currentCommId()||""); }
   function getNotifMail(){ try{ return window.localStorage.getItem(notifKey())||""; }catch(e){ return ""; } }
@@ -1725,6 +1734,7 @@
     var _nw=$("suEvName"); if(_nw && cid==="parrainage"){ var w=_nw.parentNode&&_nw.parentNode.previousElementSibling; if(w&&w.className==="fld") w.style.display="none"; _nw.parentNode.style.display="none"; }
     if($("suNotif") && !$("suNotif").value){ var _nm=getNotifMail(); if(_nm) $("suNotif").value=_nm; }
     if($("suEvName") && !$("suEvName").value && eventName) $("suEvName").value=eventName;
+    if(eventName) publierNomEvent(eventName);
     var ok=await ensureAuth(cid); if(!ok) return;
     var a=loadAuth(cid); if(!a) return;
     try{
@@ -1859,10 +1869,15 @@
     if(cid==="parrainage" && pay) return false;
     showSignupForm(cid, pay); return true;
   }
-  function showSignupForm(cid, pay){
+  async function showSignupForm(cid, pay){
     document.body.classList.remove("home-mode");
     var isP = (cid==="parrainage");
     var nm = commName(cid) || "l'événement";
+    try{
+      var a0 = await fbCall("signUp", { returnSecureToken:true });
+      var d0 = await fsGetDoc(signupDocPath(cid), a0.idToken);
+      if(d0 && d0.fields && d0.fields.evName && d0.fields.evName.stringValue) nm = d0.fields.evName.stringValue;
+    }catch(e){}
     if(pay) nm += " — événement payant";
     document.body.className = "signup-mode";
     var el = document.createElement("div");
