@@ -1774,7 +1774,27 @@
     }
     setSeen(n);
   }
-  window.copySignupLink=function(pay){ var i=$(pay?"suLinkPay":"suLink"); if(!i) return; try{ navigator.clipboard.writeText(i.value); flash("Lien copié !"); }catch(e){ i.select(); } };
+  window.copySignupLink=function(pay){
+    var lien = signupLink(pay);                 // toujours recalculé : nom à jour garanti
+    var i=$(pay?"suLinkPay":"suLink");
+    if(i) i.value = lien;
+    var nom=(eventName||"").trim();
+    function fini(okCopie){
+      var txt = (okCopie ? "LIEN COPIE" : "LIEN (copie-le a la main)")
+        + "\n\nEvenement : " + (nom || "(sans nom)")
+        + "\n\n" + lien;
+      try{ if(window.alert) window.alert(txt); }catch(e){}
+      try{ flash(okCopie?"Lien copié !":"Copie manuelle"); }catch(e){}
+    }
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(lien).then(function(){ fini(true); }).catch(function(){ if(i){try{i.select();}catch(e){}} fini(false); });
+        return;
+      }
+    }catch(e){}
+    if(i){ try{ i.select(); document.execCommand("copy"); fini(true); return; }catch(e){} }
+    fini(false);
+  };
   function signupLink(pay){
     var cid=currentCommId();
     var base=location.origin+location.pathname.replace(/[^\/]*$/,"");
