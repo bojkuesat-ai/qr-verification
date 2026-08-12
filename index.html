@@ -319,38 +319,8 @@
       <button class="btn gold block" onclick="generate()">Générer les billets</button>
     </div>
 
-    <div class="card gen-card" id="signupCard">
-      <div class="gen-head"><h2>Inscriptions en ligne</h2><button class="btn ghost sm" onclick="refreshSignups()">Actualiser</button></div>
-      <p class="sub">Partage ce lien : les gens s'inscrivent seuls et reçoivent leur billet automatiquement. Au-delà du quota, ils passent en liste d'attente.</p>
-      <label class="fld">Places par rôle (vide = illimité)</label>
-      <div class="row" style="gap:8px;align-items:center">
-        <input type="number" id="suQP" min="0" placeholder="Parrains" style="flex:1">
-        <input type="number" id="suQF" min="0" placeholder="Filleuls" style="flex:1">
-        <input type="number" id="suQA" min="0" placeholder="Alumni" style="flex:1">
-        <button class="btn ghost sm" onclick="saveQuota()">Enregistrer</button>
-      </div>
-      <div style="height:12px"></div>
-      <label class="fld">Lien inscription (gratuit)</label>
-      <div class="row" style="gap:8px;align-items:center">
-        <input type="text" id="suLink" readonly style="flex:1;font-size:12px">
-        <button class="btn ghost sm" onclick="copySignupLink()">Copier</button>
-      </div>
-      <div id="suPayWrap" style="margin-top:10px">
-        <label class="fld">Lien inscription (\u00e9v\u00e9nement payant)</label>
-        <div class="row" style="gap:8px;align-items:center">
-          <input type="text" id="suLinkPay" readonly style="flex:1;font-size:12px">
-          <button class="btn ghost sm" onclick="copySignupLink(true)">Copier</button>
-        </div>
-      </div>
-      <div style="height:12px"></div>
-      <label class="fld" for="suNotif">E-mail de notification (alerte \u00e0 chaque nouvelle preuve)</label>
-      <div class="row" style="gap:8px;align-items:center">
-        <input type="email" id="suNotif" placeholder="responsable@exemple.be" style="flex:1">
-        <button class="btn ghost sm" onclick="saveNotifMail()">Enregistrer</button>
-      </div>
-      <div id="suStats" class="hint" style="margin-top:10px"></div>
-      <div id="suList" style="margin-top:8px"></div>
-    </div>
+
+    <div id="signupHostG"></div>
 
     <div class="row" id="exportRow" style="display:none">
       <button class="btn ghost sm" onclick="exportPDF()">Télécharger tout (PDF)</button>
@@ -485,7 +455,8 @@
       </div>
     </div>
 
-  </section>
+      <div id="signupHostP"></div>
+</section>
 
   <p class="foot-note">Les données (liste et entrées) sont enregistrées sur cet appareil. Pour l'entrée, utilise le lien envoyé au téléphone. N'y mets que des prénoms, pas d'infos sensibles.</p>
 </div>
@@ -1695,14 +1666,13 @@
   }
   function signupDocPath(cid){ return "commission_signups/"+cid; }
   var SIGNUPS=[];
-  function quotaKey(){ return "qrentry:quotas:"+(currentCommId()||""); }
-  function getQuotas(){ try{ return JSON.parse(window.localStorage.getItem(quotaKey())||'{"parrain":0,"filleul":0,"alumni":0}'); }catch(e){ return {parrain:0,filleul:0,alumni:0}; } }
-  window.saveQuota=function(){
-    var q={ parrain:parseInt(($("suQP")&&$("suQP").value)||"0",10)||0,
-            filleul:parseInt(($("suQF")&&$("suQF").value)||"0",10)||0,
-            alumni:parseInt(($("suQA")&&$("suQA").value)||"0",10)||0 };
-    try{ window.localStorage.setItem(quotaKey(), JSON.stringify(q)); }catch(e){}
-    flash("Quotas enregistrés."); refreshSignups();
+  window.saveEvName=async function(){
+    var v=(($("suEvName")&&$("suEvName").value)||"").trim();
+    eventName=v; await Store.set("event", v);
+    if($("evName")) $("evName").value=v;
+    cloudPushRoster(currentCommId());
+    flash(v?"Nom de l'événement enregistré.":"Nom effacé.");
+    refreshSignups();
   };
   function countRole(r){ return roster.filter(function(g){ return g.role===r; }).length; }
   function notifKey(){ return "qrentry:notifmail:"+(currentCommId()||""); }
@@ -1747,14 +1717,14 @@
   function signupLink(pay){ var cid=currentCommId(); return location.origin+location.pathname+"#signup="+(cid||"")+(pay?":pay":""); }
   window.refreshSignups=async function(){
     var cid=currentCommId(); if(!cid) return;
+    if(["parrainage","festif","culture","aca"].indexOf(cid)<0) return;
+    monterSignupCard();
     if($("suLink")) $("suLink").value=signupLink(false);
     if($("suLinkPay")) $("suLinkPay").value=signupLink(true);
     if($("suPayWrap")) $("suPayWrap").style.display = (cid==="parrainage") ? "none" : "";
+    var _nw=$("suEvName"); if(_nw && cid==="parrainage"){ var w=_nw.parentNode&&_nw.parentNode.previousElementSibling; if(w&&w.className==="fld") w.style.display="none"; _nw.parentNode.style.display="none"; }
     if($("suNotif") && !$("suNotif").value){ var _nm=getNotifMail(); if(_nm) $("suNotif").value=_nm; }
-    var _q=getQuotas();
-    if($("suQP") && !$("suQP").value && _q.parrain) $("suQP").value=String(_q.parrain);
-    if($("suQF") && !$("suQF").value && _q.filleul) $("suQF").value=String(_q.filleul);
-    if($("suQA") && !$("suQA").value && _q.alumni) $("suQA").value=String(_q.alumni);
+    if($("suEvName") && !$("suEvName").value && eventName) $("suEvName").value=eventName;
     var ok=await ensureAuth(cid); if(!ok) return;
     var a=loadAuth(cid); if(!a) return;
     try{
@@ -1771,14 +1741,11 @@
     try{ await fsPatchFields(signupDocPath(cid), { list: fsField(JSON.stringify(SIGNUPS)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }catch(e){}
   }
   async function processSignups(){
-    var q=getQuotas();
     var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });   // "apayer" = validation manuelle
     if(!nouveaux.length) return;
     var changed=false;
     for(var i=0;i<nouveaux.length;i++){
-      var x=nouveaux[i]; var r=x.role||"filleul"; var lim=q[r]||0;
-      if(lim>0 && countRole(r)>=lim){ x.statut="attente"; changed=true; continue; }
-      await creerBilletDepuisInscription(x); x.statut="accepte"; changed=true;
+      await creerBilletDepuisInscription(nouveaux[i]); nouveaux[i].statut="accepte"; changed=true;
     }
     if(changed){ await saveSignups(); }
   }
@@ -1826,13 +1793,50 @@
     await creerBilletDepuisInscription(x); x.statut="accepte";
     await saveSignups(); renderSignups(); flash("Billet envoyé à "+x.name+".");
   };
+  var SIGNUP_HTML = `    <div class="card gen-card" id="signupCard">
+      <div class="gen-head"><h2>Inscriptions en ligne</h2><button class="btn ghost sm" onclick="refreshSignups()">Actualiser</button></div>
+      <p class="sub">Partage le lien ci-dessous : les gens s'inscrivent seuls et reçoivent leur billet par e-mail.</p>
+      <label class="fld" for="suEvName">Nom de l'événement</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <input type="text" id="suEvName" placeholder="Ex. Soirée de parrainage 2026" style="flex:1">
+        <button class="btn ghost sm" onclick="saveEvName()">Enregistrer</button>
+      </div>
+      <div style="height:12px"></div>
+      <label class="fld">Lien inscription (gratuit)</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <input type="text" id="suLink" readonly style="flex:1;font-size:12px">
+        <button class="btn ghost sm" onclick="copySignupLink()">Copier</button>
+      </div>
+      <div id="suPayWrap" style="margin-top:10px">
+        <label class="fld">Lien inscription (\\u00e9v\\u00e9nement payant)</label>
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="text" id="suLinkPay" readonly style="flex:1;font-size:12px">
+          <button class="btn ghost sm" onclick="copySignupLink(true)">Copier</button>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+      <label class="fld" for="suNotif">E-mail de notification (alerte \\u00e0 chaque nouvelle preuve)</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <input type="email" id="suNotif" placeholder="responsable@exemple.be" style="flex:1">
+        <button class="btn ghost sm" onclick="saveNotifMail()">Enregistrer</button>
+      </div>
+      <div id="suStats" class="hint" style="margin-top:10px"></div>
+      <div id="suList" style="margin-top:8px"></div>
+    </div>`;
+  function monterSignupCard(){
+    var cid=currentCommId();
+    var cible = (cid==="parrainage") ? $("signupHostP") : $("signupHostG");
+    var autre = (cid==="parrainage") ? $("signupHostG") : $("signupHostP");
+    if(autre) autre.innerHTML="";
+    if(!cible) return;
+    if(!cible.firstChild) cible.innerHTML = SIGNUP_HTML;
+  }
   function renderSignups(){
     majPayBadge();
     var box=$("suList"), st=$("suStats"); if(!box) return;
-    var q=getQuotas();
     var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";}).length;
     var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
-    if(st) st.textContent = SIGNUPS.length+" inscription(s) · "+acc+" envoyé(s) · "+att.length+" en attente · Parrains "+countRole("parrain")+(q.parrain?"/"+q.parrain:"")+" · Filleuls "+countRole("filleul")+(q.filleul?"/"+q.filleul:"")+" · Alumni "+countRole("alumni")+(q.alumni?"/"+q.alumni:"");
+    if(st) st.textContent = SIGNUPS.length+" inscription(s) · "+acc+" billet(s) envoyé(s)"+(apay.length?" · "+apay.length+" paiement(s) à vérifier":"");
     var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
     var htmlPay = apay.length
       ? '<p class="fld" style="margin-top:10px">Paiements \u00e0 v\u00e9rifier ('+apay.length+')</p>'+apay.map(function(x){ var i=SIGNUPS.indexOf(x);
@@ -1848,17 +1852,24 @@
       : '');
   }
   function checkSignupLink(){
-    var m=(location.hash||"").match(/[#&]signup=([a-z]+)/);
+    var m=(location.hash||"").match(/[#&]signup=([a-z]+)(:pay)?/);
     if(!m) return false;
-    if(m[1]!=="parrainage") return false;
-    showSignupForm(m[1]); return true;
+    var cid=m[1], pay=!!m[2];
+    if(["parrainage","festif","culture","aca"].indexOf(cid)<0) return false;
+    if(cid==="parrainage" && pay) return false;
+    showSignupForm(cid, pay); return true;
   }
   function showSignupForm(cid, pay){
     document.body.classList.remove("home-mode");
     var isP = (cid==="parrainage");
     var nm = commName(cid) || "l'événement";
     if(pay) nm += " — événement payant";
-    var el = document.getElementById("app") || document.body;
+    document.body.className = "signup-mode";
+    var el = document.createElement("div");
+    el.id = "signupPage";
+    el.style.cssText = "position:fixed;inset:0;overflow:auto;background:#120f22;z-index:99999";
+    document.body.innerHTML = "";
+    document.body.appendChild(el);
     el.innerHTML = '<div class="wrap" style="max-width:520px;margin:0 auto;padding:26px 18px">'
       + '<h1 class="ttl" style="margin-bottom:6px">Inscription</h1>'
       + '<p class="sub" style="margin-bottom:18px">'+escapeHtml(nm)+'</p>'
@@ -2618,7 +2629,9 @@
     if($("suiviAdminActions")) $("suiviAdminActions").style.display = isScanner ? "none" : "block";
     if($("scannerBtn")) $("scannerBtn").style.display = isScanner ? "none" : "inline-flex";
     if($("scannerBtnP")) $("scannerBtnP").style.display = (isScanner || currentCommId()!=="parrainage") ? "none" : "inline-flex";
-    if($("signupCard")) $("signupCard").style.display = (isScanner || ["parrainage","festif","culture","aca"].indexOf(currentCommId())<0) ? "none" : "";
+    var _sc=$("signupCard");
+    if(_sc) _sc.style.display = isScanner ? "none" : "";
+    if(isScanner){ if($("signupHostP")) $("signupHostP").innerHTML=""; if($("signupHostG")) $("signupHostG").innerHTML=""; }
     if($("newEvtBtn")) $("newEvtBtn").style.display = (isScanner || !roster.length) ? "none" : "inline-flex";
     if(isScanner && (currentTab==="guests"||currentTab==="list")){ showTab("scan"); }
   }
