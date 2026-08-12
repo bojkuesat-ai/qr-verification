@@ -98,7 +98,9 @@
   if(CID==="parrainage") PAY=false;
   var isP = (CID==="parrainage");
 
-  q("titre").textContent = NOMS[CID] + (PAY?" — événement payant":"");
+  var NOM_LIEN = "";
+  try{ NOM_LIEN = decodeURIComponent(par("e")||""); }catch(e){ NOM_LIEN = par("e")||""; }
+  q("titre").textContent = (NOM_LIEN || NOMS[CID]) + (PAY?" — événement payant":"");
   if(isP) q("wrapRole").style.display="";
   if(PAY) q("wrapPreuve").style.display="";
 
@@ -129,22 +131,36 @@
   majAnnees();
 
   // récupérer le nom de l'événement (sans bloquer l'affichage)
-  setTimeout(function(){
-    fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
+  // Connexion avec le compte scanner : c'est lui qui a le droit de lire le document
+  // de la commission (les règles Firestore refusent un compte anonyme).
+  function connexionScanner(){
+    return fetch("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key="+API_KEY,
+      { method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({email:"scan@qrentry.app", password:"123456", returnSecureToken:true}) })
+      .then(function(r){ return r.json(); })
+      .then(function(a){ if(a && a.idToken){ window.__tok=a.idToken; return a.idToken; } throw 0; });
+  }
+  function connexionAnonyme(){
+    return fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
       { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) })
-    .then(function(r){ return r.json(); })
-    .then(function(a){
-      if(!a.idToken) throw 0;
-      window.__tok = a.idToken;
-      // le nom de l'événement est enregistré par l'app dans commission_tickets (champ "event")
-      return fetch(FS_BASE+"commission_tickets/"+CID, { headers:{ "Authorization":"Bearer "+a.idToken } });
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-      var f = d && d.fields;
-      var v = f && ((f.event && f.event.stringValue) || (f.evName && f.evName.stringValue));
-      if(v) q("titre").textContent = v + (PAY?" — événement payant":"");
-    }).catch(function(){});
+      .then(function(r){ return r.json(); })
+      .then(function(a){ if(a && a.idToken){ window.__anon=a.idToken; return a.idToken; } throw 0; });
+  }
+
+  setTimeout(function(){
+    // 1) un compte anonyme sert à ENREGISTRER l'inscription
+    connexionAnonyme().catch(function(){});
+    // 2) le compte scanner sert à LIRE le nom de l'événement
+    connexionScanner()
+      .then(function(tok){
+        return fetch(FS_BASE+"commission_tickets/"+CID, { headers:{ "Authorization":"Bearer "+tok } });
+      })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var f = d && d.fields;
+        var v = f && ((f.event && f.event.stringValue) || (f.evName && f.evName.stringValue));
+        if(v && !NOM_LIEN) q("titre").textContent = v + (PAY?" — événement payant":"");
+      }).catch(function(){});
   }, 0);
 
   function compresser(file){
@@ -191,7 +207,7 @@
 
     var btn=q("btn"); btn.disabled=true; btn.textContent="Envoi…";
     try{
-      var tok = window.__tok;
+      var tok = window.__anon || window.__tok;
       if(!tok){
         var ra = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
           { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) });
