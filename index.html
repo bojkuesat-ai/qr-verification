@@ -307,7 +307,7 @@
       </div>
       <p class="sub">Colle ta liste d'inscrits (par ex. copiée depuis ton Google Sheet). Un nom par ligne = un billet.</p>
       <label class="fld" for="evName">Nom de l'événement</label>
-      <input type="text" id="evName" placeholder="Dîner de Noël 2026" autocomplete="off">
+      <input type="text" id="evName" placeholder="Dîner de Noël 2026" autocomplete="off" onchange="majNomEvent(this.value)" onblur="majNomEvent(this.value)">
       <div style="height:12px"></div>
       <label class="fld" for="names">Invités — une ligne par personne (Nom Prénom + adresse mail). Tu peux coller directement depuis Excel ou Google Sheets.</label>
       <textarea id="names" placeholder="Belkacem Amina, amina.belkacem@gmail.com&#10;Dupont Thomas, thomas.dupont@gmail.com&#10;Vermeulen Léa, lea.vermeulen@gmail.com"></textarea>
@@ -406,7 +406,7 @@
       <div class="gen-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>Parrainage — créer les billets</h2><button class="btn ghost sm" onclick="newEvent()">Nouvel événement</button><button class="btn ghost sm" id="scannerBtnP" onclick="openScannerModal()" style="display:none">Compte scanner</button></div>
       <p class="sub">Crée les QR par groupe : choisis le rôle, l'année et la section, colle la liste (Nom + e-mail), puis « Ajouter ce groupe ». Répète pour chaque groupe.</p>
       <label class="fld" for="pEvName">Nom de l'événement</label>
-      <input type="text" id="pEvName" placeholder="Parrainage Droit &amp; Crimino 2026" autocomplete="off">
+      <input type="text" id="pEvName" placeholder="Parrainage Droit &amp; Crimino 2026" autocomplete="off" onchange="majNomEvent(this.value)" onblur="majNomEvent(this.value)">
       <div style="height:12px"></div>
       <div class="prow">
         <div><label class="fld" for="pSection">Section</label>
@@ -1666,6 +1666,16 @@
   }
   function signupDocPath(cid){ return "commission_signups/"+cid; }
   var SIGNUPS=[];
+  window.majNomEvent=async function(v){
+    v=(v||"").trim();
+    if(v===eventName) return;
+    eventName=v; await Store.set("event", v);
+    if($("suEvName")) $("suEvName").value=v;
+    if($("evName") && $("evName").value!==v) $("evName").value=v;
+    if($("pEvName") && $("pEvName").value!==v) $("pEvName").value=v;
+    var ok=await publierNomEvent(v, true);
+    if(ok) flash(v?("Nom publié : "+v):"Nom effacé.");
+  };
   window.saveEvName=async function(){
     var v=(($("suEvName")&&$("suEvName").value)||"").trim();
     eventName=v; await Store.set("event", v);
@@ -1733,7 +1743,9 @@
   }
   window.copySignupLink=function(pay){ var i=$(pay?"suLinkPay":"suLink"); if(!i) return; try{ navigator.clipboard.writeText(i.value); flash("Lien copié !"); }catch(e){ i.select(); } };
   function signupLink(pay){ var cid=currentCommId(); var base=location.origin+location.pathname.replace(/[^\/]*$/,""); return base+"inscription.html?c="+(cid||"")+(pay?"&pay=1":""); }
-  window.refreshSignups=async function(){
+  var silencieuxRefresh=false;
+  window.refreshSignups=async function(auto){
+    silencieuxRefresh = (auto===true);
     var cid=currentCommId(); if(!cid) return;
     if(["parrainage","festif","culture","aca"].indexOf(cid)<0) return;
     monterSignupCard();
@@ -1743,17 +1755,20 @@
 
     if($("suNotif") && !$("suNotif").value){ var _nm=getNotifMail(); if(_nm) $("suNotif").value=_nm; }
     var _nomActuel = eventName || ($("pEvName")&&$("pEvName").value.trim()) || ($("evName")&&$("evName").value.trim()) || "";
-    if($("suEvName") && !$("suEvName").value && _nomActuel) $("suEvName").value=_nomActuel;
-    if(_nomActuel) publierNomEvent(_nomActuel, true);
-    var ok=await ensureAuth(cid); if(!ok) return;
-    var a=loadAuth(cid); if(!a) return;
+    if($("suEvName") && document.activeElement!==$("suEvName") && _nomActuel) $("suEvName").value=_nomActuel;
+    var ok=await ensureAuth(cid);
+    if(!ok){ flash("Connexion requise pour voir les inscriptions."); return; }
+    var a=loadAuth(cid);
+    if(!a||!a.idToken){ flash("Session expirée — reconnecte-toi."); return; }
     try{
       var d=await fsGetDoc(signupDocPath(cid), a.idToken);
-      SIGNUPS=[]; if(d&&d.fields&&d.fields.list){ try{ SIGNUPS=JSON.parse(d.fields.list.stringValue||"[]"); }catch(e){} }
+      SIGNUPS=[];
+      if(d&&d.fields&&d.fields.list){ try{ SIGNUPS=JSON.parse(d.fields.list.stringValue||"[]"); }catch(e){} }
       await processSignups();
       majPayBadge();
       await alerterNouvellesPreuves();
-    }catch(e){}
+      if(!silencieuxRefresh) flash(SIGNUPS.length ? (SIGNUPS.length+" inscription(s) chargée(s).") : "Aucune inscription pour l'instant.");
+    }catch(e){ flash("Erreur de chargement : "+(e.message||e)); }
     renderSignups();
   };
   async function saveSignups(){
@@ -1854,23 +1869,47 @@
   function renderSignups(){
     majPayBadge();
     var box=$("suList"), st=$("suStats"); if(!box) return;
-    var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";}).length;
-    var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
-    if(st) st.textContent = SIGNUPS.length+" inscription(s) · "+acc+" billet(s) envoyé(s)"+(apay.length?" · "+apay.length+" paiement(s) à vérifier":"");
     var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
-    var htmlPay = apay.length
-      ? '<p class="fld" style="margin-top:10px">Paiements \u00e0 v\u00e9rifier ('+apay.length+')</p>'+apay.map(function(x){ var i=SIGNUPS.indexOf(x);
-          var info=(x.annee||"")+(x.section?" \u00b7 "+x.section:"");
-          return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)"><span style="flex:1">'+escapeHtml(x.name)+'<br><span class="hint">'+escapeHtml(info)+' \u2014 '+escapeHtml(x.email)+'</span></span>'
-            +'<button class="btn ghost xs" onclick="voirPreuve('+i+')">Preuve</button>'
-            +'<button class="btn gold xs" onclick="accepterInscrit('+i+')">Valider</button>'
-            +'<button class="btn ghost xs" onclick="refuserInscrit('+i+')">Refuser</button></div>'; }).join("")
-      : '';
-    box.innerHTML = htmlPay + (att.length
-      ? '<p class="fld" style="margin-top:10px">Liste d\'attente</p>'+att.map(function(x){ var i=SIGNUPS.indexOf(x);
-          return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)"><span style="flex:1">'+escapeHtml(x.name)+'<br><span class="hint">'+escapeHtml(x.email)+'</span></span><button class="btn ghost xs" onclick="accepterInscrit('+i+')">Accepter</button></div>'; }).join("")
-      : '');
+    var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";});
+    var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
+    var ref=SIGNUPS.filter(function(x){return x.statut==="refuse";});
+    if(st) st.textContent = SIGNUPS.length+" inscription(s) · "+acc.length+" billet(s) envoyé(s)"
+      +(apay.length?" · "+apay.length+" paiement(s) à vérifier":"")
+      +(ref.length?" · "+ref.length+" refusé(s)":"");
+
+    function ligne(x, boutons){
+      var i=SIGNUPS.indexOf(x);
+      var info=[x.role?({parrain:"Parrain",filleul:"Filleul",alumni:"Alumni"})[x.role]:"",x.annee||"",x.section||""].filter(Boolean).join(" · ");
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
+        +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b><br>'
+        +'<span class="hint">'+escapeHtml(info?info+" — ":"")+escapeHtml(x.email||"")+'</span></span>'
+        + boutons.replace(/@I@/g, String(i)) + '</div>';
+    }
+
+    var html="";
+    if(apay.length){
+      html += '<p class="fld" style="margin-top:12px">Paiements à vérifier ('+apay.length+')</p>'
+        + apay.map(function(x){ return ligne(x,
+            '<button class="btn ghost xs" onclick="voirPreuve(@I@)">Preuve</button>'
+           +'<button class="btn gold xs" onclick="accepterInscrit(@I@)">Valider</button>'
+           +'<button class="btn ghost xs" onclick="refuserInscrit(@I@)">Refuser</button>'); }).join("");
+    }
+    if(att.length){
+      html += '<p class="fld" style="margin-top:12px">Liste d\'attente ('+att.length+')</p>'
+        + att.map(function(x){ return ligne(x,'<button class="btn ghost xs" onclick="accepterInscrit(@I@)">Accepter</button>'); }).join("");
+    }
+    if(acc.length){
+      html += '<p class="fld" style="margin-top:12px">Inscrits — billet envoyé ('+acc.length+')</p>'
+        + acc.map(function(x){ return ligne(x,'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>'); }).join("");
+    }
+    if(ref.length){
+      html += '<p class="fld" style="margin-top:12px">Refusés ('+ref.length+')</p>'
+        + ref.map(function(x){ return ligne(x,'<button class="btn ghost xs" onclick="accepterInscrit(@I@)">Valider quand même</button>'); }).join("");
+    }
+    if(!SIGNUPS.length) html = '<p class="hint" style="margin-top:12px">Aucune inscription pour l\'instant. Partage le lien ci-dessus.</p>';
+    box.innerHTML = html;
   }
+
   function checkSignupLink(){
     var m=(location.hash||"").match(/[#&]signup=([a-z]+)(:pay)?/);
     if(!m) return false;
@@ -2685,7 +2724,7 @@
     await loadAll();
     await determineRole(id);
     if(FIXED_ACCOUNTS[id] && CURRENT_ROLE==="admin"){ ensureFixedSetup(id); }
-    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(); }catch(e){} }
+    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} }
     cloudPull(id);
     startCloudPoll();
   }
