@@ -1717,12 +1717,8 @@
   };
   window.saveEvName=async function(){
     var v=(($("suEvName")&&$("suEvName").value)||"").trim();
-    eventName=v; await Store.set("eventName", JSON.stringify(v));
-    if($("evName")) $("evName").value=v;
-    cloudPushRoster(currentCommId());
-    var pub = await publierNomEvent(v);
-    if(pub) flash(v?"Nom publié : il s'affichera sur le formulaire.":"Nom effacé.");
-    refreshSignups();
+    await majNomEvent(v);
+    refreshSignups(true);
   };
   async function publierNomEvent(v, silencieux){
     var cid=currentCommId();
@@ -1765,7 +1761,7 @@
     var n=apay.length, vus=getSeen();
     if(n>vus){
       var nouveaux=n-vus;
-      flash(nouveaux+" nouvelle(s) preuve(s) de paiement \u00e0 v\u00e9rifier !");
+      flash(nouveaux+" nouvelle(s) preuve(s) de paiement à vérifier !");
       try{ beep(true); }catch(e){}
       var to=getNotifMail();
       if(to){
@@ -1776,7 +1772,7 @@
           +'<p>Total en attente : <b>'+n+'</b></p>'
           +'<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Ouvrir l\'application</a></p></div>';
         try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-          body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" preuve(s) de paiement \u00e0 v\u00e9rifier",html:html})}); }catch(e){}
+          body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" preuve(s) de paiement à vérifier",html:html})}); }catch(e){}
       }
     }
     setSeen(n);
@@ -1883,14 +1879,14 @@
         <button class="btn ghost sm" onclick="copySignupLink()">Copier</button>
       </div>
       <div id="suPayWrap" style="margin-top:10px">
-        <label class="fld">Lien inscription (\\u00e9v\\u00e9nement payant)</label>
+        <label class="fld">Lien inscription (événement payant)</label>
         <div class="row" style="gap:8px;align-items:center">
           <input type="text" id="suLinkPay" readonly style="flex:1;font-size:12px">
           <button class="btn ghost sm" onclick="copySignupLink(true)">Copier</button>
         </div>
       </div>
       <div style="height:12px"></div>
-      <label class="fld" for="suNotif">E-mail de notification (alerte \\u00e0 chaque nouvelle preuve)</label>
+      <label class="fld" for="suNotif">E-mail de notification (alerte à chaque nouvelle preuve)</label>
       <div class="row" style="gap:8px;align-items:center">
         <input type="email" id="suNotif" placeholder="responsable@exemple.be" style="flex:1">
         <button class="btn ghost sm" onclick="saveNotifMail()">Enregistrer</button>
