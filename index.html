@@ -1677,14 +1677,43 @@
   }
   function signupDocPath(cid){ return "commission_signups/"+cid; }
   var SIGNUPS=[];
+  function gros(txt, ok){
+    var d=document.getElementById("bigMsg");
+    if(!d){ d=document.createElement("div"); d.id="bigMsg";
+      d.style.cssText="position:fixed;left:0;right:0;top:0;z-index:2147483647;padding:26px 20px;"
+        +"font:700 26px/1.35 -apple-system,Helvetica,Arial,sans-serif;text-align:center;"
+        +"box-shadow:0 6px 30px rgba(0,0,0,.5);cursor:pointer";
+      d.onclick=function(){ d.style.display="none"; };
+      document.body.appendChild(d);
+    }
+    d.style.background = ok ? "#1e7d4f" : "#b3261e";
+    d.style.color = "#fff";
+    d.textContent = txt;
+    d.style.display = "block";
+    clearTimeout(window.__bigT);
+    window.__bigT = setTimeout(function(){ d.style.display="none"; }, 9000);
+  }
   window.majNomEvent=async function(v){
     v=(v||"").trim();
     eventName=v; await Store.set("eventName", JSON.stringify(v));
     if($("suEvName")) $("suEvName").value=v;
     if($("evName") && $("evName").value!==v) $("evName").value=v;
     if($("pEvName") && $("pEvName").value!==v) $("pEvName").value=v;
-    var ok=await publierNomEvent(v, true);
-    if(ok) flash(v?("Nom publié : "+v):"Nom effacé.");
+    var cid=currentCommId();
+    if(!cid){ gros("PROBLEME : aucune commission ouverte", false); return; }
+    var auth=await ensureAuth(cid);
+    if(!auth){ gros("PROBLEME : pas connecte a la commission", false); return; }
+    var a=loadAuth(cid);
+    if(!a||!a.idToken){ gros("PROBLEME : session expiree, reconnecte-toi", false); return; }
+    var r;
+    try{ r = await fsPatchFields(ticketDocPath(cid), { event: fsField(v||""), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
+    catch(e){ gros("PROBLEME reseau : "+(e.message||e), false); return; }
+    if(!r || r.ok!==true){
+      var m=(r&&r.data&&r.data.error&&r.data.error.message)||"refus inconnu";
+      gros("PROBLEME : "+m, false); return;
+    }
+    try{ await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken); }catch(_){}
+    gros(v ? ("ENREGISTRE : "+v) : "NOM EFFACE", true);
   };
   window.saveEvName=async function(){
     var v=(($("suEvName")&&$("suEvName").value)||"").trim();
