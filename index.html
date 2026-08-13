@@ -600,6 +600,10 @@
     <p class="sub">Affiche ou masque le bouton « Parrainage » sur l'accueil. Décoche quand l'événement est terminé pour le faire disparaître (les données restent conservées).</p>
     <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="parrainToggle" onchange="toggleParrainage()"> Afficher « Parrainage » sur l'accueil</label>
 
+    <h2 style="margin-top:18px">Événement Proclamation</h2>
+    <p class="sub">Affiche ou masque le bouton « Proclamation » sur l'accueil. Coche-le au moment d'organiser la proclamation, décoche-le ensuite (les données restent conservées).</p>
+    <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="proclaToggle" onchange="toggleProcla()"> Afficher « Proclamation » sur l'accueil</label>
+
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Catégories de billets</h2>
     <p class="sub">Crée tes propres catégories (ex. Cooptés, Professeurs…). À la création des billets tu pourras en choisir une ; elle s'affiche en couleur au moment du scan.</p>
@@ -746,6 +750,13 @@
   var FILLEUL_ANNEES = ["Passerelle","BA1","MA1"];
   var ALUMNI_ANNEES  = ["Alumni"];
   function parrainageHidden(){ try{ return window.localStorage.getItem("qrentry:parrainHidden")==="1"; }catch(e){ return false; } }
+  function proclaHidden(){ try{ return window.localStorage.getItem("qrentry:proclaHidden")!=="0"; }catch(e){ return true; } }
+  window.toggleProcla=function(){
+    var show = $("proclaToggle") && $("proclaToggle").checked;
+    try{ window.localStorage.setItem("qrentry:proclaHidden", show?"0":"1"); }catch(e){}
+    if(typeof renderHome==="function") renderHome();
+    flash(show ? "Proclamation affichée sur l'accueil." : "Proclamation masquée.");
+  };
   window.toggleParrainage = function(){
     var show = $("parrainToggle") && $("parrainToggle").checked;
     try{ window.localStorage.setItem("qrentry:parrainHidden", show?"0":"1"); }catch(e){}
@@ -1171,7 +1182,19 @@
   function setStat(kind, word, who, note, guest){
     var s=$("stat"); s.className="stat "+kind;
     var cat="";
-    if(guest && guest.role){
+    var PROCLA_LB={ doyen:"DOYEN·NE", academique:"CORPS ACADÉMIQUE", scientifique:"CORPS SCIENTIFIQUE",
+                    patgs:"PERSONNEL ADM., TECHNIQUE ET DE GESTION", etudiant:"ÉTUDIANT·E DIPLÔMÉ·E" };
+    var PROCLA_COL={ doyen:"#c9a227", academique:"#7b1f3a", scientifique:"#1f5f8b",
+                     patgs:"#2d6a4f", etudiantDroit:"#6b3fa0", etudiantCriminologie:"#c2610f" };
+    if(guest && guest.role && PROCLA_LB[guest.role]){
+      var kle = (guest.role==="etudiant") ? ("etudiant"+(guest.section||"Droit")) : guest.role;
+      var coul = PROCLA_COL[kle] || PROCLA_COL[guest.role] || "#555";
+      var mention = (guest.role==="doyen") ? '<div class="catsub" style="color:#c9a227;font-weight:800;letter-spacing:.05em">INVITÉ·E D\'HONNEUR</div>' : '';
+      cat = '<div class="catbadge" style="background:'+coul+';color:#fff;border:none;font-size:1.05em">'+escapeHtml(PROCLA_LB[guest.role])+'</div>'
+          + mention
+          + (guest.section ? '<div class="catsub">'+escapeHtml(guest.section)+'</div>' : '');
+    }
+    else if(guest && guest.role){
       var LB={parrain:"PARRAIN / MARRAINE",filleul:"FILLEUL·E",alumni:"ALUMNI / ANCIEN·NE"};
       var CC={parrain:"cp",filleul:"cf",alumni:"ca"};
       var label = LB[guest.role] || guest.role;
@@ -1357,7 +1380,7 @@
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(),from:expediteur()})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     flash("Rappel envoyé à "+ok+" personne(s).");
@@ -1434,7 +1457,7 @@
     try{
       var ok=await ensureAuth(cid); if(!ok) return;
       var a=loadAuth(cid); if(!a) return;
-      await fsPatchFields(signupDocPath(cid), { list: fsField("[]"), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      await fsPatchFields(signupDocPath(cid), { signups: fsField("[]"), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
       SIGNUPS=[]; renderSignups();
     }catch(e){}
   }
@@ -1604,6 +1627,7 @@
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
     if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
+    if($("proclaToggle")) $("proclaToggle").checked = !proclaHidden();
     try{ renderCats(); }catch(e){}
     $("settingsModal").classList.add("on");
   };
@@ -1653,6 +1677,8 @@
     if(g.role){ payload.r=g.role; payload.y=g.annee||""; payload.sc=g.section||""; }
     if(g.table) payload.tb=g.table;
     if(g.cat){ payload.ct=g.cat; payload.cc=g.cc||""; }
+    if(g.role){ payload.r=g.role; }
+    if(g.section){ payload.sc=g.section; }
     return base+"#t="+encodeURIComponent(b64encode(JSON.stringify(payload)));
   }
   function showGuestTicket(data){
@@ -1675,7 +1701,7 @@
     }catch(e){}
     try{ document.title = (data.e? data.e+" — ":"")+"Billet "+(data.n||""); }catch(e){}
   }
-  function signupDocPath(cid){ return "commission_signups/"+cid; }
+  function signupDocPath(cid){ return ticketDocPath(cid); }   // même document : seule collection autorisée par les règles
   var SIGNUPS=[];
   function gros(txt, ok){
     try{ if(window.alert) window.alert(txt); }catch(e){}
@@ -1712,6 +1738,88 @@
     else if(t.id==="btnCopy1"){ e.preventDefault(); copySignupLink(false); }
     else if(t.id==="btnCopy2"){ e.preventDefault(); copySignupLink(true); }
   }, true);
+  function mentionPerso(){
+    if(currentCommId()!=="proclamation") return "";
+    return '<div style="background:#fdf8ec;border:1px solid #e3d3a8;border-radius:10px;padding:14px;margin:16px 0">'
+      +'<b style="color:#8a6d1f">Invitation strictement personnelle</b>'
+      +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">Cette invitation est nominative et donne accès à <b>une seule personne</b>. '
+      +'Elle ne peut être ni partagée, ni transmise, ni utilisée par un accompagnant : chaque billet ne peut être scanné qu\'une seule fois.</p>'
+      +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">La capacité de la salle ne nous permet malheureusement pas d\'accueillir de personnes supplémentaires. Merci de votre compréhension.</p></div>'
+      +'<hr style="border:none;border-top:1px solid #eee;margin:18px 0">'
+      +'<p style="margin:0;text-align:center;font-size:12px;color:#888;letter-spacing:.06em;text-transform:uppercase">Université libre de Bruxelles</p>'
+      +'<p style="margin:2px 0 8px;text-align:center;font-size:13px;color:#555">Faculté de Droit et de Criminologie</p>'
+      +'<p style="margin:0;text-align:center;font-size:14px;color:#333"><b>Délégation étudiante de Droit et de Criminologie</b></p>'
+      +'<p style="margin:6px 0 0;text-align:center;font-size:12px;color:#999">Ceci est un envoi automatique — merci de ne pas répondre à ce message.</p>';
+  }
+  function expediteur(){
+    return (currentCommId()==="proclamation")
+      ? "Délégués Droit & Criminologie <proclamation@bureauetuidant.xyz>"
+      : undefined;
+  }
+  function clotureKey(){ return "qrentry:cloture:"+(currentCommId()||""); }
+  function getCloture(){ try{ return window.localStorage.getItem(clotureKey())||""; }catch(e){ return ""; } }
+  window.resetInscriptions=async function(){
+    var cid=currentCommId(); if(!cid) return;
+    if(!confirm("Réinitialiser complètement cet événement ?\n\n• billets et entrées effacés\n• inscriptions en ligne effacées\n• nom, dates et clôture remis à zéro\n\nAction irréversible.")) return;
+    await resetSignups();
+    await wipeAll();
+    try{
+      window.localStorage.removeItem(dateKey());
+      window.localStorage.removeItem(clotureKey());
+    }catch(e){}
+    if($("suEvName")) $("suEvName").value="";
+    if($("suEvDate")) $("suEvDate").value="";
+    if($("suCloture")) $("suCloture").value="";
+    await publierNomEvent("", true);
+    await publierCloture("");
+    renderSignups();
+    alert("Événement réinitialisé.\n\nTout est prêt pour un nouvel événement.");
+  };
+  async function publierCloture(v){
+    var cid=currentCommId(); if(!cid) return false;
+    var ok=await ensureAuth(cid); if(!ok) return false;
+    var a=loadAuth(cid); if(!a||!a.idToken) return false;
+    try{ var r=await fsPatchFields(ticketDocPath(cid), { cloture: fsField(v||"") }, a.idToken); return !!(r&&r.ok); }
+    catch(e){ return false; }
+  }
+  function dateKey(){ return "qrentry:evdate:"+(currentCommId()||""); }
+  function getEvDate(){ try{ return window.localStorage.getItem(dateKey())||""; }catch(e){ return ""; } }
+  window.envoyerRappel=async function(auto){
+    var cibles = roster.filter(function(g){ return emailOf(g); });
+    if(!cibles.length){ if(!auto) alert("Aucun invité avec e-mail."); return; }
+    if(!auto && !confirm("Envoyer le rappel avec le billet à "+cibles.length+" personne(s) ?")) return;
+    var d=getEvDate();
+    var quand = d ? new Date(d+"T00:00:00").toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long"}) : "demain";
+    flash("Envoi des rappels…");
+    var ok=0;
+    for(var i=0;i<cibles.length;i++){ var g=cibles[i];
+      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
+        +'<h2 style="margin:0 0 10px">Rappel — c\'est '+escapeHtml(quand)+'</h2>'
+        +'<p>Bonjour '+escapeHtml(g.name||"")+',</p>'
+        +'<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p>'
+        +'<p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
+        + billetHtml(g.name, eventName||"notre événement", ticketLinkFor(g), g.token)
+        + mentionPerso()
+        +'</div>';
+      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:html,from:expediteur()})}); if(r.ok) ok++; }catch(e){}
+      await new Promise(function(res){setTimeout(res,120);});
+    }
+    try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
+    if(!auto) alert("Rappel envoyé à "+ok+" personne(s)."); else flash("Rappel envoyé à "+ok+" personne(s).");
+  };
+  function verifierRappelVeille(){
+    var d=getEvDate(); if(!d) return;
+    var veille=new Date(d+"T00:00:00"); veille.setDate(veille.getDate()-1);
+    var auj=new Date(); auj.setHours(0,0,0,0);
+    if(veille.getTime()!==auj.getTime()) return;
+    var fait=false; try{ fait=window.localStorage.getItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d)==="1"; }catch(e){}
+    if(fait) return;
+    var n=roster.filter(function(g){ return emailOf(g); }).length;
+    if(!n) return;
+    if(confirm("L'événement a lieu demain.\n\nEnvoyer maintenant le rappel avec le billet à "+n+" personne(s) ?")) envoyerRappel(true);
+    else { try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d,"1"); }catch(e){} }
+  }
   window.saveEvName=async function(){
     var v=(($("suEvName")&&$("suEvName").value)||"").trim();
     await majNomEvent(v);
@@ -1726,7 +1834,7 @@
     if(!a||!a.idToken){ if(!silencieux) flash("Session expirée, reconnecte-toi."); return false; }
     try{
       var r = await fsPatchFields(ticketDocPath(cid), { event: fsField(v||""), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
-      try{ await fsPatchFields(signupDocPath(cid), { evName: fsField(v||"") }, a.idToken); }catch(_){}
+
       if(!r || r.ok!==true){
         var msg = (r && r.data && r.data.error && r.data.error.message) || "droits Firestore";
         if(!silencieux) flash("Nom non publié : "+msg);
@@ -1748,7 +1856,7 @@
   function getSeen(){ try{ return parseInt(window.localStorage.getItem(seenKey())||"0",10)||0; }catch(e){ return 0; } }
   function setSeen(n){ try{ window.localStorage.setItem(seenKey(), String(n)); }catch(e){} }
   function majPayBadge(){
-    var n=SIGNUPS.filter(function(x){return x.statut==="apayer";}).length;
+    var n=SIGNUPS.filter(function(x){return x.statut==="apayer"||x.statut==="acarte";}).length;
     var b=$("payBadge");
     if(b){ b.textContent=String(n); b.style.display = n>0 ? "inline-block" : "none"; }
     return n;
@@ -1769,7 +1877,7 @@
           +'<p>Total en attente : <b>'+n+'</b></p>'
           +'<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Ouvrir l\'application</a></p></div>';
         try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-          body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" preuve(s) de paiement à vérifier",html:html})}); }catch(e){}
+          body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" à vérifier",html:html,from:expediteur()})}); }catch(e){}
       }
     }
     setSeen(n);
@@ -1799,13 +1907,29 @@
     var cid=currentCommId();
     var base=location.origin+location.pathname.replace(/[^\/]*$/,"");
     var nom=(eventName||"").trim();
-    return base+"inscription.html?c="+(cid||"")+(pay?"&pay=1":"")+(nom?"&e="+encodeURIComponent(nom):"");
+    var cl=getCloture();
+    return base+"inscription.html?c="+(cid||"")+(pay?"&pay=1":"")
+      +(nom?"&e="+encodeURIComponent(nom):"")
+      +(cl?"&f="+encodeURIComponent(cl):"");
   }
   var silencieuxRefresh=false;
+  var TIMER_SIGNUPS=null;
+  function demarrerAutoSignups(){
+    arreterAutoSignups();
+    var cid=currentCommId();
+    if(!cid || ["parrainage","festif","culture","aca","proclamation"].indexOf(cid)<0) return;
+    if(CURRENT_ROLE!=="admin") return;
+    TIMER_SIGNUPS=setInterval(function(){
+      if(document.hidden) return;                 // pas d'appels inutiles si l'app est en arrière-plan
+      if(currentTab!=="guests" && currentTab!=="parrainage") return;
+      try{ refreshSignups(true); }catch(e){}
+    }, 60000);
+  }
+  function arreterAutoSignups(){ if(TIMER_SIGNUPS){ clearInterval(TIMER_SIGNUPS); TIMER_SIGNUPS=null; } }
   window.refreshSignups=async function(auto){
     silencieuxRefresh = (auto===true);
     var cid=currentCommId(); if(!cid) return;
-    if(["parrainage","festif","culture","aca"].indexOf(cid)<0) return;
+    if(["parrainage","festif","culture","aca","proclamation"].indexOf(cid)<0) return;
     monterSignupCard();
     if($("suLink")) $("suLink").value=signupLink(false);
     if($("suLinkPay")) $("suLinkPay").value=signupLink(true);
@@ -1821,7 +1945,7 @@
     try{
       var d=await fsGetDoc(signupDocPath(cid), a.idToken);
       SIGNUPS=[];
-      if(d&&d.fields&&d.fields.list){ try{ SIGNUPS=JSON.parse(d.fields.list.stringValue||"[]"); }catch(e){} }
+      if(d&&d.fields&&d.fields.signups){ try{ SIGNUPS=JSON.parse(d.fields.signups.stringValue||"[]"); }catch(e){} }
       await processSignups();
       majPayBadge();
       await alerterNouvellesPreuves();
@@ -1831,10 +1955,10 @@
   };
   async function saveSignups(){
     var cid=currentCommId(); var a=loadAuth(cid); if(!a) return;
-    try{ await fsPatchFields(signupDocPath(cid), { list: fsField(JSON.stringify(SIGNUPS)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }catch(e){}
+    try{ await fsPatchFields(signupDocPath(cid), { signups: fsField(JSON.stringify(SIGNUPS)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }catch(e){}
   }
   async function processSignups(){
-    var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });   // "apayer" = validation manuelle
+    var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });   // "apayer"/"acarte" = validation manuelle
     if(!nouveaux.length) return;
     var changed=false;
     for(var i=0;i<nouveaux.length;i++){
@@ -1845,7 +1969,7 @@
   async function creerBilletDepuisInscription(x){
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
-    roster.push({ token:tok, name:x.name, extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle });
+    roster.push({ token:tok, name:x.name, extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"" });
     localRosterVersion=Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
@@ -1853,8 +1977,13 @@
     renderList(); updateCounts();
     var g=roster[roster.length-1];
     try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)})}); }catch(e){}
+      body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(),from:expediteur()})}); }catch(e){}
   }
+  window.voirCarte=function(i){
+    var x=SIGNUPS[i]; if(!x||!x.carte) return flash("Aucune carte.");
+    var w=window.open("","_blank");
+    if(w) w.document.write('<title>Carte étudiante — '+escapeHtml(x.name||"")+'</title><body style="margin:0;background:#111;color:#fff;font-family:Arial;text-align:center"><p style="padding:12px">'+escapeHtml(x.name||"")+' — matricule '+escapeHtml(x.matricule||"")+'</p><img src="'+x.carte+'" style="max-width:100%;max-height:88vh"></body>');
+  };
   window.voirPreuve=function(i){
     var x=SIGNUPS[i]; if(!x||!x.preuve) return flash("Aucune preuve.");
     var w=window.open("","_blank");
@@ -1877,7 +2006,7 @@
         + '<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Renvoyer ma preuve</a></p>'
         + '<p style="color:#999;font-size:12px">Si le bouton ne fonctionne pas, copiez ce lien : '+lien+'</p></div>';
       try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:x.email,subject:"Preuve de paiement \u00e0 renvoyer \u2014 "+(eventName||"inscription"),html:html})}); flash("Refus enregistr\u00e9 et e-mail envoy\u00e9."); }
+        body:JSON.stringify({to:x.email,subject:"Preuve de paiement \u00e0 renvoyer \u2014 "+(eventName||"inscription"),html:html,from:expediteur()})}); flash("Refus enregistr\u00e9 et e-mail envoy\u00e9."); }
       catch(e){ flash("Refus enregistr\u00e9 (e-mail non envoy\u00e9)."); }
     }
   };
@@ -1894,6 +2023,20 @@
         <input type="text" id="suEvName" placeholder="Ex. Soirée de parrainage 2026" style="flex:1">
         <button class="btn ghost sm" id="btnSaveEv" type="button">Enregistrer</button>
       </div>
+      <div style="height:10px"></div>
+      <label class="fld" for="suEvDate">Date de l'événement (pour le rappel la veille)</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <input type="date" id="suEvDate" style="flex:1">
+        <button class="btn ghost sm" id="btnRappel" type="button">Envoyer le rappel</button>
+      </div>
+      <div style="height:10px"></div>
+      <label class="fld" for="suCloture">Clôture des inscriptions (le formulaire se ferme après cette date)</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <input type="date" id="suCloture" style="flex:1">
+        <button class="btn ghost sm" id="btnCloture" type="button">Enregistrer</button>
+      </div>
+      <div style="height:12px"></div>
+      <button class="btn ghost sm" id="btnResetInsc" type="button" style="width:100%;border-color:#c0392b;color:#e88">Réinitialiser cet événement</button>
       <div style="height:12px"></div>
       <label class="fld">Lien inscription (gratuit)</label>
       <div class="row" style="gap:8px;align-items:center">
@@ -1928,6 +2071,31 @@
   function brancherBoutonsSignup(){
     var b;
     b=$("btnSaveEv");    if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ saveEvName(); }; }
+    b=$("btnRappel");    if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ envoyerRappel(false); }; }
+    b=$("btnResetInsc"); if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ resetInscriptions(); }; }
+    b=$("btnCloture");   if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
+      var v=($("suCloture")&&$("suCloture").value)||"";
+      try{ window.localStorage.setItem(clotureKey(), v); }catch(e){}
+      var ok=await publierCloture(v);
+      alert(ok ? (v ? ("CLOTURE ENREGISTREE : "+v+"\n\nLe formulaire se fermera automatiquement après cette date.")
+                    : "Clôture retirée : le formulaire reste ouvert.")
+               : "PROBLEME : la clôture n'a pas pu être publiée.");
+    }; }
+    var cl=$("suCloture"); if(cl && !cl.__ok){ cl.__ok=1; if(getCloture()) cl.value=getCloture(); }
+    var dd=$("suEvDate"); if(dd && !dd.__ok){ dd.__ok=1;
+      if(getEvDate()) dd.value=getEvDate();
+      dd.onchange=function(){
+        try{ window.localStorage.setItem(dateKey(), dd.value); }catch(e){}
+        if(dd.value){
+          var j=new Date(dd.value+"T00:00:00");
+          var v=new Date(j); v.setDate(v.getDate()-1);
+          var fmt=function(x){ return x.toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long",year:"numeric"}); };
+          alert("DATE ENREGISTREE\n\nÉvénement : "+fmt(j)+"\n\nLe rappel avec le billet sera proposé la veille, le "+fmt(v)+", quand tu ouvriras l'application.");
+        } else {
+          alert("DATE EFFACEE\n\nAucun rappel automatique ne sera proposé.");
+        }
+      };
+    }
     b=$("btnRefreshSu"); if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ refreshSignups(); }; }
     b=$("btnCopy1");     if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ copySignupLink(false); }; }
     b=$("btnCopy2");     if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ copySignupLink(true); }; }
@@ -1941,11 +2109,53 @@
     var box=$("suList"), st=$("suStats"); if(!box) return;
     var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
     var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";});
+    var acarte=SIGNUPS.filter(function(x){return x.statut==="acarte";});
     var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
     var ref=SIGNUPS.filter(function(x){return x.statut==="refuse";});
-    if(st) st.textContent = SIGNUPS.length+" inscription(s) · "+acc.length+" billet(s) envoyé(s)"
+    var resume = SIGNUPS.length+" inscription(s) · "+acc.length+" billet(s) envoyé(s)"
       +(apay.length?" · "+apay.length+" paiement(s) à vérifier":"")
+      +(acarte.length?" · "+acarte.length+" carte(s) à vérifier":"")
       +(ref.length?" · "+ref.length+" refusé(s)":"");
+    if(st){
+      if(currentCommId()==="proclamation"){
+        var LBL={ doyen:"Doyen·ne", academique:"Corps académique", scientifique:"Corps scientifique",
+                  patgs:"Personnel adm./technique", etudiant:"Étudiant·e·s diplômé·e·s" };
+        var valides=SIGNUPS.filter(function(x){ return x.statut==="accepte"; });
+        var lignes=["doyen","academique","scientifique","patgs","etudiant"].map(function(r){
+          var v=valides.filter(function(x){ return x.role===r; }).length;
+          var att=SIGNUPS.filter(function(x){ return x.role===r && (x.statut==="acarte"||x.statut==="apayer"); }).length;
+          if(!v && !att) return "";
+          var sec="";
+          if(r==="etudiant"){
+            var d=valides.filter(function(x){ return x.role===r && x.section==="Droit"; }).length;
+            var c=valides.filter(function(x){ return x.role===r && x.section==="Criminologie"; }).length;
+            if(d||c) sec=' <span style="opacity:.7">('+d+" Droit · "+c+" Crimino)</span>";
+          }
+          return '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">'
+            +'<span>'+LBL[r]+sec+'</span>'
+            +'<span><b>'+v+'</b>'+(att?' <span style="color:var(--amber,#d8b45a)">+'+att+' en attente</span>':'')+'</span></div>';
+        }).join("");
+        var totalV=valides.length, totalA=apay.length+acarte.length;
+        var totalMax = totalV + totalA;
+        var refuses = ref.length;
+        st.innerHTML = '<div style="margin:6px 0 10px">'
+          +'<div style="background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;text-align:center">'
+            +'<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.75">Total à prévoir</div>'
+            +'<div style="font-size:40px;font-weight:800;line-height:1.1;margin:4px 0">'+totalMax+'</div>'
+            +'<div style="font-size:13px;opacity:.8">personne(s) — repas, boissons, capacité de salle</div>'
+            +'<div style="font-size:12.5px;margin-top:8px;opacity:.9">'
+              +'<b>'+totalV+'</b> confirmée(s)'
+              +(totalA?' · <span style="color:var(--amber,#d8b45a)"><b>'+totalA+'</b> en attente de validation</span>':'')
+              +(refuses?' · <span style="opacity:.6">'+refuses+' refusée(s), non comptée(s)</span>':'')
+            +'</div>'
+          +'</div>'
+          +'<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;opacity:.7;margin-bottom:4px">Détail par rôle</div>'
+          +(lignes||'<div style="opacity:.7">Aucune inscription pour l\'instant.</div>')
+          +'</div>';
+      } else {
+        st.textContent = resume;
+      }
+    }
 
     function ligne(x, boutons){
       var i=SIGNUPS.indexOf(x);
@@ -1957,6 +2167,16 @@
     }
 
     var html="";
+    if(acarte.length){
+      html += '<p class="fld" style="margin-top:12px">Cartes étudiantes à vérifier ('+acarte.length+')</p>'
+        + acarte.map(function(x){ var i=SIGNUPS.indexOf(x);
+            return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
+              +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b><br>'
+              +'<span class="hint">Matricule '+escapeHtml(x.matricule||"—")+' · '+escapeHtml(x.section||"")+' — '+escapeHtml(x.email||"")+'</span></span>'
+              +'<button class="btn ghost xs" onclick="voirCarte('+i+')">Carte</button>'
+              +'<button class="btn gold xs" onclick="accepterInscrit('+i+')">Valider</button>'
+              +'<button class="btn ghost xs" onclick="refuserInscrit('+i+')">Refuser</button></div>'; }).join("");
+    }
     if(apay.length){
       html += '<p class="fld" style="margin-top:12px">Paiements à vérifier ('+apay.length+')</p>'
         + apay.map(function(x){ return ligne(x,
@@ -1984,7 +2204,7 @@
     var m=(location.hash||"").match(/[#&]signup=([a-z]+)(:pay)?/);
     if(!m) return false;
     var cid=m[1], pay=!!m[2];
-    if(["parrainage","festif","culture","aca"].indexOf(cid)<0) return false;
+    if(["parrainage","festif","culture","aca","proclamation"].indexOf(cid)<0) return false;
     if(cid==="parrainage" && pay) return false;
     SIGNUP_MODE = true;
     try{ showSignupForm(cid, pay); }catch(e){ console.error(e); }
@@ -2327,7 +2547,8 @@
     {id:"social", name:"Service Social"},
     {id:"crimino", name:"Crimino"},
     {id:"salle", name:"Communication"},
-    {id:"parrainage", name:"Parrainage"}
+    {id:"parrainage", name:"Parrainage"},
+    {id:"proclamation", name:"Proclamation"}
   ];
   function commName(id){ for(var i=0;i<COMMISSIONS.length;i++){ if(COMMISSIONS[i].id===id) return COMMISSIONS[i].name; } return id; }
   function saveComm(id){ try{ if(id) window.localStorage.setItem("qrentry:comm",id); else window.localStorage.removeItem("qrentry:comm"); }catch(e){} }
@@ -2343,6 +2564,7 @@
     var g=$("commGrid"); if(!g) return; g.innerHTML="";
     COMMISSIONS.forEach(function(c){
       if(c.id==="parrainage" && parrainageHidden()) return;
+      if(c.id==="proclamation" && proclaHidden()) return;
       var b=document.createElement("button"); b.className="comm-btn";
       var n=commCount(c.id);
       b.innerHTML='<span>'+c.name+'</span><span class="cnt">'+(n? (n+" billet"+(n>1?"s":"")) : "vide")+'</span>';
@@ -2353,6 +2575,7 @@
   window.goHome=function(){
     stopCam();
     if(cloudPollTimer){ clearInterval(cloudPollTimer); cloudPollTimer=null; }
+    arreterAutoSignups();
     if($("scannerBtn")) $("scannerBtn").style.display="none";
     if($("scannerBtnP")) $("scannerBtnP").style.display="none";
     CURRENT_ROLE = "admin";
@@ -2642,7 +2865,7 @@
       showAuthErr(cleanFbErr(e.message||""));
     }
   };
-  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" }, salle: { email:"com@gmail.com", pwd:"123456" } };
+  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" }, salle: { email:"com@gmail.com", pwd:"123456" }, proclamation: { email:"procla@gmail.com", pwd:"123456" } };
   async function autoLoginFixed(id){
     var acc = FIXED_ACCOUNTS[id]; if(!acc) return false;
     try{
@@ -2794,7 +3017,7 @@
     await loadAll();
     await determineRole(id);
     if(FIXED_ACCOUNTS[id] && CURRENT_ROLE==="admin"){ ensureFixedSetup(id); }
-    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} }
+    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); setTimeout(function(){ try{ verifierRappelVeille(); }catch(e){} }, 1500); }
     cloudPull(id);
     startCloudPoll();
   }

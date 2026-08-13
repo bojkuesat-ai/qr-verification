@@ -34,6 +34,11 @@
 </head>
 <body>
 <div class="wrap">
+  <div id="enteteUlb" style="display:none;text-align:center;padding-bottom:18px;margin-bottom:20px;border-bottom:1px solid var(--line)">
+    <div style="font-size:12.5px;letter-spacing:.10em;text-transform:uppercase;color:var(--muted)">Université libre de Bruxelles</div>
+    <div style="font-size:16px;font-weight:700;margin-top:4px">Faculté de Droit et de Criminologie</div>
+    <div style="font-size:13.5px;margin-top:6px;color:var(--gold)">Délégation étudiante de Droit et de Criminologie</div>
+  </div>
   <h1>Inscription</h1>
   <p class="sub" id="titre">Chargement…</p>
 
@@ -47,8 +52,10 @@
     <label for="f_mail2">Confirmez votre adresse e-mail</label>
     <input type="email" id="f_mail2" autocomplete="off" inputmode="email" onpaste="return false">
 
-    <label for="f_sec">Section</label>
-    <select id="f_sec"><option>Droit</option><option>Criminologie</option></select>
+    <div id="wrapSec">
+      <label for="f_sec">Section</label>
+      <select id="f_sec"><option>Droit</option><option>Criminologie</option></select>
+    </div>
 
     <div id="wrapRole" style="display:none">
       <label for="f_role">Je m'inscris comme</label>
@@ -68,12 +75,26 @@
       <input type="checkbox" id="f_pass"> J'ai fait la passerelle
     </label>
 
+    <div id="wrapCarte" style="display:none">
+      <label for="f_matricule">Numéro de matricule <span class="req">*</span></label>
+      <input type="text" id="f_matricule" autocomplete="off">
+      <label for="f_carte">Carte étudiante <span class="req">*</span></label>
+      <input type="file" id="f_carte" accept="image/*">
+      <p class="hint">Photo recto de votre carte. Votre inscription sera validée par l'équipe après vérification.</p>
+    </div>
+
     <div id="wrapPreuve" style="display:none">
       <label for="f_preuve">Preuve de paiement <span class="req">*</span></label>
       <input type="file" id="f_preuve" accept="image/*">
       <p class="hint">Photo ou capture de votre virement. Obligatoire.</p>
     </div>
 
+    <div id="notePerso" style="display:none;background:rgba(216,180,90,.10);border:1px solid rgba(216,180,90,.35);border-radius:12px;padding:14px;margin-top:18px">
+      <b style="color:var(--gold)">Invitation strictement personnelle</b>
+      <p class="hint" style="margin-top:6px">Proclamation de la Faculté de Droit et de Criminologie de l'Université libre de Bruxelles, organisée par la Délégation étudiante de Droit et de Criminologie.</p>
+      <p class="hint" style="margin-top:6px">Cette invitation est nominative et donne accès à <b>une seule personne</b> : elle ne peut être ni partagée, ni transmise, ni utilisée par un accompagnant.</p>
+      <p class="hint" style="margin-top:6px">Chaque billet ne peut être scanné qu'une fois. Nous comptons sur votre compréhension : la capacité de la salle ne permet malheureusement pas d'accueillir de personnes supplémentaires.</p>
+    </div>
     <button id="btn">Je m'inscris</button>
     <p class="hint">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.
        Si vous ne le trouvez pas, pensez à vérifier vos <b>spams / courriers indésirables</b>.</p>
@@ -87,7 +108,15 @@
   "use strict";
   var API_KEY = "AIzaSyBLmGXcSQHQsba-Rw5CtUhuD-UpCuWKSQA";
   var FS_BASE = "https://firestore.googleapis.com/v1/projects/be-events-13c5c/databases/(default)/documents/";
-  var NOMS = { parrainage:"Parrainage", festif:"Festif", culture:"Culture", aca:"ACA" };
+  var NOMS = { parrainage:"Parrainage", festif:"Festif", culture:"Culture", aca:"ACA", proclamation:"Proclamation" };
+  var ROLES_PROCLA = [
+    ["etudiant","Étudiant·e diplômé·e"],
+    ["academique","Corps académique (professeur·e)"],
+    ["scientifique","Corps scientifique (assistant·e, chercheur·se)"],
+    ["patgs","Personnel administratif, technique et de gestion"],
+    ["doyen","Doyen·ne"]
+  ];
+  var AVEC_SECTION = ["etudiant","academique","scientifique"];
 
   function q(id){ return document.getElementById(id); }
   function par(n){ var u=new URLSearchParams(location.search); return u.get(n)||""; }
@@ -97,14 +126,44 @@
   if(!NOMS[CID]){ CID="festif"; }
   if(CID==="parrainage") PAY=false;
   var isP = (CID==="parrainage");
+  var isPro = (CID==="proclamation");
 
+  var CLOTURE = "";
+  try{ CLOTURE = decodeURIComponent(par("f")||""); }catch(e){ CLOTURE = par("f")||""; }
+  function inscriptionsFermees(d){
+    if(!d) return false;
+    var fin = new Date(d+"T23:59:59");
+    return new Date() > fin;
+  }
+  function afficherFermeture(d){
+    var fin = new Date(d+"T00:00:00").toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+    q("form").style.display="none";
+    q("msg").innerHTML = '<div class="card"><p class="big">🔒</p><p><b>Les inscriptions sont closes</b></p>'
+      + '<p class="hint">La date limite était le '+fin+'.</p>'
+      + '<p class="hint">Si vous pensez qu\'il s\'agit d\'une erreur, contactez les délégués.</p></div>';
+  }
   var NOM_LIEN = "";
   try{ NOM_LIEN = decodeURIComponent(par("e")||""); }catch(e){ NOM_LIEN = par("e")||""; }
   q("titre").textContent = (NOM_LIEN || NOMS[CID]) + (PAY?" — événement payant":"");
+  if(inscriptionsFermees(CLOTURE)) afficherFermeture(CLOTURE);
   if(isP) q("wrapRole").style.display="";
+  if(isPro){
+    q("enteteUlb").style.display="block";
+    q("notePerso").style.display="block";
+    q("wrapRole").style.display="";
+    q("f_role").innerHTML = ROLES_PROCLA.map(function(r){ return '<option value="'+r[0]+'">'+r[1]+'</option>'; }).join("");
+    q("wrapAnnee").style.display="none";
+  }
   if(PAY) q("wrapPreuve").style.display="";
 
+  function majProcla(){
+    var role=q("f_role").value;
+    q("wrapSec").style.display = (AVEC_SECTION.indexOf(role)>=0) ? "" : "none";
+    q("wrapCarte").style.display = (role==="etudiant") ? "" : "none";
+    if(role!=="etudiant"){ q("f_matricule").value=""; }
+  }
   function majAnnees(){
+    if(isPro) return majProcla();
     var sec=q("f_sec").value, sel=q("f_annee"), ys;
     if(isP){
       var role=q("f_role").value;
@@ -126,7 +185,7 @@
     if(!ok) q("f_pass").checked=false;
   }
   q("f_sec").onchange=majAnnees;
-  if(isP) q("f_role").onchange=majAnnees;
+  if(isP || isPro) q("f_role").onchange=majAnnees;
   q("f_annee").onchange=majPass;
   majAnnees();
 
@@ -196,6 +255,16 @@
     if(m1.toLowerCase()!==m2.toLowerCase()){
       msg.innerHTML='<p class="err"><b>Les deux adresses e-mail ne correspondent pas.</b><br>Sans e-mail correct, vous ne recevrez pas votre billet.</p>'; return; }
 
+    if(inscriptionsFermees(CLOTURE)){ afficherFermeture(CLOTURE); return; }
+    var carte="", matricule="";
+    if(isPro && q("f_role").value==="etudiant"){
+      matricule=(q("f_matricule").value||"").trim();
+      if(!matricule){ msg.innerHTML='<p class="err"><b>Le numéro de matricule est obligatoire.</b></p>'; return; }
+      var fc=q("f_carte");
+      if(!fc.files || !fc.files.length){ msg.innerHTML='<p class="err"><b>La photo de votre carte étudiante est obligatoire.</b></p>'; return; }
+      try{ carte = await compresser(fc.files[0]); }
+      catch(e){ msg.innerHTML='<p class="err">Impossible de lire ce fichier. Essayez une photo (JPG/PNG).</p>'; return; }
+    }
     var preuve="";
     if(PAY){
       var f=q("f_preuve");
@@ -215,25 +284,33 @@
         if(!a.idToken) throw new Error("auth");
         tok = a.idToken;
       }
-      var path = "commission_signups/"+CID;
+      var path = "commission_tickets/"+CID;   // seule collection autorisée
       var rc = await fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+tok } });
       var cur = rc.ok ? await rc.json() : null;
       var list=[];
-      try{ if(cur && cur.fields && cur.fields.list) list=JSON.parse(cur.fields.list.stringValue||"[]"); }catch(e){}
+      try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
 
       if(list.some(function(x){ return String(x.email||"").toLowerCase()===m1.toLowerCase(); })){
         msg.innerHTML='<p class="err">Cette adresse est déjà inscrite. Vérifiez votre boîte mail.</p>';
         btn.disabled=false; btn.textContent="Je m'inscris"; return;
       }
 
-      var rec = { name:nom, email:m1, section:q("f_sec").value,
-                  annee:(isP && q("f_role").value==="alumni") ? "" : q("f_annee").value,
-                  ts:Date.now(), statut: PAY?"apayer":"nouveau" };
-      if(isP){ rec.role=q("f_role").value; rec.exPasserelle=!!q("f_pass").checked; }
+      var rec = { name:nom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau" };
+      if(isPro){
+        var rl=q("f_role").value;
+        rec.role=rl;
+        rec.section=(AVEC_SECTION.indexOf(rl)>=0) ? q("f_sec").value : "";
+        rec.annee="";
+        if(rl==="etudiant"){ rec.matricule=matricule; rec.carte=carte; rec.statut="acarte"; }
+      } else {
+        rec.section=q("f_sec").value;
+        rec.annee=(isP && q("f_role").value==="alumni") ? "" : q("f_annee").value;
+        if(isP){ rec.role=q("f_role").value; rec.exPasserelle=!!q("f_pass").checked; }
+      }
       if(PAY) rec.preuve=preuve;
       list.push(rec);
 
-      var fields = { list:{ stringValue: JSON.stringify(list) },
+      var fields = { signups:{ stringValue: JSON.stringify(list) },
                      updatedAt:{ stringValue: new Date().toISOString() } };
       var qs = Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
       var rp = await fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
@@ -243,9 +320,10 @@
 
       q("form").style.display="none";
       msg.innerHTML='<div class="card"><p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
-        + '<p class="hint">'+(PAY
-            ? 'Votre paiement va être <b>vérifié par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.'
+        + '<p class="hint">'+((PAY || (isPro && q("f_role").value==="etudiant"))
+            ? 'Votre inscription va être <b>vérifiée par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.'
             : 'Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.')+'</p>'
+        + (isPro ? '<p class="hint" style="margin-top:8px">Rappel : cette invitation est <b>strictement personnelle</b> et ne vaut que pour une personne.</p>' : '')
         + '<p class="hint">📩 <b>Vous ne recevez rien ?</b> Vérifiez vos <b>spams</b>.</p></div>';
     }catch(e){
       msg.innerHTML='<p class="err">Échec de l\'inscription. Vérifiez votre connexion et réessayez.</p>';
