@@ -2143,7 +2143,8 @@
       if(currentCommId()==="proclamation"){
         var LBL={ doyen:"Doyen·ne", academique:"Corps académique", scientifique:"Corps scientifique",
                   patgs:"Personnel adm./technique", etudiant:"Étudiant·e·s diplômé·e·s" };
-        var valides=SIGNUPS.filter(function(x){ return x.statut==="accepte"; });
+        var valides=roster;   // tous les billets existants : inscriptions validées ET ajouts manuels
+        var sansRole=valides.filter(function(x){ return !x.role; }).length;
         var lignes=["doyen","academique","scientifique","patgs","etudiant"].map(function(r){
           var v=valides.filter(function(x){ return x.role===r; }).length;
           var att=SIGNUPS.filter(function(x){ return x.role===r && (x.statut==="acarte"||x.statut==="apayer"); }).length;
@@ -2158,6 +2159,10 @@
             +'<span>'+LBL[r]+sec+'</span>'
             +'<span><b>'+v+'</b>'+(att?' <span style="color:var(--amber,#d8b45a)">+'+att+' en attente</span>':'')+'</span></div>';
         }).join("");
+        if(sansRole){
+          lignes += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">'
+            +'<span>Ajouté·e·s manuellement</span><span><b>'+sansRole+'</b></span></div>';
+        }
         var totalV=valides.length, totalA=apay.length+acarte.length;
         var totalMax = totalV + totalA;
         var refuses = ref.length;
