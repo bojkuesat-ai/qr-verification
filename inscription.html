@@ -124,7 +124,7 @@
   var CID = (par("c")||"").toLowerCase();
   var PAY = par("pay")==="1";
   if(!NOMS[CID]){ CID="festif"; }
-  if(CID==="parrainage") PAY=false;
+  if(CID==="parrainage" || CID==="proclamation") PAY=false;   // événements gratuits
   var isP = (CID==="parrainage");
   var isPro = (CID==="proclamation");
 
@@ -149,7 +149,6 @@
   if(isP) q("wrapRole").style.display="";
   if(isPro){
     q("enteteUlb").style.display="block";
-    q("notePerso").style.display="block";
     q("wrapRole").style.display="";
     q("f_role").innerHTML = ROLES_PROCLA.map(function(r){ return '<option value="'+r[0]+'">'+r[1]+'</option>'; }).join("");
     q("wrapAnnee").style.display="none";
@@ -160,6 +159,7 @@
     var role=q("f_role").value;
     q("wrapSec").style.display = (AVEC_SECTION.indexOf(role)>=0) ? "" : "none";
     q("wrapCarte").style.display = (role==="etudiant") ? "" : "none";
+    q("notePerso").style.display = (role==="etudiant") ? "block" : "none";
     if(role!=="etudiant"){ q("f_matricule").value=""; }
   }
   function majAnnees(){
@@ -276,7 +276,7 @@
 
     var btn=q("btn"); btn.disabled=true; btn.textContent="Envoi…";
     try{
-      var tok = window.__anon || window.__tok;
+      var tok = window.__tok || window.__anon;   // compte scanner en priorité (droits d'écriture)
       if(!tok){
         var ra = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
           { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) });
@@ -316,17 +316,24 @@
       var rp = await fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
         headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" },
         body: JSON.stringify({ fields:fields }) });
-      if(!rp.ok) throw new Error("save");
+      if(!rp.ok){
+        var det=""; try{ var je=await rp.json(); det=(je&&je.error&&je.error.message)||""; }catch(e){}
+        throw new Error(det||("HTTP "+rp.status));
+      }
 
       q("form").style.display="none";
       msg.innerHTML='<div class="card"><p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
         + '<p class="hint">'+((PAY || (isPro && q("f_role").value==="etudiant"))
             ? 'Votre inscription va être <b>vérifiée par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.'
             : 'Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.')+'</p>'
-        + (isPro ? '<p class="hint" style="margin-top:8px">Rappel : cette invitation est <b>strictement personnelle</b> et ne vaut que pour une personne.</p>' : '')
+        + ((isPro && q("f_role").value==="etudiant") ? '<p class="hint" style="margin-top:8px">Rappel : cette invitation est <b>strictement personnelle</b> et ne vaut que pour une personne.</p>' : '')
         + '<p class="hint">📩 <b>Vous ne recevez rien ?</b> Vérifiez vos <b>spams</b>.</p></div>';
     }catch(e){
-      msg.innerHTML='<p class="err">Échec de l\'inscription. Vérifiez votre connexion et réessayez.</p>';
+      var m=String((e&&e.message)||e||"");
+      var lisible = /PERMISSION_DENIED/i.test(m)
+        ? "Les inscriptions ne sont pas encore ouvertes côté serveur. Merci de prévenir les organisateurs (erreur : autorisation refusée)."
+        : "Échec de l'inscription. Vérifiez votre connexion et réessayez.";
+      msg.innerHTML='<p class="err">'+lisible+'</p><p class="hint" style="margin-top:6px">Détail technique : '+m.replace(/</g,"&lt;")+'</p>';
       btn.disabled=false; btn.textContent="Je m'inscris";
     }
   };

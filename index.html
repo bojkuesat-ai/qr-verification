@@ -1346,7 +1346,7 @@
       if(mail && !scanner){ acts += '<button class="btn ghost xs" onclick="resendTicket(\''+g.token+'\')">Renvoyer</button>'; }
       var r=document.createElement("div"); r.className="lst-row";
       r.innerHTML='<span class="nm">'+escapeHtml(g.name)+'</span>'+
-        '<span class="cd">'+g.token+(when?' · '+when:'')+'</span>'+
+        '<span class="cd">'+g.token+(when?' · '+when:'')+(mail?(g.mailEnvoye?' · <span style="color:var(--green,#4caf7d)">✉ envoyé</span>':' · <span style="color:var(--amber,#d8b45a)">✉ non envoyé</span>'):'')+'</span>'+
         '<span class="badge '+(isIn?"in":"wait")+'">'+(isIn?"Entré":"En attente")+'</span>'+
         '<span class="lst-acts">'+acts+'</span>';
       box.appendChild(r);
@@ -1380,7 +1380,7 @@
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(),from:expediteur()})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     flash("Rappel envoyé à "+ok+" personne(s).");
@@ -1738,19 +1738,24 @@
     else if(t.id==="btnCopy1"){ e.preventDefault(); copySignupLink(false); }
     else if(t.id==="btnCopy2"){ e.preventDefault(); copySignupLink(true); }
   }, true);
-  function mentionPerso(){
+  function mentionPerso(g){
     if(currentCommId()!=="proclamation") return "";
-    return '<div style="background:#fdf8ec;border:1px solid #e3d3a8;border-radius:10px;padding:14px;margin:16px 0">'
-      +'<b style="color:#8a6d1f">Invitation strictement personnelle</b>'
-      +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">Cette invitation est nominative et donne accès à <b>une seule personne</b>. '
-      +'Elle ne peut être ni partagée, ni transmise, ni utilisée par un accompagnant : chaque billet ne peut être scanné qu\'une seule fois.</p>'
-      +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">La capacité de la salle ne nous permet malheureusement pas d\'accueillir de personnes supplémentaires. Merci de votre compréhension.</p></div>'
+    var bloc = "";
+    if(g && g.role==="etudiant"){
+      bloc = '<div style="background:#fdf8ec;border:1px solid #e3d3a8;border-radius:10px;padding:14px;margin:16px 0">'
+        +'<b style="color:#8a6d1f">Invitation strictement personnelle</b>'
+        +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">Cette invitation est nominative et donne accès à <b>une seule personne</b>. '
+        +'Elle ne peut être ni partagée, ni transmise, ni utilisée par un accompagnant : chaque billet ne peut être scanné qu\'une seule fois.</p>'
+        +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">La capacité de la salle ne nous permet malheureusement pas d\'accueillir de personnes supplémentaires. Merci de votre compréhension.</p></div>';
+    }
+    return bloc
       +'<hr style="border:none;border-top:1px solid #eee;margin:18px 0">'
       +'<p style="margin:0;text-align:center;font-size:12px;color:#888;letter-spacing:.06em;text-transform:uppercase">Université libre de Bruxelles</p>'
       +'<p style="margin:2px 0 8px;text-align:center;font-size:13px;color:#555">Faculté de Droit et de Criminologie</p>'
       +'<p style="margin:0;text-align:center;font-size:14px;color:#333"><b>Délégation étudiante de Droit et de Criminologie</b></p>'
       +'<p style="margin:6px 0 0;text-align:center;font-size:12px;color:#999">Ceci est un envoi automatique — merci de ne pas répondre à ce message.</p>';
   }
+
   function expediteur(){
     return (currentCommId()==="proclamation")
       ? "Délégués Droit & Criminologie <proclamation@bureauetuidant.xyz>"
@@ -1799,7 +1804,7 @@
         +'<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p>'
         +'<p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
         + billetHtml(g.name, eventName||"notre événement", ticketLinkFor(g), g.token)
-        + mentionPerso()
+        + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
         body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:html,from:expediteur()})}); if(r.ok) ok++; }catch(e){}
@@ -1933,7 +1938,7 @@
     monterSignupCard();
     if($("suLink")) $("suLink").value=signupLink(false);
     if($("suLinkPay")) $("suLinkPay").value=signupLink(true);
-    if($("suPayWrap")) $("suPayWrap").style.display = (cid==="parrainage") ? "none" : "";
+    if($("suPayWrap")) $("suPayWrap").style.display = (cid==="parrainage" || cid==="proclamation") ? "none" : "";
 
     if($("suNotif") && !$("suNotif").value){ var _nm=getNotifMail(); if(_nm) $("suNotif").value=_nm; }
     var _nomActuel = eventName || ($("pEvName")&&$("pEvName").value.trim()) || ($("evName")&&$("evName").value.trim()) || "";
@@ -1974,11 +1979,29 @@
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
     cloudPushRoster(currentCommId());
+    renderTickets();                      // afficher le QR créé
     renderList(); updateCounts();
     var g=roster[roster.length-1];
-    try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(),from:expediteur()})}); }catch(e){}
+    try{
+      var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})});
+      g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
+    }catch(e){ g.mailEnvoye = 0; }
+    await Store.set("roster", JSON.stringify(roster));
+    renderTickets(); renderList();
   }
+  document.addEventListener("click", function(e){
+    var b = e.target && e.target.closest ? e.target.closest("[data-su]") : null;
+    if(!b) return;
+    e.preventDefault();
+    var i = parseInt(b.getAttribute("data-i"),10);
+    if(isNaN(i)) return;
+    var a = b.getAttribute("data-su");
+    if(a==="carte")  voirCarte(i);
+    else if(a==="preuve") voirPreuve(i);
+    else if(a==="ok")     accepterInscrit(i);
+    else if(a==="no")     refuserInscrit(i);
+  }, true);
   window.voirCarte=function(i){
     var x=SIGNUPS[i]; if(!x||!x.carte) return flash("Aucune carte.");
     var w=window.open("","_blank");
@@ -2173,20 +2196,20 @@
             return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
               +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b><br>'
               +'<span class="hint">Matricule '+escapeHtml(x.matricule||"—")+' · '+escapeHtml(x.section||"")+' — '+escapeHtml(x.email||"")+'</span></span>'
-              +'<button class="btn ghost xs" onclick="voirCarte('+i+')">Carte</button>'
-              +'<button class="btn gold xs" onclick="accepterInscrit('+i+')">Valider</button>'
-              +'<button class="btn ghost xs" onclick="refuserInscrit('+i+')">Refuser</button></div>'; }).join("");
+              +'<button class="btn ghost xs" data-su="carte" data-i="'+i+'">Carte</button>'
+              +'<button class="btn gold xs" data-su="ok" data-i="'+i+'">Valider</button>'
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
     }
     if(apay.length){
       html += '<p class="fld" style="margin-top:12px">Paiements à vérifier ('+apay.length+')</p>'
         + apay.map(function(x){ return ligne(x,
-            '<button class="btn ghost xs" onclick="voirPreuve(@I@)">Preuve</button>'
-           +'<button class="btn gold xs" onclick="accepterInscrit(@I@)">Valider</button>'
-           +'<button class="btn ghost xs" onclick="refuserInscrit(@I@)">Refuser</button>'); }).join("");
+            '<button class="btn ghost xs" data-su="preuve" data-i="@I@">Preuve</button>'
+           +'<button class="btn gold xs" data-su="ok" data-i="@I@">Valider</button>'
+           +'<button class="btn ghost xs" data-su="no" data-i="@I@">Refuser</button>'); }).join("");
     }
     if(att.length){
       html += '<p class="fld" style="margin-top:12px">Liste d\'attente ('+att.length+')</p>'
-        + att.map(function(x){ return ligne(x,'<button class="btn ghost xs" onclick="accepterInscrit(@I@)">Accepter</button>'); }).join("");
+        + att.map(function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Accepter</button>'); }).join("");
     }
     if(acc.length){
       html += '<p class="fld" style="margin-top:12px">Inscrits — billet envoyé ('+acc.length+')</p>'
@@ -2194,7 +2217,7 @@
     }
     if(ref.length){
       html += '<p class="fld" style="margin-top:12px">Refusés ('+ref.length+')</p>'
-        + ref.map(function(x){ return ligne(x,'<button class="btn ghost xs" onclick="accepterInscrit(@I@)">Valider quand même</button>'); }).join("");
+        + ref.map(function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Valider quand même</button>'); }).join("");
     }
     if(!SIGNUPS.length) html = '<p class="hint" style="margin-top:12px">Aucune inscription pour l\'instant. Partage le lien ci-dessus.</p>';
     box.innerHTML = html;
