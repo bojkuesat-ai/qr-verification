@@ -898,6 +898,16 @@
     return false;
   }
   function eligibleParrains(F){ return candidatsParrains().filter(function(C){ return eligibleMatch(C,F); }); }
+  // Ordre des candidats parrains pour un filleul : pour un·e PASSERELLE, les ancien·ne·s passerelles d'abord, puis le moins chargé.
+  function cmpCandidats(F){
+    return function(a,b){
+      if(F && F.annee==="Passerelle"){
+        var ax=a.exPasserelle?0:1, bx=b.exPasserelle?0:1;
+        if(ax!==bx) return ax-bx;
+      }
+      return loadOf(a.token)-loadOf(b.token) || a.name.localeCompare(b.name);
+    };
+  }
   function loadOf(token){ return roster.filter(function(g){ return g.role==="filleul" && g.parrain===token; }).length; }
   function tokenGuest(tok){ for(var i=0;i<roster.length;i++){ if(roster[i].token===tok) return roster[i]; } return null; }
   async function saveRosterMatches(){
@@ -924,7 +934,7 @@
       if(F.parrain) return;                                    // conserver les choix déjà faits
       var cands = eligibleParrains(F).filter(function(c){ return loadOf(c.token) < MATCH_MAX; });
       if(!cands.length) return;                                // laissé non attribué
-      cands.sort(function(a,b){ return loadOf(a.token)-loadOf(b.token) || a.name.localeCompare(b.name); }); // équilibrage : le moins chargé d'abord
+      cands.sort(cmpCandidats(F));                             // ex-passerelle d'abord (si filleul passerelle), puis le moins chargé
       F.parrain = cands[0].token; n++;
     });
     await saveRosterMatches(); renderMatching();
@@ -951,7 +961,7 @@
         var elig = eligibleParrains(F);
         if(!elig.length) sansEligible++;
         if(!F.parrain) nonAttrib++;
-        elig.sort(function(a,b){ return loadOf(a.token)-loadOf(b.token) || a.name.localeCompare(b.name); });
+        elig.sort(cmpCandidats(F));
         var opts = '<option value="">— non attribué —</option>';
         elig.forEach(function(C){
           var load=loadOf(C.token);

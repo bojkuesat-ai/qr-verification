@@ -72,7 +72,7 @@
     </div>
 
     <label class="chk" id="wrapPass" style="display:none">
-      <input type="checkbox" id="f_pass"> J'ai fait la passerelle
+      <input type="checkbox" id="f_pass"> Ancien·ne passerelle (j'ai fait la passerelle)
     </label>
 
     <div id="wrapCarte" style="display:none">
@@ -192,7 +192,7 @@
     var sec=q("f_sec").value, sel=q("f_annee"), ys;
     if(isP){
       var role=q("f_role").value;
-      if(role==="alumni"){ q("wrapAnnee").style.display="none"; q("wrapPass").style.display="none"; return; }
+      if(role==="alumni"){ q("wrapAnnee").style.display="none"; majPass(); return; }
       q("wrapAnnee").style.display="";
       ys = (sec==="Criminologie") ? ((role==="parrain")?["MA2"]:["MA1"])
          : ((role==="parrain")?["BA2","BA3","MA1","MA2"]:["Passerelle","BA1","MA1"]);
@@ -204,8 +204,12 @@
   }
   function majPass(){
     if(!isP) return;
-    var ok = (q("f_role").value==="parrain" && q("f_sec").value==="Droit" &&
-              (q("f_annee").value==="MA1"||q("f_annee").value==="MA2"));
+    var role=q("f_role").value, sec=q("f_sec").value, an=q("f_annee").value;
+    // Case « Ancien·ne passerelle » : uniquement en DROIT, pour les parrain·marraine MA1/MA2 et pour les alumni.
+    var ok = (sec==="Droit") && (
+               (role==="parrain" && (an==="MA1"||an==="MA2")) ||
+               (role==="alumni")
+             );
     q("wrapPass").style.display = ok ? "flex" : "none";
     if(!ok) q("f_pass").checked=false;
   }
