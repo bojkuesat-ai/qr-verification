@@ -596,15 +596,6 @@
     <div id="gScannerResult" style="margin-top:11px;font-size:13px;color:var(--muted);line-height:1.7"></div>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <h2 style="margin-top:18px">Événement Parrainage</h2>
-    <p class="sub">Affiche ou masque le bouton « Parrainage » sur l'accueil. Décoche quand l'événement est terminé pour le faire disparaître (les données restent conservées).</p>
-    <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="parrainToggle" onchange="toggleParrainage()"> Afficher « Parrainage » sur l'accueil</label>
-
-    <h2 style="margin-top:18px">Événement Proclamation</h2>
-    <p class="sub">Affiche ou masque le bouton « Proclamation » sur l'accueil. Coche-le au moment d'organiser la proclamation, décoche-le ensuite (les données restent conservées).</p>
-    <label style="display:flex;align-items:center;gap:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="proclaToggle" onchange="toggleProcla()"> Afficher « Proclamation » sur l'accueil</label>
-
-    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Catégories de billets</h2>
     <p class="sub">Crée tes propres catégories (ex. Cooptés, Professeurs…). À la création des billets tu pourras en choisir une ; elle s'affiche en couleur au moment du scan.</p>
     <div class="row" style="gap:8px;align-items:center">
@@ -2615,8 +2606,6 @@
     if(SIGNUP_MODE) return;
     var g=$("commGrid"); if(!g) return; g.innerHTML="";
     COMMISSIONS.forEach(function(c){
-      if(c.id==="parrainage" && parrainageHidden()) return;
-      if(c.id==="proclamation" && proclaHidden()) return;
       var b=document.createElement("button"); b.className="comm-btn";
       var n=commCount(c.id);
       b.innerHTML='<span>'+c.name+'</span><span class="cnt">'+(n? (n+" billet"+(n>1?"s":"")) : "vide")+'</span>';
@@ -2634,7 +2623,6 @@
     saveComm(null);
     document.body.classList.add("home-mode");
     renderHome();
-    if(typeof syncProclaFromCloud==="function") syncProclaFromCloud();
   };
 
   /* ---------- Authentification par commission (Firebase Auth REST) ---------- */
@@ -3151,7 +3139,6 @@
     }
     else { document.body.classList.add("home-mode"); renderHome(); }
     try{ renderCats(); }catch(e){}
-    if(typeof syncProclaFromCloud==="function") syncProclaFromCloud();
   })();
 })();
 </script>
