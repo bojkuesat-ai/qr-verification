@@ -73,6 +73,13 @@
     display:flex;align-items:center;justify-content:space-between;gap:10px;transition:.15s;text-align:left}
   .comm-btn:hover{border-color:var(--gold-dim);color:var(--gold-soft)}
   .comm-btn .cnt{font-size:11.5px;font-weight:600;color:var(--muted);background:var(--bg);border-radius:20px;padding:3px 10px}
+  .gscan{position:fixed;inset:0;z-index:90;background:radial-gradient(900px 520px at 50% 0%, #241c46, var(--bg));display:none;flex-direction:column;padding:18px 16px 46px;overflow-y:auto}
+  .gscan.on{display:flex}
+  .gs-wrap{width:100%;max-width:520px;margin:0 auto}
+  .gs-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+  #greader{border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#000;min-height:60px}
+  #greader video{display:block;width:100%!important;height:auto!important}
+  .gs-ambig button{width:100%;text-align:left;justify-content:flex-start;margin-top:8px}
   .comm-tag{display:inline-flex;flex-wrap:wrap;align-items:center;gap:9px;background:var(--surface2);border:1px solid var(--line);
     color:var(--gold-soft);border-radius:14px;padding:9px 12px;font-size:13px;font-weight:700;margin-top:9px}
   .comm-tag button{background:var(--bg);border:1px solid var(--line);color:var(--text);font:inherit;font-size:14px;font-weight:700;cursor:pointer;padding:8px 14px;border-radius:10px}
@@ -233,7 +240,7 @@
   .dot.off{background:var(--amber);box-shadow:0 0 9px rgba(242,172,63,.5)}
   .steps{font-size:13px;color:var(--muted);line-height:1.7;margin:0 0 11px;padding-left:2px}
 
-  .flash-overlay{position:fixed;inset:0;z-index:60;display:grid;place-items:center;grid-auto-flow:row;gap:20px;pointer-events:none;opacity:0;transition:opacity .1s ease}
+  .flash-overlay{position:fixed;inset:0;z-index:95;display:grid;place-items:center;grid-auto-flow:row;gap:20px;pointer-events:none;opacity:0;transition:opacity .1s ease}
   .flash-overlay.show{opacity:1}
   .flash-overlay.ok{background:rgba(15,42,32,.94)}
   .flash-overlay.no{background:rgba(58,20,32,.95)}
@@ -476,6 +483,40 @@
     <h2>Contrôle d'entrée</h2>
     <p>Choisis ta commission</p>
     <div class="comm-grid" id="commGrid"></div>
+    <button class="comm-btn" id="gscanOpenBtn" onclick="gscanOpen()" style="margin-top:14px;background:linear-gradient(160deg,#3a2d1a,#2a2110);border-color:var(--gold-dim)">
+      <span>🎯 Scanner global — toutes les commissions</span>
+      <span class="cnt">tous les billets</span>
+    </button>
+  </div>
+</div>
+
+<div class="gscan" id="gscanScreen" aria-hidden="true">
+  <div class="gs-wrap">
+    <div class="gs-head">
+      <h2 style="font-family:'Fraunces',serif;font-weight:600;font-size:20px;margin:0">Scanner global</h2>
+      <button class="btn ghost sm" onclick="gscanClose()">✕ Fermer</button>
+    </div>
+    <div id="gsStatus" style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Chargement des commissions…</div>
+    <div class="counter"><b id="gEntered">0</b><span>entrés sur <b id="gTotal" style="font-size:15px">0</b> · toutes commissions</span></div>
+    <div class="stat idle" id="gstat"><p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p></div>
+    <div class="gs-ambig" id="gambig" style="display:none"></div>
+    <div class="card" style="padding:13px">
+      <div class="row" style="margin-bottom:11px;flex-wrap:wrap">
+        <button class="btn gold sm" id="gcamStart" onclick="gStartCam()">Démarrer la caméra</button>
+        <button class="btn ghost sm" id="gcamStop" onclick="gStopCam()" style="display:none">Arrêter</button>
+        <button class="btn ghost sm" id="gtorch" onclick="gToggleTorch()" style="display:none">🔦 Lampe</button>
+        <button class="btn ghost sm" onclick="gReload()">↻ Recharger</button>
+      </div>
+      <div id="greader"></div>
+      <div class="cam-msg" id="gcamMsg"></div>
+      <div class="manual">
+        <label class="fld" for="gmanual">Saisie manuelle / lecteur externe</label>
+        <div class="row">
+          <input type="text" id="gmanual" placeholder="Code du billet" autocomplete="off" autocapitalize="characters" onkeydown="if(event.key==='Enter')gCheckManual()">
+          <button class="btn gold sm" onclick="gCheckManual()">Vérifier</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -668,8 +709,11 @@
   function normalize(raw){ return raw ? String(raw).trim().toUpperCase().replace(/[^A-Z0-9]/g,"") : ""; }
   function fmtTime(ms){ try{ return new Date(ms).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } }
   function sanitize(s){ return (s||"billet").replace(/[^a-z0-9\-_ ]/gi,"").trim().replace(/\s+/g,"_"); }
+  // Préfixe unique par commission -> les nouveaux codes ne peuvent plus entrer en collision entre commissions.
+  var COMM_PREFIX = { festif:"F", code:"C", aca:"A", culture:"U", social:"S", crimino:"R", salle:"M", parrainage:"P", proclamation:"T" };
   function genToken(existing){
-    var t; do{ t=""; for(var i=0;i<6;i++) t+=ALPHA[Math.floor(Math.random()*ALPHA.length)]; }while(existing.has(t)); return t;
+    var pfx=""; try{ var cid=currentCommId(); if(cid && COMM_PREFIX[cid]) pfx=COMM_PREFIX[cid]; }catch(e){}
+    var t; do{ t=pfx; for(var i=0;i<6;i++) t+=ALPHA[Math.floor(Math.random()*ALPHA.length)]; }while(existing.has(t)); return t;
   }
   function downloadBlob(blob, name){
     var u=URL.createObjectURL(blob), a=document.createElement("a");
@@ -1154,6 +1198,10 @@
     usedSet.add(token); usedAt[token]=at;
     setStat("valid","Valide", guest.name, "Entrée enregistrée · "+fmtTime(at), guest);
     flashSignal(true); beep(true); updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
+    if(currentCommId()==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
+      var pNm=""; if(guest.role==="filleul" && guest.parrain){ var Pp=tokenGuest(guest.parrain); if(Pp) pNm=Pp.name; }
+      sendParrainageEntryMail(guest, pNm, eventName||"le parrainage").then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
+    }
   }
 
   window.checkManual = function(){
@@ -1176,8 +1224,7 @@
   }
 
   var clearT=null;
-  function setStat(kind, word, who, note, guest){
-    var s=$("stat"); s.className="stat "+kind;
+  function buildBadges(guest){
     var cat="";
     var PROCLA_LB={ doyen:"DOYEN·NE", academique:"CORPS ACADÉMIQUE", scientifique:"CORPS SCIENTIFIQUE",
                     patgs:"PERSONNEL ADM., TECHNIQUE ET DE GESTION", etudiant:"ÉTUDIANT·E DIPLÔMÉ·E" };
@@ -1200,6 +1247,11 @@
       cat = '<div class="catbadge '+(CC[guest.role]||"cp")+'">'+escapeHtml(label)+'</div>'+(sub?'<div class="catsub">'+escapeHtml(sub)+'</div>':'')+tbl;
     }
     if(guest && (guest.cat||guest.ct)){ cat += '<div class="catbadge" style="background:'+escapeHtml(guest.cc||"#555")+';color:#fff;border:none">'+escapeHtml(guest.cat||guest.ct)+'</div>'; }
+    return cat;
+  }
+  function setStat(kind, word, who, note, guest){
+    var s=$("stat"); s.className="stat "+kind;
+    var cat=buildBadges(guest);
     s.innerHTML='<p class="word">'+escapeHtml(word)+'</p>'+(who?'<p class="who">'+escapeHtml(who)+'</p>':'')+cat+(note?'<p class="note">'+escapeHtml(note)+'</p>':'');
     if(clearT) clearTimeout(clearT);
     clearT=setTimeout(function(){ s.className="stat idle"; s.innerHTML='<p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p>'; }, 4500);
@@ -1291,6 +1343,171 @@
       if(torchOn){ b.classList.add("on"); b.textContent="🔦 Éteindre"; }
       else { b.classList.remove("on"); b.textContent="🔦 Lampe"; }
     }catch(e){ torchOn=!torchOn; }
+  };
+
+  /* ================= SCANNER GLOBAL (toutes commissions, multi-téléphones) =================
+     - Se connecte au compte scanner partagé (scan@qrentry.app) qui est autorisé sur chaque commission.
+     - Charge la liste + les entrées de TOUTES les commissions et construit un index token -> commission(s).
+     - À chaque scan : re-lecture EN DIRECT du cloud de la bonne commission (anti double-entrée entre
+       téléphones), puis enregistrement. Rafraîchit périodiquement pour voir les entrées des autres postes. */
+  var gAuth=null, gIndex={}, gTotal=0, gUsed=0, gScanner=null, gScanning=false;
+  var gLastTok="", gLastAt=0, gClearT=null, gRefreshTimer=null;
+  var gTorchOn=false, gTorchTrack=null;
+
+  function gStatus(txt, warn){ var e=$("gsStatus"); if(e){ e.textContent=txt; e.style.color = warn ? "var(--red)" : "var(--muted)"; } }
+  function gUpdateCounts(){ if($("gEntered")) $("gEntered").textContent=gUsed; if($("gTotal")) $("gTotal").textContent=gTotal; }
+  function gFlash(ok){ try{ flashSignal(ok); }catch(e){} }
+  function hideGAmbig(){ var b=$("gambig"); if(b){ b.style.display="none"; b.innerHTML=""; } }
+  function gStat(kind,word,who,note,guest){
+    var s=$("gstat"); if(!s) return; s.className="stat "+kind;
+    var cat = guest ? buildBadges(guest) : "";
+    s.innerHTML='<p class="word">'+escapeHtml(word)+'</p>'+(who?'<p class="who">'+escapeHtml(who)+'</p>':'')+cat+(note?'<p class="note">'+escapeHtml(note)+'</p>':'');
+    if(gClearT) clearTimeout(gClearT);
+    gClearT=setTimeout(function(){ s.className="stat idle"; s.innerHTML='<p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p>'; }, 4500);
+  }
+
+  async function gEnsureAuth(){
+    if(gAuth && gAuth.idToken && gAuth.expiresAt && Date.now() < gAuth.expiresAt-90000) return true;
+    if(gAuth && gAuth.refreshToken){
+      try{ var d=await fbRefreshToken(gAuth.refreshToken);
+        gAuth.idToken=d.id_token; gAuth.refreshToken=d.refresh_token; gAuth.expiresAt=Date.now()+parseInt(d.expires_in,10)*1000; return true;
+      }catch(e){}
+    }
+    try{
+      var d2;
+      try{ d2=await fbCall("signInWithPassword",{email:"scan@qrentry.app",password:"123456",returnSecureToken:true}); }
+      catch(e1){ d2=await fbCall("signUp",{email:"scan@qrentry.app",password:"123456",returnSecureToken:true}); }
+      gAuth={ idToken:d2.idToken, refreshToken:d2.refreshToken, expiresAt:Date.now()+parseInt(d2.expiresIn,10)*1000, uid:d2.localId };
+      return true;
+    }catch(e){ return false; }
+  }
+
+  async function gLoadAll(silent){
+    if(!(await gEnsureAuth())){ gStatus("Connexion au compte scanner impossible — vérifie ta connexion.", true); return false; }
+    if(!silent) gStatus("Chargement des commissions…", false);
+    var idx={}, total=0, used=0, okC=0, failC=0;
+    for(var i=0;i<COMMISSIONS.length;i++){
+      var c=COMMISSIONS[i];
+      try{
+        var data=await fsGetDoc(ticketDocPath(c.id), gAuth.idToken);
+        if(!data){ failC++; continue; }
+        var f=data.fields||{};
+        var roster=[]; try{ roster=JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e){}
+        var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+        okC++;
+        for(var j=0;j<roster.length;j++){
+          var g=roster[j]; if(!g||!g.token) continue;
+          var key=normalize(g.token);
+          var at = usedMap[g.token]||usedMap[key]||null;
+          (idx[key]=idx[key]||[]).push({ cid:c.id, cname:c.name, guest:g, usedAt:at });
+          total++; if(at) used++;
+        }
+      }catch(e){ failC++; }
+    }
+    gIndex=idx; gTotal=total; gUsed=used; gUpdateCounts();
+    gStatus(okC+" commission(s) · "+total+" billets"+(failC?(" · "+failC+" non accessible(s) — active le compte scanner dessus"):""), failC>0 && okC===0);
+    return true;
+  }
+
+  function gParrainInfo(cid, guest){
+    if(!guest || guest.role!=="filleul" || !guest.parrain) return "";
+    var pl = gIndex[normalize(guest.parrain)];
+    if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ return " · Parrain·e : "+(pl[i].guest.name||"?"); } } }
+    return "";
+  }
+  async function gAdmit(token, m){
+    hideGAmbig();
+    if(!(await gEnsureAuth())){ gStat("invalid","Hors ligne", m.guest.name||"", "Reconnecte-toi et réessaie"); gFlash(false); beep(false); return; }
+    var cid=m.cid, guest=m.guest, tkStored=guest.token||token;
+    var fam=gParrainInfo(cid, guest);
+    try{
+      // Re-vérification EN DIRECT dans le cloud : empêche la double-entrée entre plusieurs téléphones
+      var data=await fsGetDoc(ticketDocPath(cid), gAuth.idToken);
+      var f=(data&&data.fields)||{}; var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+      var already = usedMap[tkStored] || usedMap[token];
+      if(already){
+        var w=""; try{ w=fmtTime(already); }catch(e){}
+        m.usedAt=already; gStat("used","Déjà scanné", guest.name||"", (w?("Entré à "+w):"Déjà entré")+" · "+m.cname+fam, guest);
+        gFlash(false); alertUsed(); return;
+      }
+      var at=Date.now(); usedMap[tkStored]=at;
+      var r=await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
+      if(!(r&&r.ok)){ gStat("invalid","Échec réseau", guest.name||"", "Réessaie (ou active le compte scanner sur "+m.cname+")"); gFlash(false); beep(false); return; }
+      if(!m.usedAt){ gUsed++; } m.usedAt=at; gUpdateCounts();
+      gStat("valid","Valide — "+m.cname, guest.name||"", "Entrée enregistrée · "+fmtTime(at)+fam, guest);
+      gFlash(true); beep(true);
+      if(cid==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
+        var pNm=""; if(guest.role==="filleul" && guest.parrain){ var pl=gIndex[normalize(guest.parrain)]; if(pl){ for(var pi=0;pi<pl.length;pi++){ if(pl[pi].cid===cid && pl[pi].guest){ pNm=pl[pi].guest.name||""; break; } } } }
+        var evN=(f.event&&f.event.stringValue)||"le parrainage";
+        sendParrainageEntryMail(guest, pNm, evN).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
+      }
+    }catch(e){ gStat("invalid","Erreur", guest.name||"", "Vérifie ta connexion et réessaie"); gFlash(false); beep(false); }
+  }
+
+  function gAmbig(token, matches){
+    gStat("used","Plusieurs commissions", "", "Ce code existe dans "+matches.length+" commissions — choisis la bonne :");
+    var box=$("gambig"); if(!box) return; box.style.display="block"; box.innerHTML="";
+    matches.forEach(function(m){
+      var b=document.createElement("button"); b.className="btn ghost sm";
+      var was = m.usedAt ? " · déjà entré" : "";
+      b.innerHTML = escapeHtml(m.cname)+" — "+escapeHtml(m.guest.name||"?")+was;
+      b.onclick=function(){ gAdmit(token, m); };
+      box.appendChild(b);
+    });
+    gFlash(false); beep(false);
+  }
+
+  async function gVerify(raw){
+    var token=normalize(raw); if(!token) return;
+    var now=Date.now(); if(token===gLastTok && (now-gLastAt)<2500) return; gLastTok=token; gLastAt=now;
+    hideGAmbig();
+    var matches=gIndex[token]||[];
+    if(matches.length===0){ gStat("invalid","Billet inconnu", token, "Aucune commission ne contient ce code"); gFlash(false); beep(false); return; }
+    if(matches.length>1){ gAmbig(token, matches); return; }
+    await gAdmit(token, matches[0]);
+  }
+
+  window.gCheckManual=function(){ ensureAudio(); var v=$("gmanual").value; if(!v.trim()) return; gVerify(v); $("gmanual").value=""; $("gmanual").focus(); };
+  window.gReload=async function(){ await gLoadAll(false); };
+
+  function gGetTrack(){ try{ var v=document.querySelector('#greader video'); var s=v&&v.srcObject; return (s&&s.getVideoTracks)?(s.getVideoTracks()[0]||null):null; }catch(e){ return null; } }
+  function gCheckTorch(){ gTorchOn=false; setTimeout(function(){
+      var t=gGetTrack(); gTorchTrack=t; var caps=null; try{ caps=(t&&t.getCapabilities)?t.getCapabilities():null; }catch(e){}
+      var b=$("gtorch"); if(!b) return;
+      if(caps&&caps.torch){ b.style.display="inline-flex"; b.classList.remove("on"); b.textContent="🔦 Lampe"; } else { b.style.display="none"; }
+    }, 400); }
+  window.gToggleTorch=function(){ var t=gTorchTrack||gGetTrack(); if(!t) return; gTorchOn=!gTorchOn;
+    try{ t.applyConstraints({advanced:[{torch:gTorchOn}]}); var b=$("gtorch"); if(gTorchOn){ b.classList.add("on"); b.textContent="🔦 Éteindre"; } else { b.classList.remove("on"); b.textContent="🔦 Lampe"; } }catch(e){ gTorchOn=!gTorchOn; } };
+
+  window.gStartCam=async function(){
+    ensureAudio(); var msg=$("gcamMsg");
+    if(typeof Html5Qrcode==="undefined"){ msg.className="cam-msg on"; msg.textContent="La librairie caméra n'a pas pu se charger. Utilise la saisie manuelle."; return; }
+    msg.className="cam-msg";
+    try{
+      gScanner=new Html5Qrcode("greader", { verbose:false });
+      await gScanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:230,height:230}}, function(txt){ gVerify(txt); }, function(){});
+      gScanning=true; $("gcamStart").style.display="none"; $("gcamStop").style.display="inline-flex"; gCheckTorch();
+    }catch(e){ gScanner=null; msg.className="cam-msg on"; msg.textContent="Caméra inaccessible ici. Autorise la caméra ou utilise la saisie manuelle / un lecteur externe."; }
+  };
+  window.gStopCam=async function(){
+    try{ if(gTorchOn){ var t=gTorchTrack||gGetTrack(); if(t) t.applyConstraints({advanced:[{torch:false}]}); } }catch(e){}
+    gTorchOn=false; gTorchTrack=null; if($("gtorch")){ $("gtorch").style.display="none"; $("gtorch").classList.remove("on"); $("gtorch").textContent="🔦 Lampe"; }
+    if(gScanner && gScanning){ try{ await gScanner.stop(); await gScanner.clear(); }catch(e){} }
+    gScanner=null; gScanning=false; if($("gcamStart")) $("gcamStart").style.display="inline-flex"; if($("gcamStop")) $("gcamStop").style.display="none";
+  };
+
+  window.gscanOpen=function(){
+    ensureAudio();
+    $("gscanScreen").classList.add("on"); $("gscanScreen").setAttribute("aria-hidden","false");
+    hideGAmbig();
+    gLoadAll(false);
+    if(gRefreshTimer) clearInterval(gRefreshTimer);
+    gRefreshTimer=setInterval(function(){ if($("gscanScreen").classList.contains("on")) gLoadAll(true); }, 25000);
+  };
+  window.gscanClose=function(){
+    gStopCam();
+    if(gRefreshTimer){ clearInterval(gRefreshTimer); gRefreshTimer=null; }
+    $("gscanScreen").classList.remove("on"); $("gscanScreen").setAttribute("aria-hidden","true");
   };
 
   /* ---------- Compteurs & liste ---------- */
@@ -1607,6 +1824,41 @@
     var src=((g.extra||"")+" "+(g.name||""));
     var m=src.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
     return m?m[0]:null;
+  }
+  /* ---------- Mail automatique à l'entrée (parrainage) : envoie la table etc. ---------- */
+  function parrainageEntryHtml(guest, parrainName, ev){
+    var roleLbl = guest.role==="parrain" ? "Parrain / Marraine" : (guest.role==="alumni" ? "Alumni / Ancien·ne" : "Filleul·e");
+    var isParrainOrAlumni = (guest.role==="parrain" || guest.role==="alumni");
+    var sub = (guest.role==="alumni") ? (guest.section||"") : [guest.annee, guest.section].filter(Boolean).join(" · ");
+    var intro = (guest.role==="filleul")
+      ? '<p>Bienvenue dans ta famille de parrainage ! 🎉 Ton entrée est enregistrée — rejoins ton parrain / ta marraine et tes co-filleul·e·s à ta table :</p>'
+      : '<p>Merci pour ton engagement dans le parrainage — ta présence compte énormément. 🙌 Ton entrée est enregistrée. Voici les infos de ta table :</p>';
+    var tableBloc = guest.table
+      ? '<p style="text-align:center;margin:24px 0"><span style="display:inline-block;background:#e0b64d;color:#181233;padding:16px 32px;border-radius:12px;font-weight:bold;font-size:22px">Table '+mailEsc(guest.table)+'</span></p>'
+      : '<p style="text-align:center;color:#a15c00;margin:20px 0">Ta table te sera communiquée sur place.</p>';
+    var info = '<ul style="line-height:1.9;color:#333;font-size:14px">'
+      + '<li>Rôle : <b>'+mailEsc(roleLbl)+'</b></li>'
+      + (sub ? '<li>'+mailEsc(sub)+'</li>' : '')
+      + (parrainName ? '<li>Ton parrain / ta marraine : <b>'+mailEsc(parrainName)+'</b></li>' : '')
+      + '</ul>';
+    var certif = isParrainOrAlumni
+      ? '<div style="background:#eef4ff;border:1px solid #c9d8f2;border-radius:10px;padding:14px;margin:18px 0">'
+        +'<b style="color:#1f5f8b">Certificat de participation</b>'
+        +'<p style="margin:6px 0 0;font-size:13.5px;color:#444">Après la soirée, tu pourras obtenir, <b>sur demande</b>, un certificat de l\'Université libre de Bruxelles (ULB) valorisant ta participation au parrainage.</p></div>'
+      : '';
+    return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + '<h2 style="margin:0 0 12px">Bienvenue — '+mailEsc(ev)+'</h2>'
+      + '<p>Bonjour '+mailEsc(guest.name)+',</p>'
+      + intro
+      + tableBloc + info + certif
+      + '<p style="color:#666;font-size:13px">Bonne soirée ! 🎉</p>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+  }
+  async function sendParrainageEntryMail(guest, parrainName, ev){
+    var to = emailOf(guest); if(!to) return false;
+    ev = ev || "le parrainage";
+    var subj = "Bienvenue — "+ev+(guest.table ? (" · Table "+guest.table) : "");
+    return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev));
   }
   function mailableGuests(){ return roster.filter(function(g){ return !!emailOf(g); }); }
   var SETTINGS_PWD = "admin2026";
