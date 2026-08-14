@@ -755,7 +755,13 @@
     var show = $("proclaToggle") && $("proclaToggle").checked;
     try{ window.localStorage.setItem("qrentry:proclaHidden", show?"0":"1"); }catch(e){}
     if(typeof renderHome==="function") renderHome();
-    flash(show ? "Proclamation affichée sur l'accueil." : "Proclamation masquée.");
+    flash(show ? "Proclamation affichée — synchro en cours…" : "Proclamation masquée — synchro en cours…");
+    if(typeof writeProclaCloudFlag==="function"){
+      writeProclaCloudFlag(show).then(function(ok){
+        if(ok) flash(show ? "Proclamation affichée sur tous les appareils ✓" : "Proclamation masquée sur tous les appareils ✓");
+        else flash("Réglage appliqué sur cet appareil (synchro cloud indisponible).");
+      });
+    }
   };
   window.toggleParrainage = function(){
     var show = $("parrainToggle") && $("parrainToggle").checked;
@@ -2628,6 +2634,7 @@
     saveComm(null);
     document.body.classList.add("home-mode");
     renderHome();
+    if(typeof syncProclaFromCloud==="function") syncProclaFromCloud();
   };
 
   /* ---------- Authentification par commission (Firebase Auth REST) ---------- */
@@ -2764,6 +2771,59 @@
       await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(remoteUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
     }catch(e){}
   }
+  /* ---------- Synchro cloud de la visibilité « Proclamation » (partagée entre appareils) ----------
+     Le drapeau est stocké dans le doc commission_tickets/proclamation, champ homeVisible ("1"=visible, "0"=masqué).
+     On lit/écrit avec un jeton proclamation TEMPORAIRE : si l'appareil n'était pas déjà connecté à cette
+     commission, on se connecte via le compte fixe, on lit/écrit, puis on EFFACE le jeton — pour ne jamais
+     autoriser l'entrée dans la commission sans mot de passe. */
+  var proclaSyncInFlight = false;
+  async function withProclaToken(fn){
+    var pre = loadAuth("proclamation");
+    var hadValid = false;
+    if(pre && pre.idToken){ try{ hadValid = await ensureAuth("proclamation"); }catch(e){ hadValid=false; } }
+    var createdTemp = false;
+    if(!hadValid){
+      var ok=false; try{ ok = await autoLoginFixed("proclamation"); }catch(e){ ok=false; }
+      if(!ok) return null;
+      createdTemp = true;
+    }
+    var res = null;
+    try{
+      var a = loadAuth("proclamation");
+      if(a && a.idToken) res = await fn(a.idToken);
+    }catch(e){ res = null; }
+    if(createdTemp){ try{ clearAuthTok("proclamation"); }catch(e){} }
+    return res;
+  }
+  async function readProclaCloudFlag(){
+    return await withProclaToken(async function(idToken){
+      var data = await fsGetDoc(ticketDocPath("proclamation"), idToken);
+      var f = data && data.fields;
+      var hv = f && f.homeVisible && f.homeVisible.stringValue;
+      return (hv==="1"||hv==="0") ? hv : null;
+    });
+  }
+  async function writeProclaCloudFlag(show){
+    var r = await withProclaToken(async function(idToken){
+      return await fsPatchFields(ticketDocPath("proclamation"),
+        { homeVisible: fsField(show?"1":"0"), updatedAt: fsField(new Date().toISOString()) }, idToken);
+    });
+    return !!(r && r.ok);
+  }
+  async function syncProclaFromCloud(){
+    if(proclaSyncInFlight) return;
+    proclaSyncInFlight = true;
+    try{
+      var hv = await readProclaCloudFlag();
+      if(hv!=="1" && hv!=="0") return;
+      try{ window.localStorage.setItem("qrentry:proclaHidden", hv==="1" ? "0" : "1"); }catch(e){}
+      if($("proclaToggle")) $("proclaToggle").checked = !proclaHidden();
+      if(typeof renderHome==="function") renderHome();
+    }catch(e){}
+    finally{ proclaSyncInFlight = false; }
+  }
+  window.__syncProclaFromCloud = syncProclaFromCloud;
+
   var cloudPollTimer=null;
   function startCloudPoll(){
     if(cloudPollTimer) clearInterval(cloudPollTimer);
@@ -3091,6 +3151,7 @@
     }
     else { document.body.classList.add("home-mode"); renderHome(); }
     try{ renderCats(); }catch(e){}
+    if(typeof syncProclaFromCloud==="function") syncProclaFromCloud();
   })();
 })();
 </script>
