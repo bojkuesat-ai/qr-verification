@@ -731,7 +731,7 @@
       if(!nm && !mail) return;
       var tok = genToken(existing); existing.add(tok);
       var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
-      roster.push({ token: tok, name: nm, extra: mail, cat:_gc, cc:_cc });
+      roster.push({ token: tok, name: nm, extra: mail, cat:_gc, cc:_cc, ajoutManuel:true });
     });
     eventName = name;
     localRosterVersion = Date.now();
@@ -1644,9 +1644,11 @@
     }
   }
   window.sendAllMails=async function(){
-    var list=mailableGuests();
-    if(!list.length){ flash("Aucun invité avec e-mail."); return; }
-    if(!confirm("Envoyer "+list.length+" billet(s) par mail ?")) return;
+    var deja = mailableGuests().filter(function(g){ return !!g.mailEnvoye; }).length;
+    var list = mailableGuests().filter(function(g){ return !g.mailEnvoye; });   // jamais envoyés uniquement
+    if(!list.length){ alert(deja ? ("Rien \u00e0 envoyer : les "+deja+" billet(s) avec e-mail ont d\u00e9j\u00e0 \u00e9t\u00e9 envoy\u00e9(s).") : "Aucun invité avec e-mail."); return; }
+    if(!window.confirm("Envoyer "+list.length+" billet(s) n'ayant jamais \u00e9t\u00e9 envoy\u00e9(s) ?"
+      +(deja?("\n\n("+deja+" autre(s) d\u00e9j\u00e0 envoy\u00e9(s) ne seront PAS renvoy\u00e9(s).)"):""))) return;
     var ev = eventName||"notre événement";
     var prog=$("mailProgress"); prog.style.display="block";
     var ok=0, fail=0;
@@ -1660,15 +1662,18 @@
           body: JSON.stringify({
             to: emailOf(g),
             subject: "Ton billet pour "+ev,
-            html: billetHtml(g.name, ev, ticketLinkFor(g), g.token)
+            html: billetHtml(g.name, ev, ticketLinkFor(g), g.token)+mentionPerso(g),
+            from: expediteur()
           })
         });
-        if(r.ok){ ok++; } else { fail++; }
+        if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
       }catch(e){ fail++; }
       await new Promise(function(r){ setTimeout(r,600); });
     }
+    try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+    renderList();
     prog.textContent = "Terminé : "+ok+" envoyé(s)"+(fail?(", "+fail+" échec(s)"):"")+".";
-    flash(fail? (ok+" envoyé(s), "+fail+" échec(s).") : "Tous les billets ont été envoyés.");
+    flash(fail? (ok+" envoyé(s), "+fail+" échec(s).") : ok+" nouveau(x) billet(s) envoyé(s).");
   };
 
   function ticketLinkFor(g){
@@ -1974,7 +1979,7 @@
   async function creerBilletDepuisInscription(x){
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
-    roster.push({ token:tok, name:x.name, extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"" });
+    roster.push({ token:tok, name:x.name, extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", viaFormulaire:true, ajoutManuel:false });
     localRosterVersion=Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
@@ -2014,22 +2019,35 @@
   };
   window.refuserInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
-    var motif = window.prompt ? (window.prompt("Motif du refus (visible par la personne) :","La preuve de paiement n'est pas lisible ou ne correspond pas au montant attendu.")||"") : "";
+    var estCarte = (x.statut==="acarte") || (currentCommId()==="proclamation" && x.role==="etudiant");
+    var suggestion = estCarte
+      ? "La photo/PDF de la carte n'est pas lisible, ou le nom/matricule ne correspond pas."
+      : "La preuve de paiement n'est pas lisible ou ne correspond pas au montant attendu.";
+    var motif = window.prompt ? (window.prompt("Motif du refus (visible par la personne) :", suggestion)||"") : "";
     if(motif===null) return;
-    if(window.confirm && !window.confirm("Refuser l'inscription de "+x.name+" et lui demander de renvoyer sa preuve ?")) return;
+    if(window.confirm && !window.confirm("Refuser l'inscription de "+x.name+" et lui demander de renvoyer "+(estCarte?"sa carte":"sa preuve")+" ?")) return;
     x.statut="refuse"; x.motif=motif; await saveSignups(); renderSignups();
     if(x.email){
-      var lien = location.origin+location.pathname+"#signup="+(currentCommId()||"")+":pay";
+      var cid=currentCommId()||"";
+      var nomEv=(eventName||commName(cid)||"notre événement");
+      var lien = location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html?c="+cid+(nomEv?"&e="+encodeURIComponent(nomEv):"");
+      var contactMail = "proclamation@bureauetuidant.xyz";
+      var contact = 'mailto:'+contactMail+'?subject='+encodeURIComponent("Question — inscription "+nomEv)+'&body='+encodeURIComponent("Bonjour,\n\nJe vous contacte au sujet de mon inscription ("+x.name+").\n\n");
+      var quoi = estCarte ? "votre carte étudiante" : "votre preuve de paiement";
+      var boutonTxt = estCarte ? "Renvoyer ma carte" : "Renvoyer ma preuve";
       var html = '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
-        + '<h2 style="margin:0 0 10px">Preuve de paiement \u00e0 renvoyer</h2>'
+        + '<h2 style="margin:0 0 10px">Inscription \u00e0 corriger</h2>'
         + '<p>Bonjour '+escapeHtml(x.name)+',</p>'
-        + '<p>Nous n\'avons pas pu valider votre inscription \u00e0 <b>'+escapeHtml(eventName||commName(currentCommId())||"notre \u00e9v\u00e9nement")+'</b>.</p>'
+        + '<p>Nous n\'avons pas pu valider votre inscription \u00e0 <b>'+escapeHtml(nomEv)+'</b>.</p>'
         + (motif ? '<p style="background:#fdf3f3;border:1px solid #eccfcf;border-radius:8px;padding:12px"><b>Motif :</b><br>'+escapeHtml(motif)+'</p>' : '')
-        + '<p>Merci de refaire votre inscription en joignant une preuve de paiement lisible :</p>'
-        + '<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Renvoyer ma preuve</a></p>'
-        + '<p style="color:#999;font-size:12px">Si le bouton ne fonctionne pas, copiez ce lien : '+lien+'</p></div>';
+        + '<p>Merci de refaire votre inscription en joignant '+quoi+' lisible :</p>'
+        + '<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">'+boutonTxt+'</a></p>'
+        + '<p style="text-align:center;font-size:13px;color:#666">Une question, un souci pour vous inscrire ? <a href="'+contact+'" style="color:#8a6d1f;font-weight:bold">Contactez-nous directement</a>.</p>'
+        + '<p style="color:#999;font-size:12px;margin-top:14px">Si le bouton ne fonctionne pas, copiez ce lien : '+lien+'</p>'
+        + mentionPerso(estCarte?{role:"etudiant"}:null)
+        + '</div>';
       try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:x.email,subject:"Preuve de paiement \u00e0 renvoyer \u2014 "+(eventName||"inscription"),html:html,from:expediteur()})}); flash("Refus enregistr\u00e9 et e-mail envoy\u00e9."); }
+        body:JSON.stringify({to:x.email,subject:"Inscription \u00e0 corriger \u2014 "+nomEv,html:html,from:expediteur()})}); flash("Refus enregistr\u00e9 et e-mail envoy\u00e9."); }
       catch(e){ flash("Refus enregistr\u00e9 (e-mail non envoy\u00e9)."); }
     }
   };

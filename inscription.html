@@ -79,8 +79,8 @@
       <label for="f_matricule">Numéro de matricule <span class="req">*</span></label>
       <input type="text" id="f_matricule" autocomplete="off">
       <label for="f_carte">Carte étudiante <span class="req">*</span></label>
-      <input type="file" id="f_carte" accept="image/*">
-      <p class="hint">Photo recto de votre carte. Votre inscription sera validée par l'équipe après vérification.</p>
+      <input type="file" id="f_carte" accept="image/*,application/pdf,.pdf">
+      <p class="hint">Photo (tout format) ou PDF, recto de votre carte. Votre inscription sera validée par l'équipe après vérification.</p>
     </div>
 
     <div id="wrapPreuve" style="display:none">
@@ -108,6 +108,31 @@
   "use strict";
   var API_KEY = "AIzaSyBLmGXcSQHQsba-Rw5CtUhuD-UpCuWKSQA";
   var FS_BASE = "https://firestore.googleapis.com/v1/projects/be-events-13c5c/databases/(default)/documents/";
+  var SUPA_URL = "https://mlgzdfyqjhvyubrywuim.supabase.co";
+  var SUPA_ANON = "sb_publishable_xoVRiE99YOepw-sb5Tmtcg_SJ3VE_0s";
+  var SEND_FN = SUPA_URL + "/functions/v1/send-email";
+  var EXPEDITEUR_PROCLA = "Délégation étudiante de Droit et de Criminologie <proclamation@bureauetuidant.xyz>";
+
+  function pieds(){
+    return '<hr style="border:none;border-top:1px solid #eee;margin:18px 0">'
+      +'<p style="margin:0;text-align:center;font-size:12px;color:#888;letter-spacing:.06em;text-transform:uppercase">Université libre de Bruxelles</p>'
+      +'<p style="margin:2px 0 8px;text-align:center;font-size:13px;color:#555">Faculté de Droit et de Criminologie</p>'
+      +'<p style="margin:0;text-align:center;font-size:14px;color:#333"><b>Délégation étudiante de Droit et de Criminologie</b></p>'
+      +'<p style="margin:6px 0 0;text-align:center;font-size:12px;color:#999">Ceci est un envoi automatique — merci de ne pas répondre à ce message.</p>';
+  }
+
+  function envoyerMailConfirmationEtudiant(nom, mail){
+    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">'
+      +'<h2 style="margin:0 0 10px">Inscription enregistrée</h2>'
+      +'<p>Bonjour '+esc(nom)+',</p>'
+      +'<p>Votre inscription à <b>'+esc(NOM_LIEN || NOMS[CID])+'</b> a bien été reçue.</p>'
+      +'<p>Votre inscription va être <b>vérifiée par l\'équipe</b> (carte étudiante et matricule). Vous recevrez ensuite votre billet QR par e-mail.</p>'
+      +'<p style="margin-top:8px">Rappel : cette invitation est <b>strictement personnelle</b> et ne vaut que pour une personne.</p>'
+      + pieds() + '</div>';
+    return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+      body:JSON.stringify({to:mail,subject:"Inscription bien reçue — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
+  }
+  function esc(x){ return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
   var NOMS = { parrainage:"Parrainage", festif:"Festif", culture:"Culture", aca:"ACA", proclamation:"Proclamation" };
   var ROLES_PROCLA = [
     ["etudiant","Étudiant·e diplômé·e"],
@@ -222,6 +247,20 @@
       }).catch(function(){});
   }, 0);
 
+  function lireDocument(file){
+    // accepte une image (compressée) ou un PDF (limite 4 Mo, non compressible)
+    return new Promise(function(res, rej){
+      if(!file) return rej(new Error("format"));
+      if(/^image\//.test(file.type)) return compresser(file).then(res).catch(rej);
+      var estPdf = file.type==="application/pdf" || /\.pdf$/i.test(file.name||"");
+      if(!estPdf) return rej(new Error("format"));
+      if(file.size > 4*1024*1024) return rej(new Error("taille"));
+      var fr=new FileReader();
+      fr.onerror=function(){ rej(new Error("read")); };
+      fr.onload=function(){ res(fr.result); };
+      fr.readAsDataURL(file);
+    });
+  }
   function compresser(file){
     return new Promise(function(res, rej){
       if(!file || !/^image\//.test(file.type)) return rej(new Error("format"));
@@ -261,9 +300,12 @@
       matricule=(q("f_matricule").value||"").trim();
       if(!matricule){ msg.innerHTML='<p class="err"><b>Le numéro de matricule est obligatoire.</b></p>'; return; }
       var fc=q("f_carte");
-      if(!fc.files || !fc.files.length){ msg.innerHTML='<p class="err"><b>La photo de votre carte étudiante est obligatoire.</b></p>'; return; }
-      try{ carte = await compresser(fc.files[0]); }
-      catch(e){ msg.innerHTML='<p class="err">Impossible de lire ce fichier. Essayez une photo (JPG/PNG).</p>'; return; }
+      if(!fc.files || !fc.files.length){ msg.innerHTML='<p class="err"><b>La carte étudiante est obligatoire (photo ou PDF).</b></p>'; return; }
+      try{ carte = await lireDocument(fc.files[0]); }
+      catch(e){
+        var raison = (e && e.message==="taille") ? "Le fichier PDF dépasse 4 Mo." : "Format non reconnu. Envoyez une photo (JPG/PNG) ou un PDF.";
+        msg.innerHTML='<p class="err">'+raison+'</p>'; return;
+      }
     }
     var preuve="";
     if(PAY){
@@ -295,7 +337,7 @@
         btn.disabled=false; btn.textContent="Je m'inscris"; return;
       }
 
-      var rec = { name:nom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau" };
+      var rec = { name:nom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau", viaFormulaire:true };
       if(isPro){
         var rl=q("f_role").value;
         rec.role=rl;
@@ -320,6 +362,8 @@
         var det=""; try{ var je=await rp.json(); det=(je&&je.error&&je.error.message)||""; }catch(e){}
         throw new Error(det||("HTTP "+rp.status));
       }
+
+      if(isPro && q("f_role").value==="etudiant"){ envoyerMailConfirmationEtudiant(nom, m1); }
 
       q("form").style.display="none";
       msg.innerHTML='<div class="card"><p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
