@@ -19,6 +19,10 @@
   input,select{width:100%;padding:12px 13px;border-radius:11px;border:1px solid var(--line);
        background:#150e26;color:var(--text);font-size:16px;font-family:inherit}
   input[type=file]{padding:10px;font-size:14px}
+  .carte-opts{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+  .carte-opts .opt{width:auto;flex:1 1 30%;margin-top:0;padding:12px 10px;font-size:13.5px;font-weight:600;
+       background:#150e26;color:var(--text);border:1px solid var(--line);border-radius:11px;cursor:pointer}
+  .carte-opts .opt:hover{border-color:var(--gold,#d8b45a)}
   .chk{display:flex;align-items:center;gap:10px;margin:14px 0;font-size:14.5px;color:var(--text)}
   .chk input{width:auto}
   button{width:100%;margin-top:20px;padding:15px;border:none;border-radius:12px;
@@ -43,8 +47,11 @@
   <p class="sub" id="titre">Chargement…</p>
 
   <div id="form">
-    <label for="f_nom">Nom et prénom</label>
-    <input type="text" id="f_nom" autocomplete="name">
+    <label for="f_nom">Nom</label>
+    <input type="text" id="f_nom" autocomplete="family-name">
+
+    <label for="f_prenom">Prénom</label>
+    <input type="text" id="f_prenom" autocomplete="given-name">
 
     <label for="f_mail">Adresse e-mail</label>
     <input type="email" id="f_mail" autocomplete="email" inputmode="email">
@@ -72,15 +79,23 @@
     </div>
 
     <label class="chk" id="wrapPass" style="display:none">
-      <input type="checkbox" id="f_pass"> Ancien·ne passerelle (j'ai fait la passerelle)
+      <input type="checkbox" id="f_pass"> J'ai fait la passerelle
     </label>
 
     <div id="wrapCarte" style="display:none">
       <label for="f_matricule">Numéro de matricule <span class="req">*</span></label>
       <input type="text" id="f_matricule" autocomplete="off">
-      <label for="f_carte">Carte étudiante <span class="req">*</span></label>
-      <input type="file" id="f_carte" accept="image/*,application/pdf,.pdf">
-      <p class="hint">Photo (tout format) ou PDF, recto de votre carte. Votre inscription sera validée par l'équipe après vérification.</p>
+      <label>Carte étudiante <span class="req">*</span></label>
+      <div class="carte-opts">
+        <button type="button" class="opt" id="btnCam">📷 Prendre une photo</button>
+        <button type="button" class="opt" id="btnImg">🖼️ Choisir une image</button>
+        <button type="button" class="opt" id="btnPdf">📄 Déposer un PDF</button>
+      </div>
+      <input type="file" id="f_carte_cam" accept="image/*" capture="environment" style="display:none">
+      <input type="file" id="f_carte_img" accept="image/*" style="display:none">
+      <input type="file" id="f_carte_pdf" accept="application/pdf,.pdf" style="display:none">
+      <p id="carteNom" class="hint" style="margin-top:8px;display:none"></p>
+      <p class="hint">Recto de votre carte : prenez-la en photo, choisissez une image, ou déposez un PDF. Votre inscription sera validée par l'équipe après vérification.</p>
     </div>
 
     <div id="wrapPreuve" style="display:none">
@@ -192,7 +207,7 @@
     var sec=q("f_sec").value, sel=q("f_annee"), ys;
     if(isP){
       var role=q("f_role").value;
-      if(role==="alumni"){ q("wrapAnnee").style.display="none"; majPass(); return; }
+      if(role==="alumni"){ q("wrapAnnee").style.display="none"; q("wrapPass").style.display="none"; return; }
       q("wrapAnnee").style.display="";
       ys = (sec==="Criminologie") ? ((role==="parrain")?["MA2"]:["MA1"])
          : ((role==="parrain")?["BA2","BA3","MA1","MA2"]:["Passerelle","BA1","MA1"]);
@@ -204,12 +219,8 @@
   }
   function majPass(){
     if(!isP) return;
-    var role=q("f_role").value, sec=q("f_sec").value, an=q("f_annee").value;
-    // Case « Ancien·ne passerelle » : uniquement en DROIT, pour les parrain·marraine MA1/MA2 et pour les alumni.
-    var ok = (sec==="Droit") && (
-               (role==="parrain" && (an==="MA1"||an==="MA2")) ||
-               (role==="alumni")
-             );
+    var ok = (q("f_role").value==="parrain" && q("f_sec").value==="Droit" &&
+              (q("f_annee").value==="MA1"||q("f_annee").value==="MA2"));
     q("wrapPass").style.display = ok ? "flex" : "none";
     if(!ok) q("f_pass").checked=false;
   }
@@ -217,6 +228,32 @@
   if(isP || isPro) q("f_role").onchange=majAnnees;
   q("f_annee").onchange=majPass;
   majAnnees();
+
+  // --- Carte étudiante : 3 options (photo caméra / image / PDF) vers un seul fichier ---
+  var _carteFile=null;
+  function _majCarteNom(){
+    var el=q("carteNom"); if(!el) return;
+    if(_carteFile){
+      var nm=(_carteFile.name||"fichier").replace(/[<>&]/g,"");
+      var pdf=/pdf$/i.test(_carteFile.type||"")||/\.pdf$/i.test(nm);
+      el.innerHTML="✓ "+(pdf?"PDF":"Image")+" sélectionné : <b>"+nm+"</b>";
+      el.style.display="";
+    } else { el.style.display="none"; el.innerHTML=""; }
+  }
+  function _onCarte(input){
+    if(input.files && input.files.length){
+      _carteFile=input.files[0];
+      ["f_carte_cam","f_carte_img","f_carte_pdf"].forEach(function(id){ var e=q(id); if(e && e!==input) e.value=""; });
+      _majCarteNom();
+    }
+  }
+  function carteFile(){ return _carteFile; }
+  if(q("btnCam")) q("btnCam").onclick=function(){ q("f_carte_cam").click(); };
+  if(q("btnImg")) q("btnImg").onclick=function(){ q("f_carte_img").click(); };
+  if(q("btnPdf")) q("btnPdf").onclick=function(){ q("f_carte_pdf").click(); };
+  if(q("f_carte_cam")) q("f_carte_cam").onchange=function(){ _onCarte(this); };
+  if(q("f_carte_img")) q("f_carte_img").onchange=function(){ _onCarte(this); };
+  if(q("f_carte_pdf")) q("f_carte_pdf").onchange=function(){ _onCarte(this); };
 
   // récupérer le nom de l'événement (sans bloquer l'affichage)
   // Connexion avec le compte scanner : c'est lui qui a le droit de lire le document
@@ -291,10 +328,11 @@
   q("btn").onclick = async function(){
     var msg=q("msg"); msg.innerHTML="";
     var nom=(q("f_nom").value||"").trim();
+    var prenom=(q("f_prenom").value||"").trim();
     var m1=(q("f_mail").value||"").trim();
     var m2=(q("f_mail2").value||"").trim();
-    if(!nom || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m1)){
-      msg.innerHTML='<p class="err">Merci d\'indiquer votre nom et une adresse e-mail valide.</p>'; return; }
+    if(!nom || !prenom || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(m1)){
+      msg.innerHTML='<p class="err">Merci d\'indiquer votre nom, votre prénom et une adresse e-mail valide.</p>'; return; }
     if(m1.toLowerCase()!==m2.toLowerCase()){
       msg.innerHTML='<p class="err"><b>Les deux adresses e-mail ne correspondent pas.</b><br>Sans e-mail correct, vous ne recevrez pas votre billet.</p>'; return; }
 
@@ -303,9 +341,9 @@
     if(isPro && q("f_role").value==="etudiant"){
       matricule=(q("f_matricule").value||"").trim();
       if(!matricule){ msg.innerHTML='<p class="err"><b>Le numéro de matricule est obligatoire.</b></p>'; return; }
-      var fc=q("f_carte");
-      if(!fc.files || !fc.files.length){ msg.innerHTML='<p class="err"><b>La carte étudiante est obligatoire (photo ou PDF).</b></p>'; return; }
-      try{ carte = await lireDocument(fc.files[0]); }
+      var cf=carteFile();
+      if(!cf){ msg.innerHTML='<p class="err"><b>La carte étudiante est obligatoire (photo ou PDF).</b></p>'; return; }
+      try{ carte = await lireDocument(cf); }
       catch(e){
         var raison = (e && e.message==="taille") ? "Le fichier PDF dépasse 4 Mo." : "Format non reconnu. Envoyez une photo (JPG/PNG) ou un PDF.";
         msg.innerHTML='<p class="err">'+raison+'</p>'; return;
@@ -341,7 +379,7 @@
         btn.disabled=false; btn.textContent="Je m'inscris"; return;
       }
 
-      var rec = { name:nom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau", viaFormulaire:true };
+      var rec = { name:(nom+" "+prenom).trim(), nom:nom, prenom:prenom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau", viaFormulaire:true };
       if(isPro){
         var rl=q("f_role").value;
         rec.role=rl;
@@ -367,7 +405,7 @@
         throw new Error(det||("HTTP "+rp.status));
       }
 
-      if(isPro && q("f_role").value==="etudiant"){ envoyerMailConfirmationEtudiant(nom, m1); }
+      if(isPro && q("f_role").value==="etudiant"){ envoyerMailConfirmationEtudiant(prenom, m1); }
 
       q("form").style.display="none";
       msg.innerHTML='<div class="card"><p class="big">✅</p><p><b>Inscription enregistrée</b></p>'

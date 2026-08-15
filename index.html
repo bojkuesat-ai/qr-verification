@@ -1230,7 +1230,7 @@
     setStat("valid","Valide", guest.name, "Entrée enregistrée · "+fmtTime(at), guest);
     flashSignal(true); beep(true); updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
     if(currentCommId()==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
-      var pNm=""; if(guest.role==="filleul" && guest.parrain){ var Pp=tokenGuest(guest.parrain); if(Pp) pNm=Pp.name; }
+      var pNm=""; if(guest.role==="filleul" && guest.parrain){ var Pp=tokenGuest(guest.parrain); if(Pp) pNm=prenomDe(Pp); }
       sendParrainageEntryMail(guest, pNm, eventName||"le parrainage").then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
     }
   }
@@ -1443,7 +1443,7 @@
   function gParrainInfo(cid, guest){
     if(!guest || guest.role!=="filleul" || !guest.parrain) return "";
     var pl = gIndex[normalize(guest.parrain)];
-    if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ return " · Parrain·e : "+(pl[i].guest.name||"?"); } } }
+    if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ return " · Parrain·e : "+(prenomDe(pl[i].guest)||"?"); } } }
     return "";
   }
   async function gAdmit(token, m){
@@ -1468,7 +1468,7 @@
       gStat("valid","Valide — "+m.cname, guest.name||"", "Entrée enregistrée · "+fmtTime(at)+fam, guest);
       gFlash(true); beep(true);
       if(cid==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
-        var pNm=""; if(guest.role==="filleul" && guest.parrain){ var pl=gIndex[normalize(guest.parrain)]; if(pl){ for(var pi=0;pi<pl.length;pi++){ if(pl[pi].cid===cid && pl[pi].guest){ pNm=pl[pi].guest.name||""; break; } } } }
+        var pNm=""; if(guest.role==="filleul" && guest.parrain){ var pl=gIndex[normalize(guest.parrain)]; if(pl){ for(var pi=0;pi<pl.length;pi++){ if(pl[pi].cid===cid && pl[pi].guest){ pNm=prenomDe(pl[pi].guest); break; } } } }
         var evN=(f.event&&f.event.stringValue)||"le parrainage";
         sendParrainageEntryMail(guest, pNm, evN).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
       }
@@ -1646,7 +1646,7 @@
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     flash("Rappel envoyé à "+ok+" personne(s).");
@@ -1660,7 +1660,7 @@
     try{
       var r= await fetch(SEND_FN, { method:"POST",
         headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-        body: JSON.stringify({ to:to, subject:"Ton billet pour "+(eventName||"notre événement"), html: billetHtml(guest.name, eventName||"notre événement", ticketLinkFor(guest), guest.token) }) });
+        body: JSON.stringify({ to:to, subject:"Ton billet pour "+(eventName||"notre événement"), html: billetHtml(salutNom(guest), eventName||"notre événement", ticketLinkFor(guest), guest.token) }) });
       flash(r.ok ? ("Billet renvoyé à "+guest.name+".") : "Envoi impossible.");
     }catch(e){ flash("Envoi impossible (hors ligne ?)."); }
   };
@@ -1848,6 +1848,14 @@
   var SUPA_ANON="sb_publishable_xoVRiE99YOepw-sb5Tmtcg_SJ3VE_0s";
   var SEND_FN=SUPA_URL+"/functions/v1/send-email";
   function mailEsc(x){ return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  // Prénom si dispo, sinon le nom complet. Salutation selon la commission/le rôle.
+  function prenomDe(g){ return (g && g.prenom) ? g.prenom : ((g && g.name) ? g.name : ""); }
+  function salutNom(g){
+    var cid=currentCommId();
+    if(cid==="proclamation"){ return (g && g.role==="etudiant") ? prenomDe(g) : ((g && g.name) || ""); }
+    if(cid==="parrainage"){ return prenomDe(g); }
+    return (g && g.name) || "";
+  }
   function billetHtml(name, ev, link, code){
     return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
       + '<h2 style="margin:0 0 12px">Ton billet pour '+mailEsc(ev)+'</h2>'
@@ -1900,7 +1908,7 @@
       : '';
     return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
       + '<h2 style="margin:0 0 12px">Bienvenue — '+mailEsc(ev)+'</h2>'
-      + '<p>Bonjour '+mailEsc(guest.name)+',</p>'
+      + '<p>Bonjour '+mailEsc(prenomDe(guest))+',</p>'
       + intro
       + tableBloc + info + certif
       + '<p style="color:#666;font-size:13px">Bonne soirée ! 🎉</p>'
@@ -1963,7 +1971,7 @@
           body: JSON.stringify({
             to: emailOf(g),
             subject: "Ton billet pour "+ev,
-            html: billetHtml(g.name, ev, ticketLinkFor(g), g.token)+mentionPerso(g),
+            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token)+mentionPerso(g),
             from: expediteur()
           })
         });
@@ -2109,7 +2117,7 @@
         +'<p>Bonjour '+escapeHtml(g.name||"")+',</p>'
         +'<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p>'
         +'<p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
-        + billetHtml(g.name, eventName||"notre événement", ticketLinkFor(g), g.token)
+        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token)
         + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
@@ -2280,7 +2288,7 @@
   async function creerBilletDepuisInscription(x){
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
-    roster.push({ token:tok, name:x.name, extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", viaFormulaire:true, ajoutManuel:false });
+    roster.push({ token:tok, name:x.name, prenom:x.prenom||"", nom:x.nom||"", extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", viaFormulaire:true, ajoutManuel:false });
     localRosterVersion=Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
@@ -2290,7 +2298,7 @@
     var g=roster[roster.length-1];
     try{
       var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(g.name,eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})});
+        body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})});
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
     }catch(e){ g.mailEnvoye = 0; }
     await Store.set("roster", JSON.stringify(roster));
