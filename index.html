@@ -316,8 +316,19 @@
       <label class="fld" for="evName">Nom de l'événement</label>
       <input type="text" id="evName" placeholder="Dîner de Noël 2026" autocomplete="off" onchange="majNomEvent(this.value)" onblur="majNomEvent(this.value)">
       <div style="height:12px"></div>
-      <label class="fld" for="names">Invités — une ligne par personne (Nom Prénom + adresse mail). Tu peux coller directement depuis Excel ou Google Sheets.</label>
-      <textarea id="names" placeholder="Belkacem Amina, amina.belkacem@gmail.com&#10;Dupont Thomas, thomas.dupont@gmail.com&#10;Vermeulen Léa, lea.vermeulen@gmail.com"></textarea>
+      <label class="fld">Ajouter une personne</label>
+      <div class="prow">
+        <div><input type="text" id="g1Nom" placeholder="Nom" autocomplete="off"></div>
+        <div><input type="text" id="g1Prenom" placeholder="Prénom" autocomplete="off"></div>
+      </div>
+      <div style="height:8px"></div>
+      <input type="email" id="g1Mail" placeholder="E-mail (facultatif)" autocomplete="off" onkeydown="if(event.key==='Enter')addOnePerson()">
+      <div style="height:9px"></div>
+      <button class="btn gold sm" onclick="addOnePerson()">Ajouter cette personne</button>
+
+      <div style="height:14px;border-top:1px solid var(--line);margin-top:16px"></div>
+      <label class="fld" for="names">…ou colle une liste — une ligne par personne : Nom, Prénom, e-mail. Tu peux coller directement depuis Excel ou Google Sheets.</label>
+      <textarea id="names" placeholder="Belkacem, Amina, amina.belkacem@gmail.com&#10;Dupont, Thomas, thomas.dupont@gmail.com"></textarea>
       <p class="hint">Séparateur virgule, point-virgule ou tabulation (collage Excel/Sheets) — peu importe. L'adresse mail est détectée automatiquement. Sans e-mail, le billet est créé mais ne pourra pas être envoyé par mail. Un simple nom par ligne fonctionne aussi.</p>
       <div style="height:12px"></div>
       <label class="fld" for="genCat">Catégorie (facultatif — se configure dans les Réglages ⚙)</label>
@@ -402,6 +413,10 @@
           <button class="btn danger sm" onclick="resetEntries()">Réinitialiser les entrées</button>
           <button class="btn danger sm" onclick="clearAll()">Effacer la liste</button>
         </div>
+        <div class="row" style="margin-top:9px">
+          <button class="btn ghost sm" onclick="deleteNonEntres()">Supprimer les non-entrés</button>
+          <button class="btn ghost sm" onclick="deleteDoublons()">Supprimer les doublons</button>
+        </div>
       </div>
     </div>
     <div id="listWrap"></div>
@@ -428,8 +443,8 @@
       </div>
       <label style="display:flex;align-items:center;gap:9px;margin-top:12px;font-size:13.5px;cursor:pointer" id="pExPassWrap"><input type="checkbox" id="pExPass"> Ancien·ne passerelle</label>
       <div style="height:10px"></div>
-      <label class="fld" for="pNames">Liste — une ligne par personne (Nom Prénom + e-mail). Collage Excel/Sheets accepté.</label>
-      <textarea id="pNames" placeholder="Belkacem Amina, amina.belkacem@mail.be&#10;Dupont Thomas, thomas.dupont@mail.be"></textarea>
+      <label class="fld" for="pNames">Liste — une ligne par personne : Nom, Prénom, e-mail. Collage Excel/Sheets accepté.</label>
+      <textarea id="pNames" placeholder="Belkacem, Amina, amina.belkacem@mail.be&#10;Dupont, Thomas, thomas.dupont@mail.be"></textarea>
       <div style="height:12px"></div>
       <button class="btn gold block" onclick="addParrainageGroup()">Ajouter ce groupe</button>
     </div>
@@ -645,6 +660,17 @@
       <button class="btn gold sm" onclick="addCat()">Ajouter</button>
     </div>
     <div id="catList" style="margin-top:10px"></div>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Infos pratiques (dans les mails)</h2>
+    <p class="sub">Date, heure et lieu de l'événement. Ces informations sont ajoutées automatiquement aux e-mails (billet et confirmation).</p>
+    <div class="prow">
+      <div><label class="fld" for="evDate">Date</label><input type="text" id="evDate" placeholder="ex. 29 octobre 2026" autocomplete="off"></div>
+      <div><label class="fld" for="evHeure">Heure</label><input type="text" id="evHeure" placeholder="ex. 19h00" autocomplete="off"></div>
+    </div>
+    <label class="fld" for="evLieu" style="margin-top:9px">Lieu</label>
+    <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off">
+    <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
   </div>
 </div>
 
@@ -667,6 +693,7 @@
   var ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // pas de I,L,O,0,1
   var roster = [];
   var eventName = "";
+  var eventMeta = { date:"", heure:"", lieu:"" };
   var usedSet = new Set();     // tokens entrés (présence, cross-appareil)
   var usedAt = {};             // token -> timestamp (ce que cet appareil a enregistré)
   var currentTab = "guests";
@@ -725,6 +752,7 @@
   async function loadAll(){
     var r = await Store.get("roster"); roster = r ? JSON.parse(r) : [];
     var e = await Store.get("eventName"); eventName = e ? JSON.parse(e) : "";
+    try{ var em = await Store.get("eventMeta"); eventMeta = em ? JSON.parse(em) : {date:"",heure:"",lieu:""}; }catch(_e){ eventMeta={date:"",heure:"",lieu:""}; }
     var rv = await Store.get("rosterVersion"); localRosterVersion = rv ? (parseInt(rv,10)||0) : 0;
     if(eventName) $("evName").value = eventName;
     await refreshUsed();
@@ -751,6 +779,27 @@
   }
   window.addCat=function(){ var n=($("catName")&&$("catName").value||"").trim(); var col=($("catColor")&&$("catColor").value)||"#7c5cff"; if(!n) return; var cats=getCats(); cats.push({name:n,color:col}); setCats(cats); if($("catName")) $("catName").value=""; renderCats(); };
   window.delCat=function(i){ var cats=getCats(); cats.splice(i,1); setCats(cats); renderCats(); };
+  window.addOnePerson = async function(){
+    var nom=($("g1Nom")&&$("g1Nom").value||"").trim();
+    var prenom=($("g1Prenom")&&$("g1Prenom").value||"").trim();
+    var mail=($("g1Mail")&&$("g1Mail").value||"").trim();
+    if(!nom && !prenom && !mail){ flash("Indique au moins un nom."); return; }
+    var name=(nom+" "+prenom).trim(); if(!name && mail) name=mail;
+    var existing=new Set(roster.map(function(g){return g.token;}));
+    var tok=genToken(existing);
+    var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
+    roster.push({ token:tok, name:name, prenom:prenom, nom:nom, extra:mail, cat:_gc, cc:_cc, ajoutManuel:true });
+    var evn=($("evName")&&$("evName").value||"").trim(); if(evn) eventName=evn;
+    localRosterVersion=Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("eventName", JSON.stringify(eventName));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    if($("g1Nom")) $("g1Nom").value=""; if($("g1Prenom")) $("g1Prenom").value=""; if($("g1Mail")) $("g1Mail").value="";
+    if($("g1Nom")) $("g1Nom").focus();
+    renderTickets(); renderList(); updateCounts();
+    if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
+    flash("« "+name+" » ajouté·e · "+roster.length+" au total");
+  };
   window.generate = async function(){
     var name = $("evName").value.trim();
     var lines = $("names").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
@@ -758,15 +807,11 @@
     var existing = new Set(roster.map(function(g){return g.token;}));
     var EMAIL_RE = /[^\s,;\t]+@[^\s,;\t]+\.[^\s,;\t]+/;
     lines.forEach(function(line){
-      var fields = line.split(/[\t;,]+/).map(function(x){return x.trim();}).filter(Boolean);
-      var mail = "";
-      for(var i=0;i<fields.length;i++){ if(EMAIL_RE.test(fields[i])){ mail=fields[i]; break; } }
-      var nameParts = fields.filter(function(f){ return f!==mail; });
-      var nm = (nameParts.join(" ").trim()) || (fields[0]||"").trim();
-      if(!nm && !mail) return;
+      var pe = parseNomPrenomEmail(line);
+      if(!pe.name && !pe.email) return;
       var tok = genToken(existing); existing.add(tok);
       var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
-      roster.push({ token: tok, name: nm, extra: mail, cat:_gc, cc:_cc, ajoutManuel:true });
+      roster.push({ token: tok, name: pe.name, prenom: pe.prenom, nom: pe.nom, extra: pe.email, cat:_gc, cc:_cc, ajoutManuel:true });
     });
     eventName = name;
     localRosterVersion = Date.now();
@@ -840,6 +885,18 @@
     var nm = (nameParts.join(" ").trim()) || (fields[0]||"").trim();
     return { name:nm, email:mail };
   }
+  // Analyse « Nom, Prénom, email » (séparateurs , ; tab). Repli : « Nom Prénom email ».
+  function parseNomPrenomEmail(line){
+    var EMAIL_RE = /[^\s,;\t]+@[^\s,;\t]+\.[^\s,;\t]+/;
+    var fields = line.split(/[\t;,]+/).map(function(x){return x.trim();}).filter(Boolean);
+    var mail = ""; for(var i=0;i<fields.length;i++){ if(EMAIL_RE.test(fields[i])){ mail=fields[i]; break; } }
+    var parts = fields.filter(function(f){ return f!==mail; });
+    var nom="", prenom="";
+    if(parts.length>=2){ nom=parts[0]; prenom=parts.slice(1).join(" "); }
+    else if(parts.length===1){ var w=parts[0].split(/\s+/); nom=w[0]||""; prenom=w.slice(1).join(" "); }
+    var name=(nom+" "+prenom).trim() || (fields[0]||"").trim();
+    return { name:name, nom:nom, prenom:prenom, email:mail };
+  }
   window.addParrainageGroup = async function(){
     var evn = $("pEvName").value.trim(); if(evn) eventName = evn;
     var role = $("pRole").value, section = $("pSection").value;
@@ -850,9 +907,9 @@
     var existing = new Set(roster.map(function(g){return g.token;}));
     var added = 0;
     lines.forEach(function(line){
-      var pe = parseNameEmail(line); if(!pe.name && !pe.email) return;
+      var pe = parseNomPrenomEmail(line); if(!pe.name && !pe.email) return;
       var tok = genToken(existing); existing.add(tok);
-      var g = { token:tok, name:pe.name, extra:pe.email, role:role, annee:annee, section:section };
+      var g = { token:tok, name:pe.name, prenom:pe.prenom, nom:pe.nom, extra:pe.email, role:role, annee:annee, section:section };
       if(exPass) g.exPasserelle = true;
       roster.push(g);
       added++;
@@ -1231,7 +1288,7 @@
     flashSignal(true); beep(true); updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
     if(currentCommId()==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
       var pNm=""; if(guest.role==="filleul" && guest.parrain){ var Pp=tokenGuest(guest.parrain); if(Pp) pNm=prenomDe(Pp); }
-      sendParrainageEntryMail(guest, pNm, eventName||"le parrainage").then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
+      sendParrainageEntryMail(guest, pNm, eventName||"le parrainage", eventMeta).then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
     }
   }
 
@@ -1446,10 +1503,23 @@
     if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ return " · Parrain·e : "+(prenomDe(pl[i].guest)||"?"); } } }
     return "";
   }
+  var gQueue=[]; // entrées en attente de synchro (hors-ligne) : {cid, token, at, name}
+  async function _gLoadQueue(){ try{ var s=await Store.get("gscanQueue"); gQueue = s?JSON.parse(s):[]; }catch(e){ gQueue=[]; } }
+  async function _gSaveQueue(){ try{ await Store.set("gscanQueue", JSON.stringify(gQueue)); }catch(e){} }
+  function gShowPending(){ if(gQueue.length){ var e=$("gsStatus"); if(e){ e.innerHTML='⏳ '+gQueue.length+' entrée(s) en attente de synchronisation…'; e.style.color="var(--amber,#d8b45a)"; } } }
+  function _gQueueAdmit(m, token, at){
+    var cid=m.cid, guest=m.guest, tkStored=guest.token||token;
+    if(!m.usedAt){ gUsed++; } m.usedAt=at;
+    gQueue.push({ cid:cid, token:tkStored, at:at, name:guest.name||"" });
+    _gSaveQueue(); gUpdateCounts();
+    var fam=gParrainInfo(cid, guest);
+    gStat("valid","Validé (hors-ligne) — "+m.cname, guest.name||"", "Sera synchronisé au retour du réseau"+fam, guest);
+    gFlash(true); beep(true); gShowPending();
+  }
   async function gAdmit(token, m){
     hideGAmbig();
-    if(!(await gEnsureAuth())){ gStat("invalid","Hors ligne", m.guest.name||"", "Reconnecte-toi et réessaie"); gFlash(false); beep(false); return; }
-    var cid=m.cid, guest=m.guest, tkStored=guest.token||token;
+    var cid=m.cid, guest=m.guest, tkStored=guest.token||token, at=Date.now();
+    if(!(await gEnsureAuth())){ _gQueueAdmit(m, token, at); return; }   // pas de réseau -> file d'attente
     var fam=gParrainInfo(cid, guest);
     try{
       // Re-vérification EN DIRECT dans le cloud : empêche la double-entrée entre plusieurs téléphones
@@ -1461,19 +1531,50 @@
         m.usedAt=already; gStat("used","Déjà scanné", guest.name||"", (w?("Entré à "+w):"Déjà entré")+" · "+m.cname+fam, guest);
         gFlash(false); alertUsed(); return;
       }
-      var at=Date.now(); usedMap[tkStored]=at;
+      usedMap[tkStored]=at;
       var r=await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
-      if(!(r&&r.ok)){ gStat("invalid","Échec réseau", guest.name||"", "Réessaie (ou active le compte scanner sur "+m.cname+")"); gFlash(false); beep(false); return; }
+      if(!(r&&r.ok)){ _gQueueAdmit(m, token, at); return; }            // échec écriture -> file d'attente
       if(!m.usedAt){ gUsed++; } m.usedAt=at; gUpdateCounts();
       gStat("valid","Valide — "+m.cname, guest.name||"", "Entrée enregistrée · "+fmtTime(at)+fam, guest);
       gFlash(true); beep(true);
       if(cid==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
         var pNm=""; if(guest.role==="filleul" && guest.parrain){ var pl=gIndex[normalize(guest.parrain)]; if(pl){ for(var pi=0;pi<pl.length;pi++){ if(pl[pi].cid===cid && pl[pi].guest){ pNm=prenomDe(pl[pi].guest); break; } } } }
         var evN=(f.event&&f.event.stringValue)||"le parrainage";
-        sendParrainageEntryMail(guest, pNm, evN).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
+        var metaN={date:"",heure:"",lieu:""}; try{ if(f.eventMeta&&f.eventMeta.stringValue) metaN=JSON.parse(f.eventMeta.stringValue); }catch(e){}
+        sendParrainageEntryMail(guest, pNm, evN, metaN).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
       }
-    }catch(e){ gStat("invalid","Erreur", guest.name||"", "Vérifie ta connexion et réessaie"); gFlash(false); beep(false); }
+    }catch(e){ _gQueueAdmit(m, token, at); }                          // erreur réseau -> file d'attente
   }
+  async function gFlushQueue(){
+    if(!gQueue.length) return;
+    if(!(await gEnsureAuth())) return;                                 // toujours hors-ligne
+    var rest=[];
+    for(var i=0;i<gQueue.length;i++){
+      var it=gQueue[i];
+      try{
+        var data=await fsGetDoc(ticketDocPath(it.cid), gAuth.idToken);
+        var f=(data&&data.fields)||{}; var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+        if(usedMap[it.token]){ continue; }                             // déjà enregistré -> on retire de la file
+        usedMap[it.token]=it.at;
+        var r=await fsPatchFields(ticketDocPath(it.cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
+        if(!(r&&r.ok)){ rest.push(it); continue; }
+        if(it.cid==="parrainage"){                                     // mail table (best-effort) une fois en ligne
+          var pl=gIndex[normalize(it.token)], gg=null;
+          if(pl){ for(var k=0;k<pl.length;k++){ if(pl[k].cid===it.cid){ gg=pl[k].guest; break; } } }
+          if(gg && emailOf(gg) && ["filleul","parrain","alumni"].indexOf(gg.role)>=0){
+            var pNm=""; if(gg.role==="filleul" && gg.parrain){ var pp=gIndex[normalize(gg.parrain)]; if(pp){ for(var z=0;z<pp.length;z++){ if(pp[z].cid===it.cid){ pNm=prenomDe(pp[z].guest); break; } } } }
+            var evN=(f.event&&f.event.stringValue)||"le parrainage";
+            var metaN={date:"",heure:"",lieu:""}; try{ if(f.eventMeta&&f.eventMeta.stringValue) metaN=JSON.parse(f.eventMeta.stringValue); }catch(e){}
+            sendParrainageEntryMail(gg, pNm, evN, metaN);
+          }
+        }
+      }catch(e){ rest.push(it); }                                      // encore hors-ligne -> on garde
+    }
+    var avant=gQueue.length; gQueue=rest; await _gSaveQueue();
+    if(gQueue.length){ gShowPending(); }
+    else if(avant){ gStatus("✓ Toutes les entrées hors-ligne ont été synchronisées.", false); }
+  }
+  window.addEventListener("online", function(){ if($("gscanScreen") && $("gscanScreen").classList.contains("on")) gFlushQueue(); });
 
   function gAmbig(token, matches){
     gStat("used","Plusieurs commissions", "", "Ce code existe dans "+matches.length+" commissions — choisis la bonne :");
@@ -1531,9 +1632,9 @@
     ensureAudio();
     $("gscanScreen").classList.add("on"); $("gscanScreen").setAttribute("aria-hidden","false");
     hideGAmbig();
-    gLoadAll(false);
+    _gLoadQueue().then(function(){ gLoadAll(false).then(function(){ gFlushQueue().then(gShowPending); }); });
     if(gRefreshTimer) clearInterval(gRefreshTimer);
-    gRefreshTimer=setInterval(function(){ if($("gscanScreen").classList.contains("on")) gLoadAll(true); }, 25000);
+    gRefreshTimer=setInterval(function(){ if($("gscanScreen").classList.contains("on")){ gLoadAll(true); gFlushQueue().then(gShowPending); } }, 25000);
   };
   window.gscanClose=function(){
     gStopCam();
@@ -1588,16 +1689,66 @@
       var acts = "";
       if(isIn){ acts += '<button class="btn ghost xs" onclick="undoEntry(\''+g.token+'\')">Annuler</button>'; }
       else { acts += '<button class="btn gold xs" onclick="enterManual(\''+g.token+'\')">Entrer</button>'; }
+      if(!scanner){ acts += '<button class="btn ghost xs" onclick="editGuest(\''+g.token+'\')" title="Modifier">✎</button>'; }
       if(mail && !scanner){ acts += '<button class="btn ghost xs" onclick="resendTicket(\''+g.token+'\')">Renvoyer</button>'; }
       if(!scanner){ acts += '<button class="btn danger xs" onclick="deleteGuest(\''+g.token+'\')" title="Supprimer cet invité">✕</button>'; }
+      var chk = scanner ? "" : ('<input type="checkbox" class="lst-chk" '+(_selTokens.has(g.token)?"checked":"")+' onchange="toggleSel(\''+g.token+'\',this.checked)" style="width:auto;margin-right:8px">');
       var r=document.createElement("div"); r.className="lst-row";
-      r.innerHTML='<span class="nm">'+escapeHtml(g.name)+'</span>'+
+      r.innerHTML=chk+'<span class="nm">'+escapeHtml(g.name)+'</span>'+
         '<span class="cd">'+g.token+(when?' · '+when:'')+(mail?(g.mailEnvoye?' · <span style="color:var(--green,#4caf7d)">✉ envoyé</span>':' · <span style="color:var(--amber,#d8b45a)">✉ non envoyé</span>'):'')+'</span>'+
         '<span class="badge '+(isIn?"in":"wait")+'">'+(isIn?"Entré":"En attente")+'</span>'+
         '<span class="lst-acts">'+acts+'</span>';
       box.appendChild(r);
     });
-    wrap.innerHTML=""; wrap.appendChild(box);
+    wrap.innerHTML="";
+    if(!scanner && _selTokens.size){
+      var bar=document.createElement("div"); bar.style.cssText="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap";
+      bar.innerHTML='<span style="font-size:13px;color:var(--muted)">'+_selTokens.size+' sélectionné(s)</span>'+
+        '<button class="btn danger sm" onclick="deleteSelection()">Supprimer la sélection</button>'+
+        '<button class="btn ghost sm" onclick="clearSelection()">Tout décocher</button>';
+      wrap.appendChild(bar);
+    }
+    wrap.appendChild(box);
+  };
+  var _selTokens = new Set();
+  window.toggleSel = function(token, on){ if(on) _selTokens.add(token); else _selTokens.delete(token); renderList(); };
+  window.clearSelection = function(){ _selTokens.clear(); renderList(); };
+  window.deleteSelection = async function(){
+    var s=new Set(); _selTokens.forEach(function(t){ if(tokenGuest(t)) s.add(t); });
+    if(!s.size){ flash("Aucun invité sélectionné."); return; }
+    if(!confirm("Supprimer les "+s.size+" invité(s) sélectionné(s) ? Leurs billets ne seront plus valides. Action définitive.")) return;
+    _selTokens.clear();
+    await _appliquerSuppression(s, s.size+" invité(s) supprimé(s).");
+  };
+  window.editGuest = async function(token){
+    var g=tokenGuest(token); if(!g) return;
+    var curNom = g.nom || (g.name||"").split(/\s+/)[0] || "";
+    var curPre = g.prenom || (g.name||"").split(/\s+/).slice(1).join(" ") || "";
+    var nom = window.prompt("Nom :", curNom); if(nom===null) return; nom=nom.trim();
+    var prenom = window.prompt("Prénom :", curPre); if(prenom===null) return; prenom=prenom.trim();
+    var mail = window.prompt("E-mail :", emailOf(g)||""); if(mail===null) return; mail=mail.trim();
+    g.nom=nom; g.prenom=prenom;
+    g.name=(nom+" "+prenom).trim() || g.name;
+    g.extra=mail;
+    if(currentCommId()==="proclamation" || (!g.role && getCats().length)){
+      var cats=getCats();
+      if(cats.length){
+        var noms=cats.map(function(c,i){ return (i+1)+". "+c.name; }).join("\n");
+        var rep=window.prompt("Catégorie (numéro, vide pour aucune) :\n0. Aucune\n"+noms, "");
+        if(rep!==null){
+          var idx=parseInt(rep.trim(),10);
+          if(rep.trim()==="0"||rep.trim()===""){ delete g.cat; delete g.cc; }
+          else if(idx>=1 && cats[idx-1]){ g.cat=cats[idx-1].name; g.cc=cats[idx-1].color||""; }
+        }
+      }
+    }
+    localRosterVersion = Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    if(syncCode){ try{ syncPushFull(); }catch(e){} }
+    cloudPushRoster(currentCommId());
+    renderList(); try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
+    flash("« "+g.name+" » modifié·e.");
   };
   window.enterManual = async function(token){
     var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
@@ -1637,6 +1788,44 @@
     try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
     try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
     flash("« "+g.name+" » supprimé·e.");
+  };
+  async function _appliquerSuppression(tokensSet, libelle){
+    if(!tokensSet.size) return;
+    roster.forEach(function(f){ if(f.parrain && tokensSet.has(f.parrain)){ delete f.parrain; delete f.table; } });
+    roster = roster.filter(function(g){ return !tokensSet.has(g.token); });
+    var it=tokensSet.values(), n;
+    while(!(n=it.next()).done){ try{ await Store.del("used:"+n.value); }catch(e){} usedSet.delete(n.value); delete usedAt[n.value]; }
+    localRosterVersion = Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    if(syncCode){ try{ syncPushFull(); }catch(e){} }
+    cloudPushRoster(currentCommId());
+    updateCounts(); renderList();
+    try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
+    try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
+    flash(libelle);
+  }
+  window.deleteNonEntres = async function(){
+    var cibles = roster.filter(function(g){ return !usedSet.has(g.token); });
+    if(!cibles.length){ flash("Aucun non-entré à supprimer."); return; }
+    if(!confirm("Supprimer les "+cibles.length+" invité(s) NON entrés ? Leurs billets ne seront plus valides. Action définitive.")) return;
+    var s=new Set(cibles.map(function(g){return g.token;}));
+    await _appliquerSuppression(s, cibles.length+" non-entré(s) supprimé(s).");
+  };
+  window.deleteDoublons = async function(){
+    // Doublon = même e-mail (sinon même nom), en normalisant. On garde la 1re occurrence (priorité à celle déjà entrée).
+    var vus={}, dup=new Set();
+    // d'abord marquer les entrés comme « à garder » en priorité
+    var ordre = roster.slice().sort(function(a,b){ return (usedSet.has(b.token)?1:0)-(usedSet.has(a.token)?1:0); });
+    ordre.forEach(function(g){
+      var mail=(emailOf(g)||"").toLowerCase().trim();
+      var key = mail || ("nom:"+(g.name||"").toLowerCase().replace(/\s+/g," ").trim());
+      if(!key || key==="nom:") return;
+      if(vus[key]) dup.add(g.token); else vus[key]=g.token;
+    });
+    if(!dup.size){ flash("Aucun doublon détecté."); return; }
+    if(!confirm(dup.size+" doublon(s) détecté(s) (même e-mail ou même nom). Supprimer les copies en trop ? On garde une personne par e-mail/nom (priorité à celle déjà entrée).")) return;
+    await _appliquerSuppression(dup, dup.size+" doublon(s) supprimé(s).");
   };
   window.mailNoShow = async function(){
     var cibles = roster.filter(function(g){ return !usedSet.has(g.token) && emailOf(g); });
@@ -1861,6 +2050,7 @@
       + '<h2 style="margin:0 0 12px">Ton billet pour '+mailEsc(ev)+'</h2>'
       + '<p>Bonjour '+mailEsc(name)+',</p>'
       + '<p>Voici ton billet personnel. Présente-le à l\'entrée :</p>'
+      + infosPratiquesHtml()
       + '<p style="text-align:center;margin:26px 0"><a href="'+link+'" style="background:#e0b64d;color:#181233;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block">Afficher mon billet</a></p>'
       + '<p style="color:#666;font-size:13px">Si le bouton ne marche pas, copie ce lien :<br><a href="'+link+'">'+link+'</a></p>'
       + '<p style="color:#666;font-size:13px">Code du billet : <b>'+mailEsc(code)+'</b></p>'
@@ -1886,7 +2076,7 @@
     return m?m[0]:null;
   }
   /* ---------- Mail automatique à l'entrée (parrainage) : envoie la table etc. ---------- */
-  function parrainageEntryHtml(guest, parrainName, ev){
+  function parrainageEntryHtml(guest, parrainName, ev, meta){
     var roleLbl = guest.role==="parrain" ? "Parrain / Marraine" : (guest.role==="alumni" ? "Alumni / Ancien·ne" : "Filleul·e");
     var isParrainOrAlumni = (guest.role==="parrain" || guest.role==="alumni");
     var sub = (guest.role==="alumni") ? (guest.section||"") : [guest.annee, guest.section].filter(Boolean).join(" · ");
@@ -1911,14 +2101,15 @@
       + '<p>Bonjour '+mailEsc(prenomDe(guest))+',</p>'
       + intro
       + tableBloc + info + certif
+      + infosPratiquesHtml(meta)
       + '<p style="color:#666;font-size:13px">Bonne soirée ! 🎉</p>'
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
   }
-  async function sendParrainageEntryMail(guest, parrainName, ev){
+  async function sendParrainageEntryMail(guest, parrainName, ev, meta){
     var to = emailOf(guest); if(!to) return false;
     ev = ev || "le parrainage";
     var subj = "Bienvenue — "+ev+(guest.table ? (" · Table "+guest.table) : "");
-    return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev));
+    return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev, meta));
   }
   function mailableGuests(){ return roster.filter(function(g){ return !!emailOf(g); }); }
   var SETTINGS_PWD = "admin2026";
@@ -1938,9 +2129,34 @@
     if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
     if($("proclaToggle")) $("proclaToggle").checked = !proclaHidden();
     try{ renderCats(); }catch(e){}
+    if($("evDate")) $("evDate").value = (eventMeta&&eventMeta.date)||"";
+    if($("evHeure")) $("evHeure").value = (eventMeta&&eventMeta.heure)||"";
+    if($("evLieu")) $("evLieu").value = (eventMeta&&eventMeta.lieu)||"";
     $("settingsModal").classList.add("on");
   };
   window.closeSettings=function(){ $("settingsModal").classList.remove("on"); };
+  window.saveEventMeta = async function(){
+    eventMeta = {
+      date:  ($("evDate")&&$("evDate").value||"").trim(),
+      heure: ($("evHeure")&&$("evHeure").value||"").trim(),
+      lieu:  ($("evLieu")&&$("evLieu").value||"").trim()
+    };
+    try{ await Store.set("eventMeta", JSON.stringify(eventMeta)); }catch(e){}
+    cloudPushRoster(currentCommId());
+    flash("Infos pratiques enregistrées.");
+  };
+  // Bloc « Infos pratiques » pour les mails. meta optionnel (sinon eventMeta local).
+  function infosPratiquesHtml(meta){
+    var m = meta || eventMeta || {};
+    var rows = "";
+    if(m.date)  rows += '<tr><td style="padding:3px 10px 3px 0;color:#888">Date</td><td style="padding:3px 0"><b>'+mailEsc(m.date)+'</b></td></tr>';
+    if(m.heure) rows += '<tr><td style="padding:3px 10px 3px 0;color:#888">Heure</td><td style="padding:3px 0"><b>'+mailEsc(m.heure)+'</b></td></tr>';
+    if(m.lieu)  rows += '<tr><td style="padding:3px 10px 3px 0;color:#888">Lieu</td><td style="padding:3px 0"><b>'+mailEsc(m.lieu)+'</b></td></tr>';
+    if(!rows) return "";
+    return '<div style="background:#f6f4fb;border:1px solid #e5e0f0;border-radius:10px;padding:12px 14px;margin:16px 0">'
+      +'<div style="font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:#7a6fb0;margin-bottom:4px">Infos pratiques</div>'
+      +'<table style="font-size:14px;color:#333;border-collapse:collapse">'+rows+'</table></div>';
+  }
   function updateMailUI(){
     var card=$("mailCard"); if(!card) return;
     card.style.display = roster.length ? "block" : "none";
@@ -3012,6 +3228,7 @@
         try{ remoteRoster = JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e1){}
         try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e2){}
         roster = remoteRoster; eventName = (f.event&&f.event.stringValue)||""; localRosterVersion = remoteRV;
+        try{ if(f.eventMeta&&f.eventMeta.stringValue){ eventMeta = JSON.parse(f.eventMeta.stringValue); await Store.set("eventMeta", JSON.stringify(eventMeta)); } }catch(e){}
         await clearLocalUsedKeys(); usedSet=new Set(); usedAt={};
         for(var tok in remoteUsed){ if(Object.prototype.hasOwnProperty.call(remoteUsed,tok)){ usedSet.add(tok); usedAt[tok]=remoteUsed[tok]; await Store.set("used:"+tok, JSON.stringify({at:remoteUsed[tok]})); } }
         await Store.set("roster", JSON.stringify(roster)); await Store.set("eventName", JSON.stringify(eventName)); await Store.set("rosterVersion", String(localRosterVersion));
@@ -3034,6 +3251,7 @@
       var fields = {
         adminUid: fsField(a.uid),
         event: fsField(eventName||""),
+        eventMeta: fsField(JSON.stringify(eventMeta||{date:"",heure:"",lieu:""})),
         roster: fsField(JSON.stringify(roster)),
         rosterVersion: fsField(String(localRosterVersion)),
         used: fsField(JSON.stringify(localUsedMapObj())),
