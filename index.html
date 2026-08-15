@@ -466,6 +466,7 @@
         <button class="btn gold sm" onclick="autoMatch()">Proposer les binômes</button>
         <button class="btn ghost sm" onclick="clearMatches()">Réinitialiser</button>
         <button class="btn ghost sm" onclick="exportMatches()">Binômes (CSV)</button>
+        <button class="btn ghost sm" onclick="exportParrainsPresents()">Présents : parrains + alumni (Excel)</button>
         <button class="btn ghost sm" onclick="mailMatches()">Envoyer par mail</button>
       </div>
       <div id="matchWarn" class="hint" style="margin-top:9px"></div>
@@ -674,6 +675,17 @@
   </div>
 </div>
 
+<div class="modal" id="uiModal" style="z-index:100">
+  <div class="modal-box" style="max-width:440px">
+    <p id="uiModalMsg" style="white-space:pre-wrap;font-size:16px;line-height:1.55;margin:6px 2px 18px;color:var(--text)"></p>
+    <input type="text" id="uiModalInput" style="display:none;margin-bottom:16px" autocomplete="off">
+    <div class="row" style="justify-content:flex-end;gap:10px">
+      <button class="btn ghost" id="uiCancel" type="button" style="display:none">Annuler</button>
+      <button class="btn gold" id="uiOk" type="button">OK</button>
+    </div>
+  </div>
+</div>
+
 <div class="guest-view" id="guestView">
   <div class="g-card">
     <div class="g-top"><div class="ev" id="gEvent">Billet</div><div class="sub2">Billet personnel</div></div>
@@ -694,6 +706,10 @@
   var roster = [];
   var eventName = "";
   var eventMeta = { date:"", heure:"", lieu:"" };
+  // Parrainage = collaboration Bureau étudiant (BE) + Délégation étudiante.
+  var SIG_PARR = 'En collaboration : le Bureau étudiant (BE) et la Délégation étudiante de Droit et de Criminologie';
+  var FROM_PARR = 'BE & Délégation étudiante de Droit et de Criminologie <proclamation@bureauetuidant.xyz>';
+  function signatureMail(){ return (currentCommId()==="parrainage") ? SIG_PARR : "Le bureau étudiant"; }
   var usedSet = new Set();     // tokens entrés (présence, cross-appareil)
   var usedAt = {};             // token -> timestamp (ce que cet appareil a enregistré)
   var currentTab = "guests";
@@ -1021,7 +1037,7 @@
     flash(n+" binôme(s) proposé(s).");
   };
   window.clearMatches = async function(){
-    if(!confirm("Effacer tous les binômes ?")) return;
+    if(!(await uiConfirm("Effacer tous les binômes ?"))) return;
     roster.forEach(function(g){ if(g.role==="filleul") delete g.parrain; });
     await saveRosterMatches(); renderMatching();
     flash("Binômes réinitialisés.");
@@ -1064,6 +1080,22 @@
     $("matchWarn").innerHTML = w;
     renderTables();
   }
+  window.exportParrainsPresents = function(){
+    // Parrains/marraines ET alumni PRÉSENT·E·S (entré·e·s) — pour les attestations de la faculté.
+    var present = roster.filter(function(g){ return (g.role==="parrain"||g.role==="alumni") && usedSet.has(g.token); });
+    if(!present.length){ flash("Aucun parrain·marraine / alumni entré·e pour l'instant."); return; }
+    present.sort(function(a,b){ return (a.nom||a.name||"").localeCompare(b.nom||b.name||""); });
+    var rows=[["Nom","Prénom","Rôle","Section","Année","E-mail"]];
+    present.forEach(function(g){
+      var nom = g.nom || (g.name||"").split(/\s+/)[0] || "";
+      var prenom = g.prenom || (g.name||"").split(/\s+/).slice(1).join(" ") || "";
+      var role = (g.role==="alumni") ? "Alumni" : "Parrain/Marraine";
+      rows.push([nom, prenom, role, g.section||"", g.annee||"", emailOf(g)||""]);
+    });
+    var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(";"); }).join("\r\n");
+    downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), sanitize(eventName||"parrainage")+"_parrains_alumni_presents.csv");
+    flash(present.length+" présent·e·s exporté·e·s (parrains/marraines + alumni).");
+  };
   window.exportMatches = function(){
     var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
     if(!filleuls.length){ flash("Aucun filleul."); return; }
@@ -1075,12 +1107,12 @@
     var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(","); }).join("\n");
     downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), sanitize(eventName||"parrainage")+"_binomes.csv");
   };
-  async function sendMailQR(to, subject, html){
+  async function sendMailQR(to, subject, html, from){
     if(!to) return false;
     try{
       var r = await fetch(SEND_FN, { method:"POST",
         headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-        body: JSON.stringify({ to:to, subject:subject, html:html }) });
+        body: JSON.stringify({ to:to, subject:subject, html:html, from:from }) });
       return r.ok;
     }catch(e){ return false; }
   }
@@ -1089,7 +1121,7 @@
     var parrains = candidatsParrains().filter(function(P){ return loadOf(P.token)>0; });
     var total = filleuls.filter(function(f){return emailOf(f);}).length + parrains.filter(function(p){return emailOf(p);}).length;
     if(!total){ flash("Aucune adresse e-mail à notifier."); return; }
-    if(!confirm("Envoyer les binômes par mail à "+total+" personne(s) ?")) return;
+    if(!(await uiConfirm("Envoyer les binômes par mail à "+total+" personne(s) ?"))) return;
     var ev = eventName||"le parrainage";
     var ok=0;
     for(var i=0;i<filleuls.length;i++){
@@ -1100,7 +1132,7 @@
         +'<p>Bonjour '+mailEsc(F.name)+',</p>'
         +'<p>Ton parrain / ta marraine est : <b>'+mailEsc(P?P.name:"")+'</b>'+(P&&emailOf(P)?(' (<a href="mailto:'+mailEsc(emailOf(P))+'">'+mailEsc(emailOf(P))+'</a>)'):'')+'.</p>'
         +'<p>N\'hésite pas à prendre contact avec lui/elle. 🙂</p>'
-        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
       if(await sendMailQR(to, "Ton parrain/marraine — "+ev, html)) ok++;
       await new Promise(function(r){ setTimeout(r,120); });
     }
@@ -1113,7 +1145,7 @@
         +'<p>Bonjour '+mailEsc(P2.name)+',</p>'
         +'<p>Voici la ou les personne(s) que tu parraines :</p><ul style="line-height:1.7">'+lis+'</ul>'
         +'<p>Prends contact avec elle(s) pour faire connaissance. 🙂</p>'
-        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
       if(await sendMailQR(to2, "Tes filleul·e·s — "+ev, html2)) ok++;
       await new Promise(function(r){ setTimeout(r,120); });
     }
@@ -1718,7 +1750,7 @@
   window.deleteSelection = async function(){
     var s=new Set(); _selTokens.forEach(function(t){ if(tokenGuest(t)) s.add(t); });
     if(!s.size){ flash("Aucun invité sélectionné."); return; }
-    if(!confirm("Supprimer les "+s.size+" invité(s) sélectionné(s) ? Leurs billets ne seront plus valides. Action définitive.")) return;
+    if(!(await uiConfirm("Supprimer les "+s.size+" invité(s) sélectionné(s) ? Leurs billets ne seront plus valides. Action définitive."))) return;
     _selTokens.clear();
     await _appliquerSuppression(s, s.size+" invité(s) supprimé(s).");
   };
@@ -1726,9 +1758,9 @@
     var g=tokenGuest(token); if(!g) return;
     var curNom = g.nom || (g.name||"").split(/\s+/)[0] || "";
     var curPre = g.prenom || (g.name||"").split(/\s+/).slice(1).join(" ") || "";
-    var nom = window.prompt("Nom :", curNom); if(nom===null) return; nom=nom.trim();
-    var prenom = window.prompt("Prénom :", curPre); if(prenom===null) return; prenom=prenom.trim();
-    var mail = window.prompt("E-mail :", emailOf(g)||""); if(mail===null) return; mail=mail.trim();
+    var nom = await uiPrompt("Nom :", curNom); if(nom===null) return; nom=nom.trim();
+    var prenom = await uiPrompt("Prénom :", curPre); if(prenom===null) return; prenom=prenom.trim();
+    var mail = await uiPrompt("E-mail :", emailOf(g)||""); if(mail===null) return; mail=mail.trim();
     g.nom=nom; g.prenom=prenom;
     g.name=(nom+" "+prenom).trim() || g.name;
     g.extra=mail;
@@ -1736,7 +1768,7 @@
       var cats=getCats();
       if(cats.length){
         var noms=cats.map(function(c,i){ return (i+1)+". "+c.name; }).join("\n");
-        var rep=window.prompt("Catégorie (numéro, vide pour aucune) :\n0. Aucune\n"+noms, "");
+        var rep=await uiPrompt("Catégorie (numéro, vide pour aucune) :\n0. Aucune\n"+noms, "");
         if(rep!==null){
           var idx=parseInt(rep.trim(),10);
           if(rep.trim()==="0"||rep.trim()===""){ delete g.cat; delete g.cc; }
@@ -1765,7 +1797,7 @@
   window.undoEntry = async function(token){
     var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
     var nom = guest?guest.name:"cette personne";
-    if(!confirm("Annuler l'entrée de "+nom+" ? La personne repassera « en attente ».")) return;
+    if(!(await uiConfirm("Annuler l'entrée de "+nom+" ? La personne repassera « en attente ."))) return;
     await Store.del("used:"+token);
     usedSet.delete(token); delete usedAt[token];
     updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudRemoveUsed(currentCommId(), token);
@@ -1775,7 +1807,7 @@
     var idx=-1; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ idx=i; break; } }
     if(idx<0) return;
     var g=roster[idx];
-    if(!confirm("Supprimer définitivement « "+g.name+" » de la liste ? Son billet ne sera plus valide. Action définitive.")) return;
+    if(!(await uiConfirm("Supprimer définitivement « "+g.name+" » de la liste ? Son billet ne sera plus valide. Action définitive."))) return;
     // Parrainage : délier les filleuls éventuellement rattachés à cette personne
     roster.forEach(function(f){ if(f.parrain===token){ delete f.parrain; delete f.table; } });
     roster.splice(idx,1);
@@ -1810,7 +1842,7 @@
   window.deleteNonEntres = async function(){
     var cibles = roster.filter(function(g){ return !usedSet.has(g.token); });
     if(!cibles.length){ flash("Aucun non-entré à supprimer."); return; }
-    if(!confirm("Supprimer les "+cibles.length+" invité(s) NON entrés ? Leurs billets ne seront plus valides. Action définitive.")) return;
+    if(!(await uiConfirm("Supprimer les "+cibles.length+" invité(s) NON entrés ? Leurs billets ne seront plus valides. Action définitive."))) return;
     var s=new Set(cibles.map(function(g){return g.token;}));
     await _appliquerSuppression(s, cibles.length+" non-entré(s) supprimé(s).");
   };
@@ -1826,13 +1858,13 @@
       if(vus[key]) dup.add(g.token); else vus[key]=g.token;
     });
     if(!dup.size){ flash("Aucun doublon détecté."); return; }
-    if(!confirm(dup.size+" doublon(s) détecté(s) (même e-mail ou même nom). Supprimer les copies en trop ? On garde une personne par e-mail/nom (priorité à celle déjà entrée).")) return;
+    if(!(await uiConfirm(dup.size+" doublon(s) détecté(s) (même e-mail ou même nom). Supprimer les copies en trop ? On garde une personne par e-mail/nom (priorité à celle déjà entrée)."))) return;
     await _appliquerSuppression(dup, dup.size+" doublon(s) supprimé(s).");
   };
   window.mailNoShow = async function(){
     var cibles = roster.filter(function(g){ return !usedSet.has(g.token) && emailOf(g); });
     if(!cibles.length){ flash("Aucun non-venu avec e-mail."); return; }
-    if(window.confirm && !window.confirm("Envoyer un rappel à "+cibles.length+" personne(s) non entrée(s) ?")) return;
+    if(!(await uiConfirm("Envoyer un rappel à "+cibles.length+" personne(s) non entrée(s) ?"))) return;
     flash("Envoi des rappels…");
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
@@ -1866,11 +1898,11 @@
   window.showNoEmail = function(){
     var none = roster.filter(function(g){ return !emailOf(g); });
     if(!none.length){ flash("Tous les invités ont un e-mail."); return; }
-    alert(none.length+" invité(s) sans e-mail :\n\n"+none.map(function(g){ return "• "+g.name; }).join("\n"));
+    uiAlert(none.length+" invité(s) sans e-mail :\n\n"+none.map(function(g){ return "• "+g.name; }).join("\n"));
   };
 
   window.resetEntries = async function(){
-    if(!confirm("Remettre tout le monde « en attente » ? (les billets restent valides)")) return;
+    if(!(await uiConfirm("Remettre tout le monde « en attente » ? (les billets restent valides)"))) return;
     var keys=await Store.list("used:");
     for(var i=0;i<keys.length;i++){ await Store.del(keys[i]); }
     usedSet.clear(); usedAt={}; updateCounts(); renderList();
@@ -1888,7 +1920,7 @@
     cloudPushRoster(currentCommId());
   }
   window.clearAll = async function(){
-    if(!confirm("Tout effacer : la liste d'invités, les entrées ET les inscriptions en ligne ? Action définitive.")) return;
+    if(!(await uiConfirm("Tout effacer : la liste d'invités, les entrées ET les inscriptions en ligne ? Action définitive."))) return;
     await resetSignups();
     await wipeAll();
     if($("suEvName")) $("suEvName").value="";
@@ -1898,7 +1930,7 @@
     flash("Tout a été effacé.");
   };
   window.newEvent = async function(){
-    if(!confirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne (y compris les paiements en attente) seront effacées.")) return;
+    if(!(await uiConfirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne (y compris les paiements en attente) seront effacées."))) return;
     await resetSignups();
     await wipeAll();
     if($("suEvName")) $("suEvName").value="";
@@ -2057,7 +2089,7 @@
       + '<p style="color:#666;font-size:13px">Si le bouton ne marche pas, copie ce lien :<br><a href="'+link+'">'+link+'</a></p>'
       + '<p style="color:#666;font-size:13px">Code du billet : <b>'+mailEsc(code)+'</b></p>'
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
-      + '<p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+      + '<p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
   }
   window.saveMailConfig=function(){
     try{
@@ -2105,13 +2137,13 @@
       + tableBloc + info + certif
       + infosPratiquesHtml(meta)
       + '<p style="color:#666;font-size:13px">Bonne soirée ! 🎉</p>'
-      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">Le bureau étudiant</p></div>';
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
   }
   async function sendParrainageEntryMail(guest, parrainName, ev, meta){
     var to = emailOf(guest); if(!to) return false;
     ev = ev || "le parrainage";
     var subj = "Bienvenue — "+ev+(guest.table ? (" · Table "+guest.table) : "");
-    return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev, meta));
+    return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev, meta), FROM_PARR);
   }
   function mailableGuests(){ return roster.filter(function(g){ return !!emailOf(g); }); }
   var SETTINGS_PWD = "admin2026";
@@ -2182,9 +2214,9 @@
   window.sendAllMails=async function(){
     var deja = mailableGuests().filter(function(g){ return !!g.mailEnvoye; }).length;
     var list = mailableGuests().filter(function(g){ return !g.mailEnvoye; });   // jamais envoyés uniquement
-    if(!list.length){ alert(deja ? ("Rien \u00e0 envoyer : les "+deja+" billet(s) avec e-mail ont d\u00e9j\u00e0 \u00e9t\u00e9 envoy\u00e9(s).") : "Aucun invité avec e-mail."); return; }
-    if(!window.confirm("Envoyer "+list.length+" billet(s) n'ayant jamais \u00e9t\u00e9 envoy\u00e9(s) ?"
-      +(deja?("\n\n("+deja+" autre(s) d\u00e9j\u00e0 envoy\u00e9(s) ne seront PAS renvoy\u00e9(s).)"):""))) return;
+    if(!list.length){ uiAlert(deja ? ("Rien \u00e0 envoyer : les "+deja+" billet(s) avec e-mail ont d\u00e9j\u00e0 \u00e9t\u00e9 envoy\u00e9(s).") : "Aucun invité avec e-mail."); return; }
+    if(!(await uiConfirm("Envoyer "+list.length+" billet(s) n'ayant jamais \u00e9t\u00e9 envoy\u00e9(s) ?"
+      +(deja?("\n\n("+deja+" autre(s) d\u00e9j\u00e0 envoy\u00e9(s) ne seront PAS renvoy\u00e9(s).)"):"")))) return;
     var ev = eventName||"notre événement";
     var prog=$("mailProgress"); prog.style.display="block";
     var ok=0, fail=0;
@@ -2298,15 +2330,16 @@
   }
 
   function expediteur(){
-    return (currentCommId()==="proclamation")
-      ? "Délégués Droit & Criminologie <proclamation@bureauetuidant.xyz>"
-      : undefined;
+    var cid=currentCommId();
+    if(cid==="proclamation") return "Délégués Droit & Criminologie <proclamation@bureauetuidant.xyz>";
+    if(cid==="parrainage") return FROM_PARR;
+    return undefined;
   }
   function clotureKey(){ return "qrentry:cloture:"+(currentCommId()||""); }
   function getCloture(){ try{ return window.localStorage.getItem(clotureKey())||""; }catch(e){ return ""; } }
   window.resetInscriptions=async function(){
     var cid=currentCommId(); if(!cid) return;
-    if(!confirm("Réinitialiser complètement cet événement ?\n\n• billets et entrées effacés\n• inscriptions en ligne effacées\n• nom, dates et clôture remis à zéro\n\nAction irréversible.")) return;
+    if(!(await uiConfirm("Réinitialiser complètement cet événement ?\n\n• billets et entrées effacés\n• inscriptions en ligne effacées\n• nom, dates et clôture remis à zéro\n\nAction irréversible."))) return;
     await resetSignups();
     await wipeAll();
     try{
@@ -2319,7 +2352,7 @@
     await publierNomEvent("", true);
     await publierCloture("");
     renderSignups();
-    alert("Événement réinitialisé.\n\nTout est prêt pour un nouvel événement.");
+    uiAlert("Événement réinitialisé.\n\nTout est prêt pour un nouvel événement.");
   };
   async function publierCloture(v){
     var cid=currentCommId(); if(!cid) return false;
@@ -2332,8 +2365,8 @@
   function getEvDate(){ try{ return window.localStorage.getItem(dateKey())||""; }catch(e){ return ""; } }
   window.envoyerRappel=async function(auto){
     var cibles = roster.filter(function(g){ return emailOf(g); });
-    if(!cibles.length){ if(!auto) alert("Aucun invité avec e-mail."); return; }
-    if(!auto && !confirm("Envoyer le rappel avec le billet à "+cibles.length+" personne(s) ?")) return;
+    if(!cibles.length){ if(!auto) uiAlert("Aucun invité avec e-mail."); return; }
+    if(!auto && !(await uiConfirm("Envoyer le rappel avec le billet à "+cibles.length+" personne(s) ?"))) return;
     var d=getEvDate();
     var quand = d ? new Date(d+"T00:00:00").toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long"}) : "demain";
     flash("Envoi des rappels…");
@@ -2352,7 +2385,7 @@
       await new Promise(function(res){setTimeout(res,120);});
     }
     try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
-    if(!auto) alert("Rappel envoyé à "+ok+" personne(s)."); else flash("Rappel envoyé à "+ok+" personne(s).");
+    if(!auto) uiAlert("Rappel envoyé à "+ok+" personne(s)."); else flash("Rappel envoyé à "+ok+" personne(s).");
   };
   function verifierRappelVeille(){
     var d=getEvDate(); if(!d) return;
@@ -2363,8 +2396,7 @@
     if(fait) return;
     var n=roster.filter(function(g){ return emailOf(g); }).length;
     if(!n) return;
-    if(confirm("L'événement a lieu demain.\n\nEnvoyer maintenant le rappel avec le billet à "+n+" personne(s) ?")) envoyerRappel(true);
-    else { try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d,"1"); }catch(e){} }
+    uiConfirm("L'événement a lieu demain.\n\nEnvoyer maintenant le rappel avec le billet à "+n+" personne(s) ?").then(function(_ok){ if(_ok) envoyerRappel(true); else { try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d,"1"); }catch(e){} } });
   }
   window.saveEvName=async function(){
     var v=(($("suEvName")&&$("suEvName").value)||"").trim();
@@ -2559,9 +2591,9 @@
     var suggestion = estCarte
       ? "La photo/PDF de la carte n'est pas lisible, ou le nom/matricule ne correspond pas."
       : "La preuve de paiement n'est pas lisible ou ne correspond pas au montant attendu.";
-    var motif = window.prompt ? (window.prompt("Motif du refus (visible par la personne) :", suggestion)||"") : "";
+    var motif = await uiPrompt("Motif du refus (visible par la personne) :", suggestion);
     if(motif===null) return;
-    if(window.confirm && !window.confirm("Refuser l'inscription de "+x.name+" et lui demander de renvoyer "+(estCarte?"sa carte":"sa preuve")+" ?")) return;
+    if(!(await uiConfirm("Refuser l'inscription de "+x.name+" et lui demander de renvoyer "+(estCarte?"sa carte":"sa preuve")+" ?"))) return;
     x.statut="refuse"; x.motif=motif; await saveSignups(); renderSignups();
     if(x.email){
       var cid=currentCommId()||"";
@@ -2665,7 +2697,7 @@
       var v=($("suCloture")&&$("suCloture").value)||"";
       try{ window.localStorage.setItem(clotureKey(), v); }catch(e){}
       var ok=await publierCloture(v);
-      alert(ok ? (v ? ("CLOTURE ENREGISTREE : "+v+"\n\nLe formulaire se fermera automatiquement après cette date.")
+      uiAlert(ok ? (v ? ("CLOTURE ENREGISTREE : "+v+"\n\nLe formulaire se fermera automatiquement après cette date.")
                     : "Clôture retirée : le formulaire reste ouvert.")
                : "PROBLEME : la clôture n'a pas pu être publiée.");
     }; }
@@ -2678,9 +2710,9 @@
           var j=new Date(dd.value+"T00:00:00");
           var v=new Date(j); v.setDate(v.getDate()-1);
           var fmt=function(x){ return x.toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long",year:"numeric"}); };
-          alert("DATE ENREGISTREE\n\nÉvénement : "+fmt(j)+"\n\nLe rappel avec le billet sera proposé la veille, le "+fmt(v)+", quand tu ouvriras l'application.");
+          uiAlert("DATE ENREGISTREE\n\nÉvénement : "+fmt(j)+"\n\nLe rappel avec le billet sera proposé la veille, le "+fmt(v)+", quand tu ouvriras l'application.");
         } else {
-          alert("DATE EFFACEE\n\nAucun rappel automatique ne sera proposé.");
+          uiAlert("DATE EFFACEE\n\nAucun rappel automatique ne sera proposé.");
         }
       };
     }
@@ -2969,7 +3001,7 @@
     var incoming = data.roster.map(function(g){return g.token;}).join(",");
     var current = roster.map(function(g){return g.token;}).join(",");
     if(current && incoming!==current && usedSet.size>0){
-      if(!confirm("Charger la liste reçue par ce lien ? Cela remplace la liste actuelle et remet les entrées à zéro.")) { try{ history.replaceState(null,"",location.pathname); }catch(e){} return; }
+      if(!(await uiConfirm("Charger la liste reçue par ce lien ? Cela remplace la liste actuelle et remet les entrées à zéro."))) { try{ history.replaceState(null,"",location.pathname); }catch(e){} return; }
     } else if(incoming===current){ try{ history.replaceState(null,"",location.pathname); }catch(e){} return; }
     await applyIncomingRoster(data);
     try{ history.replaceState(null,"",location.pathname); }catch(e){}
@@ -3113,6 +3145,31 @@
     if(flashT) clearTimeout(flashT);
     flashT=setTimeout(function(){ if(!native){ showStoreBanner(); } else { b.className="banner"; } }, 3200);
   }
+  /* ---------- Popups maison (aux couleurs de l'app) ---------- */
+  var _uiResolve=null, _uiMode="alert";
+  function _uiOpen(mode,msg,def){
+    return new Promise(function(res){
+      _uiResolve=res; _uiMode=mode;
+      if($("uiModalMsg")) $("uiModalMsg").textContent = msg==null?"":String(msg);
+      var inp=$("uiModalInput"), cancel=$("uiCancel"), ok=$("uiOk");
+      if(inp){ if(mode==="prompt"){ inp.style.display="block"; inp.value=def==null?"":def; } else { inp.style.display="none"; } }
+      if(cancel) cancel.style.display = (mode==="alert") ? "none" : "inline-flex";
+      if(ok) ok.textContent = (mode==="alert") ? "OK" : "Confirmer";
+      if($("uiModal")) $("uiModal").classList.add("on");
+      setTimeout(function(){ try{ (mode==="prompt"&&inp?inp:ok).focus(); }catch(e){} }, 60);
+    });
+  }
+  function _uiDone(val){ if($("uiModal")) $("uiModal").classList.remove("on"); var r=_uiResolve; _uiResolve=null; if(r) r(val); }
+  window.uiAlert   = function(msg){ return _uiOpen("alert", msg); };
+  window.uiConfirm = function(msg){ return _uiOpen("confirm", msg); };
+  window.uiPrompt  = function(msg, def){ return _uiOpen("prompt", msg, def); };
+  (function(){
+    var ok=$("uiOk"), cancel=$("uiCancel"), inp=$("uiModalInput"), modal=$("uiModal");
+    if(ok) ok.onclick=function(){ _uiDone(_uiMode==="prompt" ? (inp?inp.value:"") : true); };
+    if(cancel) cancel.onclick=function(){ _uiDone(_uiMode==="prompt" ? null : false); };
+    if(inp) inp.onkeydown=function(e){ if(e.key==="Enter"){ e.preventDefault(); _uiDone(inp.value); } if(e.key==="Escape"){ _uiDone(null); } };
+    if(modal) modal.addEventListener("click", function(e){ if(e.target===modal){ _uiDone(_uiMode==="alert"?true:(_uiMode==="prompt"?null:false)); } });
+  })();
   function showStoreBanner(){
     var b=$("storeBanner");
     if(native){ b.className="banner"; return; }

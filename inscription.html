@@ -41,7 +41,7 @@
   <div id="enteteUlb" style="display:none;text-align:center;padding-bottom:18px;margin-bottom:20px;border-bottom:1px solid var(--line)">
     <div style="font-size:12.5px;letter-spacing:.10em;text-transform:uppercase;color:var(--muted)">Université libre de Bruxelles</div>
     <div style="font-size:16px;font-weight:700;margin-top:4px">Faculté de Droit et de Criminologie</div>
-    <div style="font-size:13.5px;margin-top:6px;color:var(--gold)">Délégation étudiante de Droit et de Criminologie</div>
+    <div style="font-size:13.5px;margin-top:6px;color:var(--gold)" id="enteteOrg">Délégation étudiante de Droit et de Criminologie</div>
   </div>
   <h1>Inscription</h1>
   <p class="sub" id="titre">Chargement…</p>
@@ -186,7 +186,11 @@
   try{ NOM_LIEN = decodeURIComponent(par("e")||""); }catch(e){ NOM_LIEN = par("e")||""; }
   q("titre").textContent = (NOM_LIEN || NOMS[CID]) + (PAY?" — événement payant":"");
   if(inscriptionsFermees(CLOTURE)) afficherFermeture(CLOTURE);
-  if(isP) q("wrapRole").style.display="";
+  if(isP){
+    q("wrapRole").style.display="";
+    q("enteteUlb").style.display="block";
+    q("enteteOrg").innerHTML = 'En collaboration :<br>Le Bureau étudiant de Droit et de Criminologie<br>La Délégation étudiante de Droit et de Criminologie';
+  }
   if(isPro){
     q("enteteUlb").style.display="block";
     q("wrapRole").style.display="";
