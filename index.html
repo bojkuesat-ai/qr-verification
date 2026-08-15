@@ -424,9 +424,9 @@
             <option value="filleul">Filleul·e</option>
             <option value="alumni">Alumni / Ancien·ne</option>
           </select></div>
-        <div id="pAnneeWrap"><label class="fld" for="pAnnee">Année</label><select id="pAnnee"></select></div>
+        <div id="pAnneeWrap"><label class="fld" for="pAnnee">Année</label><select id="pAnnee" onchange="majExPass()"></select></div>
       </div>
-      <label style="display:flex;align-items:center;gap:9px;margin-top:12px;font-size:13.5px;cursor:pointer"><input type="checkbox" id="pExPass"> Ancien·ne passerelle (parraine uniquement des Passerelle)</label>
+      <label style="display:flex;align-items:center;gap:9px;margin-top:12px;font-size:13.5px;cursor:pointer" id="pExPassWrap"><input type="checkbox" id="pExPass"> Ancien·ne passerelle</label>
       <div style="height:10px"></div>
       <label class="fld" for="pNames">Liste — une ligne par personne (Nom Prénom + e-mail). Collage Excel/Sheets accepté.</label>
       <textarea id="pNames" placeholder="Belkacem Amina, amina.belkacem@mail.be&#10;Dupont Thomas, thomas.dupont@mail.be"></textarea>
@@ -781,7 +781,7 @@
   };
 
   /* ---------- Parrainage (étape 1 : création) ---------- */
-  var PARRAIN_ANNEES = ["BA2","BA3","MA2"];
+  var PARRAIN_ANNEES = ["BA2","BA3","MA1","MA2"];
   var FILLEUL_ANNEES = ["Passerelle","BA1","MA1"];
   var ALUMNI_ANNEES  = ["Alumni"];
   function parrainageHidden(){ try{ return window.localStorage.getItem("qrentry:parrainHidden")==="1"; }catch(e){ return false; } }
@@ -808,20 +808,29 @@
     var role = $("pRole") ? $("pRole").value : "parrain";
     var section = $("pSection") ? $("pSection").value : "Droit";
     var wrap = $("pAnneeWrap");
-    var exWrap = $("pExPass") ? $("pExPass").closest("label") : null;
-    if(role==="alumni"){ if(wrap) wrap.style.display="none"; if(exWrap) exWrap.style.display="none"; return; }
-    if(wrap) wrap.style.display="";
-    var years;
-    if(section==="Criminologie"){
-      years = (role==="parrain") ? ["MA2"] : ["MA1"];          // crimino : MA2 -> MA1 uniquement
-      if(exWrap) exWrap.style.display="none";                   // pas de passerelle en crimino
-      if($("pExPass")) $("pExPass").checked=false;
-    } else {
-      years = (role==="parrain") ? PARRAIN_ANNEES : FILLEUL_ANNEES;
-      if(exWrap) exWrap.style.display = (role==="filleul") ? "" : "none";
+    if(role==="alumni"){ if(wrap) wrap.style.display="none"; }
+    else {
+      if(wrap) wrap.style.display="";
+      var years;
+      if(section==="Criminologie"){ years = (role==="parrain") ? ["MA2"] : ["MA1"]; }  // crimino
+      else { years = (role==="parrain") ? PARRAIN_ANNEES : FILLEUL_ANNEES; }
+      var sel = $("pAnnee");
+      if(sel) sel.innerHTML = years.map(function(y){ return "<option>"+y+"</option>"; }).join("");
     }
-    var sel = $("pAnnee"); if(!sel) return;
-    sel.innerHTML = years.map(function(y){ return "<option>"+y+"</option>"; }).join("");
+    majExPass();
+  };
+  // Case « Ancien·ne passerelle » : uniquement en DROIT, pour parrain MA1/MA2 et pour alumni.
+  window.majExPass = function(){
+    var role = $("pRole") ? $("pRole").value : "parrain";
+    var section = $("pSection") ? $("pSection").value : "Droit";
+    var an = $("pAnnee") ? $("pAnnee").value : "";
+    var exWrap = $("pExPassWrap");
+    var ok = (section==="Droit") && (
+               (role==="parrain" && (an==="MA1"||an==="MA2")) ||
+               (role==="alumni")
+             );
+    if(exWrap) exWrap.style.display = ok ? "flex" : "none";
+    if(!ok && $("pExPass")) $("pExPass").checked=false;
   };
   function parseNameEmail(line){
     var EMAIL_RE = /[^\s,;\t]+@[^\s,;\t]+\.[^\s,;\t]+/;
@@ -888,23 +897,34 @@
     if(C.section !== F.section) return false;                 // jamais Droit/Crimino croisés
     if(!(C.role==="parrain"||C.role==="alumni")) return false;
     if(F.role!=="filleul") return false;
-    if(C.exPasserelle){                                        // ex-passerelle
-      if(C.annee==="MA2") return F.annee==="Passerelle" || F.annee==="MA1";
+    if(C.exPasserelle){                                        // ancien·ne passerelle
+      if(C.role==="alumni") return true;                       // alumni ex-pass : n'importe quel filleul
+      if(C.annee==="MA2") return F.annee==="Passerelle" || F.annee==="MA1" || F.annee==="BA1";
+      if(C.annee==="MA1") return F.annee==="Passerelle" || F.annee==="BA1";
       return F.annee==="Passerelle";
     }
     if(F.annee==="Passerelle"){ return C.role==="alumni" || C.annee==="MA2"; }
-    if(F.annee==="BA1"){ return C.role==="alumni" || C.annee==="BA2" || C.annee==="BA3"; }
+    if(F.annee==="BA1"){ return C.role==="alumni" || C.annee==="BA2" || C.annee==="BA3" || C.annee==="MA1"; }
     if(F.annee==="MA1"){ return C.role==="alumni" || C.annee==="MA2"; }
     return false;
   }
   function eligibleParrains(F){ return candidatsParrains().filter(function(C){ return eligibleMatch(C,F); }); }
-  // Ordre des candidats parrains pour un filleul : pour un·e PASSERELLE, les ancien·ne·s passerelles d'abord, puis le moins chargé.
+  // Priorité des candidats pour un filleul.
+  function rangCandidat(C, F){
+    if(F && F.annee==="Passerelle"){
+      // Passerelles : MA1 ex-pass, puis MA2 ex-pass, puis alumni ex-pass, puis les autres.
+      if(C.exPasserelle && C.role==="parrain" && C.annee==="MA1") return 0;
+      if(C.exPasserelle && C.role==="parrain" && C.annee==="MA2") return 1;
+      if(C.exPasserelle && C.role==="alumni") return 2;
+      return 3;
+    }
+    // Autres filleuls : garder les ex-pass en réserve pour les passerelles (non-ex d'abord).
+    return C.exPasserelle ? 1 : 0;
+  }
   function cmpCandidats(F){
     return function(a,b){
-      if(F && F.annee==="Passerelle"){
-        var ax=a.exPasserelle?0:1, bx=b.exPasserelle?0:1;
-        if(ax!==bx) return ax-bx;
-      }
+      var ra=rangCandidat(a,F), rb=rangCandidat(b,F);
+      if(ra!==rb) return ra-rb;
       return loadOf(a.token)-loadOf(b.token) || a.name.localeCompare(b.name);
     };
   }
@@ -928,7 +948,8 @@
   window.autoMatch = async function(){
     var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
     var ordre = {Droit:0, Criminologie:1};
-    filleuls.sort(function(a,b){ return (ordre[a.section]||0)-(ordre[b.section]||0) || String(a.annee).localeCompare(String(b.annee)) || a.name.localeCompare(b.name); });
+    var ordreAnnee = {Passerelle:0, BA1:1, MA1:2};              // Passerelles traitées en premier
+    filleuls.sort(function(a,b){ return (ordre[a.section]||0)-(ordre[b.section]||0) || (ordreAnnee[a.annee]==null?9:ordreAnnee[a.annee])-(ordreAnnee[b.annee]==null?9:ordreAnnee[b.annee]) || a.name.localeCompare(b.name); });
     var n=0;
     filleuls.forEach(function(F){
       if(F.parrain) return;                                    // conserver les choix déjà faits
@@ -1568,6 +1589,7 @@
       if(isIn){ acts += '<button class="btn ghost xs" onclick="undoEntry(\''+g.token+'\')">Annuler</button>'; }
       else { acts += '<button class="btn gold xs" onclick="enterManual(\''+g.token+'\')">Entrer</button>'; }
       if(mail && !scanner){ acts += '<button class="btn ghost xs" onclick="resendTicket(\''+g.token+'\')">Renvoyer</button>'; }
+      if(!scanner){ acts += '<button class="btn danger xs" onclick="deleteGuest(\''+g.token+'\')" title="Supprimer cet invité">✕</button>'; }
       var r=document.createElement("div"); r.className="lst-row";
       r.innerHTML='<span class="nm">'+escapeHtml(g.name)+'</span>'+
         '<span class="cd">'+g.token+(when?' · '+when:'')+(mail?(g.mailEnvoye?' · <span style="color:var(--green,#4caf7d)">✉ envoyé</span>':' · <span style="color:var(--amber,#d8b45a)">✉ non envoyé</span>'):'')+'</span>'+
@@ -1595,6 +1617,26 @@
     usedSet.delete(token); delete usedAt[token];
     updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudRemoveUsed(currentCommId(), token);
     flash("Entrée annulée pour "+nom+".");
+  };
+  window.deleteGuest = async function(token){
+    var idx=-1; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ idx=i; break; } }
+    if(idx<0) return;
+    var g=roster[idx];
+    if(!confirm("Supprimer définitivement « "+g.name+" » de la liste ? Son billet ne sera plus valide. Action définitive.")) return;
+    // Parrainage : délier les filleuls éventuellement rattachés à cette personne
+    roster.forEach(function(f){ if(f.parrain===token){ delete f.parrain; delete f.table; } });
+    roster.splice(idx,1);
+    try{ await Store.del("used:"+token); }catch(e){}
+    usedSet.delete(token); delete usedAt[token];
+    localRosterVersion = Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    if(syncCode){ try{ syncPushFull(); }catch(e){} }
+    cloudPushRoster(currentCommId());
+    updateCounts(); renderList();
+    try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
+    try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
+    flash("« "+g.name+" » supprimé·e.");
   };
   window.mailNoShow = async function(){
     var cibles = roster.filter(function(g){ return !usedSet.has(g.token) && emailOf(g); });
