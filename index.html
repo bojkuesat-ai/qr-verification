@@ -473,7 +473,7 @@
       <div id="matchWrap" style="margin-top:6px"></div>
       <div style="border-top:1px solid var(--line);margin:14px 0 0;padding-top:12px">
         <div class="row"><button class="btn gold sm" onclick="assignTables()">Attribuer les tables</button></div>
-        <p class="hint" style="margin-top:6px">1 famille (parrain + ses filleul·e·s) par table, dans l'ordre. Droit et Crimino sur des tables séparées, 20 tables max. Tu peux modifier un numéro à la main (ex. « 1-2 » pour coller deux tables).</p>
+        <p class="hint" style="margin-top:6px">1 famille (parrain + ses filleul·e·s) par table, dans l'ordre. Droit et Crimino sur des plages de tables séparées, 40 tables max. Tu peux modifier un numéro à la main (ex. « 1-2 » pour coller deux tables).</p>
         <div id="tablesWrap" style="margin-top:6px"></div>
       </div>
     </div>
@@ -979,7 +979,7 @@
       return F.annee==="Passerelle";
     }
     if(F.annee==="Passerelle"){ return C.role==="alumni" || C.annee==="MA2"; }
-    if(F.annee==="BA1"){ return C.role==="alumni" || C.annee==="BA2" || C.annee==="BA3" || C.annee==="MA1"; }
+    if(F.annee==="BA1"){ return C.role==="alumni" || C.annee==="BA2" || C.annee==="BA3" || C.annee==="MA1" || C.annee==="MA2"; }
     if(F.annee==="MA1"){ return C.role==="alumni" || C.annee==="MA2"; }
     return false;
   }
@@ -993,6 +993,11 @@
       if(C.exPasserelle && C.role==="alumni") return 2;
       return 3;
     }
+    if(F && F.annee==="BA1"){
+      // Réserver les MA2 (normaux) aux MA1 : pour un BA1, un MA2 n'est pris qu'en dernier recours.
+      if(C.role!=="alumni" && !C.exPasserelle && C.annee==="MA2") return 2;
+      return C.exPasserelle ? 1 : 0;
+    }
     // Autres filleuls : garder les ex-pass en réserve pour les passerelles (non-ex d'abord).
     return C.exPasserelle ? 1 : 0;
   }
@@ -1000,6 +1005,8 @@
     return function(a,b){
       var ra=rangCandidat(a,F), rb=rangCandidat(b,F);
       if(ra!==rb) return ra-rb;
+      var pa=(a.role==="alumni")?1:0, pb=(b.role==="alumni")?1:0;   // parrains d'abord, alumni en renfort
+      if(pa!==pb) return pa-pb;
       return loadOf(a.token)-loadOf(b.token) || a.name.localeCompare(b.name);
     };
   }
@@ -1023,7 +1030,7 @@
   window.autoMatch = async function(){
     var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
     var ordre = {Droit:0, Criminologie:1};
-    var ordreAnnee = {Passerelle:0, BA1:1, MA1:2};              // Passerelles traitées en premier
+    var ordreAnnee = {Passerelle:0, MA1:1, BA1:2};              // Passerelles puis MA1 (MA2 les prend d'abord) puis BA1
     filleuls.sort(function(a,b){ return (ordre[a.section]||0)-(ordre[b.section]||0) || (ordreAnnee[a.annee]==null?9:ordreAnnee[a.annee])-(ordreAnnee[b.annee]==null?9:ordreAnnee[b.annee]) || a.name.localeCompare(b.name); });
     var n=0;
     filleuls.forEach(function(F){
@@ -1046,8 +1053,14 @@
     var card=$("pMatchCard"); if(!card) return;
     var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
     var parrains = candidatsParrains();
-    if(!filleuls.length || !parrains.length){ card.style.display="none"; return; }
+    if(!filleuls.length && !parrains.length){ card.style.display="none"; return; }
     card.style.display="block";
+    if(!filleuls.length || !parrains.length){
+      $("matchWrap").innerHTML = '<p class="hint">Ajoute au moins un groupe de <b>parrains/marraines</b> ET un groupe de <b>filleul·e·s</b> (section « créer les billets » ci-dessus) pour lancer le matching.</p>';
+      $("matchWarn").innerHTML = filleuls.length+" filleul·e·s · "+parrains.length+" parrain·e·s — matching indisponible tant qu'un côté manque.";
+      renderTables();
+      return;
+    }
     var html=""; var sansEligible=0, nonAttrib=0;
     ["Droit","Criminologie"].forEach(function(sec){
       var fs = filleuls.filter(function(f){ return f.section===sec; });
@@ -1085,12 +1098,12 @@
     var present = roster.filter(function(g){ return (g.role==="parrain"||g.role==="alumni") && usedSet.has(g.token); });
     if(!present.length){ flash("Aucun parrain·marraine / alumni entré·e pour l'instant."); return; }
     present.sort(function(a,b){ return (a.nom||a.name||"").localeCompare(b.nom||b.name||""); });
-    var rows=[["Nom","Prénom","Rôle","Section","Année","E-mail"]];
+    var rows=[["Nom","Prénom","Parrain/Marraine","E-mail"]];
     present.forEach(function(g){
       var nom = g.nom || (g.name||"").split(/\s+/)[0] || "";
       var prenom = g.prenom || (g.name||"").split(/\s+/).slice(1).join(" ") || "";
       var role = (g.role==="alumni") ? "Alumni" : "Parrain/Marraine";
-      rows.push([nom, prenom, role, g.section||"", g.annee||"", emailOf(g)||""]);
+      rows.push([nom, prenom, role, emailOf(g)||""]);
     });
     var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(";"); }).join("\r\n");
     downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), sanitize(eventName||"parrainage")+"_parrains_alumni_presents.csv");
@@ -1153,7 +1166,7 @@
   };
 
   /* ---------- Parrainage — tables ---------- */
-  var TABLE_MAX = 20;
+  var TABLE_MAX = 40;
   window.assignTables = async function(){
     roster.forEach(function(g){ if(g.role==="filleul"||g.role==="parrain"||g.role==="alumni") delete g.table; });
     var num=0, overflow=0;
@@ -1168,7 +1181,7 @@
       });
     });
     await saveRosterMatches(); renderMatching();
-    flash(overflow ? ("Tables attribuées, mais "+overflow+" table(s) au-delà de 20 !") : ("Tables attribuées (1 à "+Math.min(num,TABLE_MAX)+")."));
+    flash(overflow ? ("Tables attribuées, mais "+overflow+" table(s) au-delà de "+TABLE_MAX+" !") : ("Tables attribuées (1 à "+Math.min(num,TABLE_MAX)+")."));
   };
   window.setTable = async function(parrainTok, val){
     var P=tokenGuest(parrainTok); if(!P) return;
@@ -1322,7 +1335,8 @@
     flashSignal(true); beep(true); updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
     if(currentCommId()==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
       var pNm=""; if(guest.role==="filleul" && guest.parrain){ var Pp=tokenGuest(guest.parrain); if(Pp) pNm=prenomDe(Pp); }
-      sendParrainageEntryMail(guest, pNm, eventName||"le parrainage", eventMeta).then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
+      var flN=(guest.role==="parrain"||guest.role==="alumni") ? roster.filter(function(f){ return f.role==="filleul" && f.parrain===guest.token; }).map(prenomDe) : [];
+      sendParrainageEntryMail(guest, pNm, eventName||"le parrainage", eventMeta, flN).then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
     }
   }
 
@@ -1537,6 +1551,16 @@
     if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ return " · Parrain·e : "+(prenomDe(pl[i].guest)||"?"); } } }
     return "";
   }
+  function gFilleulPrenoms(cid, parrainTok){
+    var out=[]; try{
+      Object.keys(gIndex).forEach(function(k){
+        (gIndex[k]||[]).forEach(function(e){
+          if(e.cid===cid && e.guest && e.guest.role==="filleul" && normalize(e.guest.parrain||"")===normalize(parrainTok)){ out.push(prenomDe(e.guest)); }
+        });
+      });
+    }catch(e){}
+    return out;
+  }
   var gQueue=[]; // entrées en attente de synchro (hors-ligne) : {cid, token, at, name}
   async function _gLoadQueue(){ try{ var s=await Store.get("gscanQueue"); gQueue = s?JSON.parse(s):[]; }catch(e){ gQueue=[]; } }
   async function _gSaveQueue(){ try{ await Store.set("gscanQueue", JSON.stringify(gQueue)); }catch(e){} }
@@ -1573,9 +1597,10 @@
       gFlash(true); beep(true);
       if(cid==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
         var pNm=""; if(guest.role==="filleul" && guest.parrain){ var pl=gIndex[normalize(guest.parrain)]; if(pl){ for(var pi=0;pi<pl.length;pi++){ if(pl[pi].cid===cid && pl[pi].guest){ pNm=prenomDe(pl[pi].guest); break; } } } }
+        var flN=(guest.role==="parrain"||guest.role==="alumni") ? gFilleulPrenoms(cid, guest.token) : [];
         var evN=(f.event&&f.event.stringValue)||"le parrainage";
         var metaN={date:"",heure:"",lieu:""}; try{ if(f.eventMeta&&f.eventMeta.stringValue) metaN=JSON.parse(f.eventMeta.stringValue); }catch(e){}
-        sendParrainageEntryMail(guest, pNm, evN, metaN).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
+        sendParrainageEntryMail(guest, pNm, evN, metaN, flN).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
       }
     }catch(e){ _gQueueAdmit(m, token, at); }                          // erreur réseau -> file d'attente
   }
@@ -1597,9 +1622,10 @@
           if(pl){ for(var k=0;k<pl.length;k++){ if(pl[k].cid===it.cid){ gg=pl[k].guest; break; } } }
           if(gg && emailOf(gg) && ["filleul","parrain","alumni"].indexOf(gg.role)>=0){
             var pNm=""; if(gg.role==="filleul" && gg.parrain){ var pp=gIndex[normalize(gg.parrain)]; if(pp){ for(var z=0;z<pp.length;z++){ if(pp[z].cid===it.cid){ pNm=prenomDe(pp[z].guest); break; } } } }
+            var flN=(gg.role==="parrain"||gg.role==="alumni") ? gFilleulPrenoms(it.cid, gg.token) : [];
             var evN=(f.event&&f.event.stringValue)||"le parrainage";
             var metaN={date:"",heure:"",lieu:""}; try{ if(f.eventMeta&&f.eventMeta.stringValue) metaN=JSON.parse(f.eventMeta.stringValue); }catch(e){}
-            sendParrainageEntryMail(gg, pNm, evN, metaN);
+            sendParrainageEntryMail(gg, pNm, evN, metaN, flN);
           }
         }
       }catch(e){ rest.push(it); }                                      // encore hors-ligne -> on garde
@@ -2055,7 +2081,7 @@
       navigator.clipboard.writeText(txt).then(function(){ flash(okMsg||"Copié."); }, function(){ promptCopy(txt); });
     } else { promptCopy(txt); }
   }
-  function promptCopy(txt){ try{ window.prompt("Copie ce texte :", txt); }catch(e){} }
+  function promptCopy(txt){ try{ uiPrompt("Copie ce texte (sélectionne puis copie) :", txt); }catch(e){} }
   var EJS_DEFAULT = { s:"service_ip1efy8", t:"template_tfn3p2g", k:"W1-K43Kdko58gQFjN" };
   function mailCfg(){
     var s="",t="",k="";
@@ -2110,10 +2136,15 @@
     return m?m[0]:null;
   }
   /* ---------- Mail automatique à l'entrée (parrainage) : envoie la table etc. ---------- */
-  function parrainageEntryHtml(guest, parrainName, ev, meta){
+  function parrainageEntryHtml(guest, parrainName, ev, meta, filleulNames){
     var roleLbl = guest.role==="parrain" ? "Parrain / Marraine" : (guest.role==="alumni" ? "Alumni / Ancien·ne" : "Filleul·e");
     var isParrainOrAlumni = (guest.role==="parrain" || guest.role==="alumni");
     var sub = (guest.role==="alumni") ? (guest.section||"") : [guest.annee, guest.section].filter(Boolean).join(" · ");
+    filleulNames = (filleulNames||[]).filter(Boolean);
+    var filleulsBloc = (isParrainOrAlumni && filleulNames.length)
+      ? '<p style="margin:14px 0 6px"><b>Tes filleul·e·s à ta table :</b></p><ul style="line-height:1.8;color:#333;font-size:14px">'
+        + filleulNames.map(function(n){ return '<li>'+mailEsc(n)+'</li>'; }).join("") + '</ul>'
+      : '';
     var intro = (guest.role==="filleul")
       ? '<p>Bienvenue dans ta famille de parrainage ! 🎉 Ton entrée est enregistrée — rejoins ton parrain / ta marraine et tes co-filleul·e·s à ta table :</p>'
       : '<p>Merci pour ton engagement dans le parrainage — ta présence compte énormément. 🙌 Ton entrée est enregistrée. Voici les infos de ta table :</p>';
@@ -2134,16 +2165,16 @@
       + '<h2 style="margin:0 0 12px">Bienvenue — '+mailEsc(ev)+'</h2>'
       + '<p>Bonjour '+mailEsc(prenomDe(guest))+',</p>'
       + intro
-      + tableBloc + info + certif
+      + tableBloc + info + filleulsBloc + certif
       + infosPratiquesHtml(meta)
       + '<p style="color:#666;font-size:13px">Bonne soirée ! 🎉</p>'
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
   }
-  async function sendParrainageEntryMail(guest, parrainName, ev, meta){
+  async function sendParrainageEntryMail(guest, parrainName, ev, meta, filleulNames){
     var to = emailOf(guest); if(!to) return false;
     ev = ev || "le parrainage";
     var subj = "Bienvenue — "+ev+(guest.table ? (" · Table "+guest.table) : "");
-    return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev, meta), FROM_PARR);
+    return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev, meta, filleulNames), FROM_PARR);
   }
   function mailableGuests(){ return roster.filter(function(g){ return !!emailOf(g); }); }
   var SETTINGS_PWD = "admin2026";
@@ -2277,7 +2308,7 @@
   function signupDocPath(cid){ return ticketDocPath(cid); }   // même document : seule collection autorisée par les règles
   var SIGNUPS=[];
   function gros(txt, ok){
-    try{ if(window.alert) window.alert(txt); }catch(e){}
+    try{ uiAlert(txt); }catch(e){}
     try{ flash(txt); }catch(e){}
   }
 
@@ -2466,11 +2497,8 @@
     if(i) i.value = lien;
     var nom=(eventName||"").trim();
     function fini(okCopie){
-      var txt = (okCopie ? "LIEN COPIE" : "LIEN (copie-le a la main)")
-        + "\n\nEvenement : " + (nom || "(sans nom)")
-        + "\n\n" + lien;
-      try{ if(window.alert) window.alert(txt); }catch(e){}
       try{ flash(okCopie?"Lien copié !":"Copie manuelle"); }catch(e){}
+      if(!okCopie){ try{ uiPrompt("Copie ce lien :", lien); }catch(e){} }
     }
     try{
       if(navigator.clipboard && navigator.clipboard.writeText){
