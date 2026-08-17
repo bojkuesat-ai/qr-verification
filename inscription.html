@@ -431,7 +431,7 @@
             ? 'Votre inscription va être <b>vérifiée par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.'
             : 'Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.')+'</p>'
         + ((isPro && q("f_role").value==="etudiant") ? '<p class="hint" style="margin-top:8px">Rappel : cette invitation est <b>strictement personnelle</b> et ne vaut que pour une personne.</p>' : '')
-        + '<p class="hint">📩 <b>Vous ne recevez rien ?</b> Vérifiez vos <b>spams</b>.</p>';
+        + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 <b>Vous ne recevez pas votre billet QR ?</b><br>Vérifiez vos <b>spams / courriers indésirables</b>.</p>';
       msg.innerHTML='<div class="card">'+okHtml+'</div>';
       popupMaison(okHtml);
     }catch(e){
