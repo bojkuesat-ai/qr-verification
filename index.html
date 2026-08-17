@@ -442,11 +442,31 @@
         <div id="pAnneeWrap"><label class="fld" for="pAnnee">Année</label><select id="pAnnee" onchange="majExPass()"></select></div>
       </div>
       <label style="display:flex;align-items:center;gap:9px;margin-top:12px;font-size:13.5px;cursor:pointer" id="pExPassWrap"><input type="checkbox" id="pExPass"> Ancien·ne passerelle</label>
-      <div style="height:10px"></div>
-      <label class="fld" for="pNames">Liste — une ligne par personne : Nom, Prénom, e-mail. Collage Excel/Sheets accepté.</label>
+      <div style="height:14px"></div>
+      <div style="border-top:1px solid var(--line);padding-top:12px">
+        <p class="sub" style="margin:0 0 8px">Ajouter une personne — champs séparés :</p>
+        <div class="prow">
+          <div><label class="fld" for="pNom">Nom</label><input type="text" id="pNom" autocomplete="off" placeholder="Dupont"></div>
+          <div><label class="fld" for="pPrenom">Prénom</label><input type="text" id="pPrenom" autocomplete="off" placeholder="Jean"></div>
+          <div><label class="fld" for="pEmail">E-mail</label><input type="email" id="pEmail" autocomplete="off" placeholder="jean.dupont@ulb.be"></div>
+        </div>
+        <div style="height:10px"></div>
+        <button class="btn gold block" onclick="addParrainagePerson()">Ajouter cette personne</button>
+      </div>
+      <div style="height:16px"></div>
+      <label class="fld" for="pNames">Ou coller une liste — une ligne par personne : Nom, Prénom, e-mail. Collage Excel/Sheets accepté.</label>
       <textarea id="pNames" placeholder="Belkacem, Amina, amina.belkacem@mail.be&#10;Dupont, Thomas, thomas.dupont@mail.be"></textarea>
       <div style="height:12px"></div>
       <button class="btn gold block" onclick="addParrainageGroup()">Ajouter ce groupe</button>
+    </div>
+
+    <div class="card" id="pQRCard" style="display:none">
+      <h2>QR générés</h2>
+      <p class="sub">Tous les QR créés (ajout manuel + inscriptions en ligne). Télécharge le PNG ou copie le lien du billet.</p>
+      <h3 style="margin:14px 0 6px;font-size:15px">Parrains / Marraines / Alumni</h3>
+      <div id="pQRParrains"></div>
+      <h3 style="margin:18px 0 6px;font-size:15px">Filleul·e·s</h3>
+      <div id="pQRFilleuls"></div>
     </div>
 
     <div class="card" id="pSummaryCard" style="display:none">
@@ -923,24 +943,57 @@
     var lines = $("pNames").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
     if(!lines.length){ flash("Colle au moins un nom."); return; }
     var existing = new Set(roster.map(function(g){return g.token;}));
-    var added = 0;
+    var nouveaux = [];
     lines.forEach(function(line){
       var pe = parseNomPrenomEmail(line); if(!pe.name && !pe.email) return;
       var tok = genToken(existing); existing.add(tok);
-      var g = { token:tok, name:pe.name, prenom:pe.prenom, nom:pe.nom, extra:pe.email, role:role, annee:annee, section:section };
+      var g = { token:tok, name:pe.name, prenom:pe.prenom, nom:pe.nom, extra:pe.email, role:role, annee:annee, section:section, ajoutManuel:true };
       if(exPass) g.exPasserelle = true;
-      roster.push(g);
-      added++;
+      roster.push(g); nouveaux.push(g);
     });
+    if(!nouveaux.length){ flash("Aucun nom valide."); return; }
     localRosterVersion = Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("eventName", JSON.stringify(eventName));
     await Store.set("rosterVersion", String(localRosterVersion));
     $("pNames").value = "";
     if($("pExPass")) $("pExPass").checked = false;
-    renderTickets(); renderList(); updateCounts(); renderParrainageSummary(); renderMatching();
+    renderTickets(); renderList(); updateCounts(); renderParrainageSummary(); renderMatching(); renderParrainageQR();
     if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
-    flash(added + " billet(s) ajouté(s) · " + (role==="parrain"?"Parrain/Marraine":"Filleul") + " " + annee + " " + section);
+    flash(nouveaux.length + " billet(s) ajouté(s) · envoi des mails…");
+    var envs = 0;
+    for(var i=0;i<nouveaux.length;i++){ if(await envoyerBilletMail(nouveaux[i])) envs++; }
+    await Store.set("roster", JSON.stringify(roster));
+    renderTickets(); renderParrainageSummary(); renderParrainageQR();
+    flash(nouveaux.length + " billet(s) · " + envs + " mail(s) QR envoyé(s).");
+  };
+  window.addParrainagePerson = async function(){
+    var evn = $("pEvName").value.trim(); if(evn) eventName = evn;
+    var role = $("pRole").value, section = $("pSection").value;
+    var annee = (role==="alumni") ? "" : $("pAnnee").value;
+    var exPass = !!($("pExPass") && $("pExPass").checked);
+    var nom = ($("pNom") ? $("pNom").value.trim() : "");
+    var prenom = ($("pPrenom") ? $("pPrenom").value.trim() : "");
+    var email = ($("pEmail") ? $("pEmail").value.trim() : "");
+    if(!nom && !prenom && !email){ flash("Remplis au moins le nom ou l'e-mail."); return; }
+    var existing = new Set(roster.map(function(g){return g.token;}));
+    var tok = genToken(existing);
+    var name = (nom+" "+prenom).trim() || email;
+    var g = { token:tok, name:name, prenom:prenom, nom:nom, extra:email, role:role, annee:annee, section:section, ajoutManuel:true };
+    if(exPass) g.exPasserelle = true;
+    roster.push(g);
+    localRosterVersion = Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("eventName", JSON.stringify(eventName));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    if($("pNom")) $("pNom").value=""; if($("pPrenom")) $("pPrenom").value=""; if($("pEmail")) $("pEmail").value="";
+    if($("pExPass")) $("pExPass").checked = false;
+    renderTickets(); renderList(); updateCounts(); renderParrainageSummary(); renderMatching(); renderParrainageQR();
+    if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
+    var ok = await envoyerBilletMail(g);
+    await Store.set("roster", JSON.stringify(roster));
+    renderTickets(); renderParrainageSummary(); renderParrainageQR();
+    flash("1 billet ajouté · " + (ok ? "mail QR envoyé." : (email ? "mail non envoyé (vérifie l'adresse)." : "pas d'e-mail.")));
   };
   function renderParrainageSummary(){
     var card = $("pSummaryCard"); if(!card) return;
@@ -1097,13 +1150,13 @@
     // Parrains/marraines ET alumni PRÉSENT·E·S (entré·e·s) — pour les attestations de la faculté.
     var present = roster.filter(function(g){ return (g.role==="parrain"||g.role==="alumni") && usedSet.has(g.token); });
     if(!present.length){ flash("Aucun parrain·marraine / alumni entré·e pour l'instant."); return; }
-    present.sort(function(a,b){ return (a.nom||a.name||"").localeCompare(b.nom||b.name||""); });
-    var rows=[["Nom","Prénom","Parrain/Marraine","E-mail"]];
+    present.sort(function(a,b){ return (a.section||"").localeCompare(b.section||"") || (a.nom||a.name||"").localeCompare(b.nom||b.name||""); });
+    var rows=[["Nom","Prénom","Parrain/Marraine","Section","E-mail"]];
     present.forEach(function(g){
       var nom = g.nom || (g.name||"").split(/\s+/)[0] || "";
       var prenom = g.prenom || (g.name||"").split(/\s+/).slice(1).join(" ") || "";
       var role = (g.role==="alumni") ? "Alumni" : "Parrain/Marraine";
-      rows.push([nom, prenom, role, emailOf(g)||""]);
+      rows.push([nom, prenom, role, g.section||"", emailOf(g)||""]);
     });
     var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c).replace(/"/g,'""')+'"'; }).join(";"); }).join("\r\n");
     downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), sanitize(eventName||"parrainage")+"_parrains_alumni_presents.csv");
@@ -1142,24 +1195,24 @@
       var P=tokenGuest(F.parrain);
       var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
         +'<h2 style="margin:0 0 12px">Ton parrain / ta marraine — '+mailEsc(ev)+'</h2>'
-        +'<p>Bonjour '+mailEsc(F.name)+',</p>'
-        +'<p>Ton parrain / ta marraine est : <b>'+mailEsc(P?P.name:"")+'</b>'+(P&&emailOf(P)?(' (<a href="mailto:'+mailEsc(emailOf(P))+'">'+mailEsc(emailOf(P))+'</a>)'):'')+'.</p>'
+        +'<p>Bonjour '+mailEsc(prenomDe(F))+',</p>'
+        +'<p>Ton parrain / ta marraine est : <b>'+mailEsc(P?prenomDe(P):"")+'</b>'+(P&&emailOf(P)?(' (<a href="mailto:'+mailEsc(emailOf(P))+'">'+mailEsc(emailOf(P))+'</a>)'):'')+'.</p>'
         +'<p>N\'hésite pas à prendre contact avec lui/elle. 🙂</p>'
         +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
-      if(await sendMailQR(to, "Ton parrain/marraine — "+ev, html)) ok++;
+      if(await sendMailQR(to, "Ton parrain/marraine — "+ev, html, FROM_PARR)) ok++;
       await new Promise(function(r){ setTimeout(r,120); });
     }
     for(var j=0;j<parrains.length;j++){
       var P2=parrains[j]; var to2=emailOf(P2); if(!to2) continue;
       var mine = roster.filter(function(g){ return g.role==="filleul" && g.parrain===P2.token; });
-      var lis = mine.map(function(f){ return '<li>'+mailEsc(f.name)+(emailOf(f)?(' — <a href="mailto:'+mailEsc(emailOf(f))+'">'+mailEsc(emailOf(f))+'</a>'):'')+' <span style="color:#777">('+mailEsc(f.annee)+')</span></li>'; }).join("");
+      var lis = mine.map(function(f){ return '<li>'+mailEsc(prenomDe(f))+(emailOf(f)?(' — <a href="mailto:'+mailEsc(emailOf(f))+'">'+mailEsc(emailOf(f))+'</a>'):'')+' <span style="color:#777">('+mailEsc(f.annee)+')</span></li>'; }).join("");
       var html2='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
         +'<h2 style="margin:0 0 12px">Tes filleul·e·s — '+mailEsc(ev)+'</h2>'
-        +'<p>Bonjour '+mailEsc(P2.name)+',</p>'
+        +'<p>Bonjour '+mailEsc(prenomDe(P2))+',</p>'
         +'<p>Voici la ou les personne(s) que tu parraines :</p><ul style="line-height:1.7">'+lis+'</ul>'
         +'<p>Prends contact avec elle(s) pour faire connaissance. 🙂</p>'
         +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
-      if(await sendMailQR(to2, "Tes filleul·e·s — "+ev, html2)) ok++;
+      if(await sendMailQR(to2, "Tes filleul·e·s — "+ev, html2, FROM_PARR)) ok++;
       await new Promise(function(r){ setTimeout(r,120); });
     }
     flash(ok+" mail(s) envoyé(s).");
@@ -1224,26 +1277,47 @@
       return;
     }
     var grid = document.createElement("div"); grid.className = "tickets";
-    roster.forEach(function(g){
-      var t = document.createElement("div"); t.className = "ticket";
-      var top = document.createElement("div"); top.className = "t-top";
-      top.innerHTML = '<span class="ev">'+ (eventName ? escapeHtml(eventName) : "Billet") +'</span><span>ADMIT ONE</span>';
-      var body = document.createElement("div"); body.className = "t-body";
-      var qb = document.createElement("div"); qb.className = "t-qr";
-      var cv = document.createElement("canvas");
-      new QRious({ element: cv, value: g.token, size: 300, level: "M", background:"#ffffff", foreground:"#181233" });
-      qb.appendChild(cv);
-      var nm = document.createElement("div"); nm.className="t-name"; nm.textContent = g.name;
-      var cd = document.createElement("div"); cd.className="t-code"; cd.textContent = g.token;
-      var dl = document.createElement("button"); dl.className="t-dl"; dl.textContent="Télécharger PNG";
-      dl.onclick = function(){ downloadTicketPNG(g, cv); };
-      var cl = document.createElement("button"); cl.className="t-dl"; cl.style.marginTop="5px"; cl.style.background="#3a2d6e"; cl.textContent="Copier le lien";
-      cl.onclick = function(){ copyText(ticketLinkFor(g), "Lien du billet copié — colle-le dans WhatsApp."); };
-      body.appendChild(qb); body.appendChild(nm); body.appendChild(cd); body.appendChild(dl); body.appendChild(cl);
-      t.appendChild(top); t.appendChild(body);
-      grid.appendChild(t);
-    });
+    roster.forEach(function(g){ grid.appendChild(buildTicketNode(g)); });
     wrap.appendChild(grid);
+  }
+
+  function buildTicketNode(g){
+    var t = document.createElement("div"); t.className = "ticket";
+    var top = document.createElement("div"); top.className = "t-top";
+    top.innerHTML = '<span class="ev">'+ (eventName ? escapeHtml(eventName) : "Billet") +'</span><span>ADMIT ONE</span>';
+    var body = document.createElement("div"); body.className = "t-body";
+    var qb = document.createElement("div"); qb.className = "t-qr";
+    var cv = document.createElement("canvas");
+    new QRious({ element: cv, value: g.token, size: 300, level: "M", background:"#ffffff", foreground:"#181233" });
+    qb.appendChild(cv);
+    var nm = document.createElement("div"); nm.className="t-name"; nm.textContent = g.name;
+    var cd = document.createElement("div"); cd.className="t-code"; cd.textContent = g.token;
+    var dl = document.createElement("button"); dl.className="t-dl"; dl.textContent="Télécharger PNG";
+    dl.onclick = function(){ downloadTicketPNG(g, cv); };
+    var cl = document.createElement("button"); cl.className="t-dl"; cl.style.marginTop="5px"; cl.style.background="#3a2d6e"; cl.textContent="Copier le lien";
+    cl.onclick = function(){ copyText(ticketLinkFor(g), "Lien du billet copié — colle-le dans WhatsApp."); };
+    body.appendChild(qb); body.appendChild(nm); body.appendChild(cd); body.appendChild(dl); body.appendChild(cl);
+    t.appendChild(top); t.appendChild(body);
+    return t;
+  }
+
+  function renderParrainageQR(){
+    var card = $("pQRCard"); if(!card) return;
+    var host1 = $("pQRParrains"), host2 = $("pQRFilleuls");
+    if(currentCommId()!=="parrainage" || typeof QRious==="undefined"){ card.style.display="none"; return; }
+    var parr = roster.filter(function(g){ return g.role==="parrain" || g.role==="alumni"; });
+    var fill = roster.filter(function(g){ return g.role==="filleul"; });
+    if(!parr.length && !fill.length){ card.style.display="none"; return; }
+    card.style.display="block";
+    function remplir(host, list){
+      if(!host) return;
+      host.innerHTML="";
+      if(!list.length){ host.innerHTML='<p class="hint">Aucun pour l\'instant.</p>'; return; }
+      var grid=document.createElement("div"); grid.className="tickets";
+      list.forEach(function(g){ grid.appendChild(buildTicketNode(g)); });
+      host.appendChild(grid);
+    }
+    remplir(host1, parr); remplir(host2, fill);
   }
 
   function downloadTicketPNG(g, srcCanvas){
@@ -1334,9 +1408,8 @@
     setStat("valid","Valide", guest.name, "Entrée enregistrée · "+fmtTime(at), guest);
     flashSignal(true); beep(true); updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
     if(currentCommId()==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
-      var pNm=""; if(guest.role==="filleul" && guest.parrain){ var Pp=tokenGuest(guest.parrain); if(Pp) pNm=prenomDe(Pp); }
-      var flN=(guest.role==="parrain"||guest.role==="alumni") ? roster.filter(function(f){ return f.role==="filleul" && f.parrain===guest.token; }).map(prenomDe) : [];
-      sendParrainageEntryMail(guest, pNm, eventName||"le parrainage", eventMeta, flN).then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
+      var fam = familleParrainage(guest);
+      sendParrainageEntryMail(guest, fam.parrainName, eventName||"le parrainage", eventMeta, fam.filleulNames).then(function(ok){ if(ok) flash("✉︎ Mail (table) envoyé à "+guest.name); });
     }
   }
 
@@ -1380,7 +1453,13 @@
       var label = LB[guest.role] || guest.role;
       var sub = (guest.role==="alumni") ? (guest.section||"") : [guest.annee, guest.section].filter(Boolean).join(" · ");
       var tbl = guest.table ? '<div class="cattable">Table '+escapeHtml(guest.table)+'</div>' : '';
-      cat = '<div class="catbadge '+(CC[guest.role]||"cp")+'">'+escapeHtml(label)+'</div>'+(sub?'<div class="catsub">'+escapeHtml(sub)+'</div>':'')+tbl;
+      var famInfo="";
+      try{
+        var ff=familleParrainage(guest);
+        if(guest.role==="filleul" && ff.parrainName) famInfo='<div class="catsub">Parrain·e : '+escapeHtml(ff.parrainName)+'</div>';
+        else if((guest.role==="parrain"||guest.role==="alumni") && ff.filleulNames.length) famInfo='<div class="catsub">Filleul·e·s : '+escapeHtml(ff.filleulNames.join(", "))+'</div>';
+      }catch(e){}
+      cat = '<div class="catbadge '+(CC[guest.role]||"cp")+'">'+escapeHtml(label)+'</div>'+(sub?'<div class="catsub">'+escapeHtml(sub)+'</div>':'')+famInfo+tbl;
     }
     if(guest && (guest.cat||guest.ct)){ cat += '<div class="catbadge" style="background:'+escapeHtml(guest.cc||"#555")+';color:#fff;border:none">'+escapeHtml(guest.cat||guest.ct)+'</div>'; }
     return cat;
@@ -1546,9 +1625,16 @@
   }
 
   function gParrainInfo(cid, guest){
-    if(!guest || guest.role!=="filleul" || !guest.parrain) return "";
-    var pl = gIndex[normalize(guest.parrain)];
-    if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ return " · Parrain·e : "+(prenomDe(pl[i].guest)||"?"); } } }
+    if(!guest) return "";
+    if(guest.role==="filleul"){
+      var pl = gIndex[normalize(guest.parrain||"")];
+      if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ return " · Parrain·e : "+(prenomDe(pl[i].guest)||"?"); } } }
+      return "";
+    }
+    if(guest.role==="parrain" || guest.role==="alumni"){
+      var noms = gFilleulPrenoms(cid, guest.token);
+      return noms.length ? (" · Filleul·e·s : "+noms.join(", ")) : "";
+    }
     return "";
   }
   function gFilleulPrenoms(cid, parrainTok){
@@ -1560,6 +1646,17 @@
       });
     }catch(e){}
     return out;
+  }
+  // Famille de parrainage (scanner global, basé sur gIndex).
+  function gFamille(cid, guest){
+    if(!guest) return { parrainName:"", filleulNames:[] };
+    var parrainTok = (guest.role==="filleul") ? (guest.parrain||"") : guest.token;
+    var parrainName = "";
+    if(guest.role==="filleul"){
+      var pl = gIndex[normalize(parrainTok)];
+      if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ parrainName=prenomDe(pl[i].guest); break; } } }
+    } else { parrainName = prenomDe(guest); }
+    return { parrainName:parrainName, filleulNames:gFilleulPrenoms(cid, parrainTok) };
   }
   var gQueue=[]; // entrées en attente de synchro (hors-ligne) : {cid, token, at, name}
   async function _gLoadQueue(){ try{ var s=await Store.get("gscanQueue"); gQueue = s?JSON.parse(s):[]; }catch(e){ gQueue=[]; } }
@@ -1596,11 +1693,10 @@
       gStat("valid","Valide — "+m.cname, guest.name||"", "Entrée enregistrée · "+fmtTime(at)+fam, guest);
       gFlash(true); beep(true);
       if(cid==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
-        var pNm=""; if(guest.role==="filleul" && guest.parrain){ var pl=gIndex[normalize(guest.parrain)]; if(pl){ for(var pi=0;pi<pl.length;pi++){ if(pl[pi].cid===cid && pl[pi].guest){ pNm=prenomDe(pl[pi].guest); break; } } } }
-        var flN=(guest.role==="parrain"||guest.role==="alumni") ? gFilleulPrenoms(cid, guest.token) : [];
+        var fam = gFamille(cid, guest);
         var evN=(f.event&&f.event.stringValue)||"le parrainage";
         var metaN={date:"",heure:"",lieu:""}; try{ if(f.eventMeta&&f.eventMeta.stringValue) metaN=JSON.parse(f.eventMeta.stringValue); }catch(e){}
-        sendParrainageEntryMail(guest, pNm, evN, metaN, flN).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
+        sendParrainageEntryMail(guest, fam.parrainName, evN, metaN, fam.filleulNames).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
       }
     }catch(e){ _gQueueAdmit(m, token, at); }                          // erreur réseau -> file d'attente
   }
@@ -1621,11 +1717,10 @@
           var pl=gIndex[normalize(it.token)], gg=null;
           if(pl){ for(var k=0;k<pl.length;k++){ if(pl[k].cid===it.cid){ gg=pl[k].guest; break; } } }
           if(gg && emailOf(gg) && ["filleul","parrain","alumni"].indexOf(gg.role)>=0){
-            var pNm=""; if(gg.role==="filleul" && gg.parrain){ var pp=gIndex[normalize(gg.parrain)]; if(pp){ for(var z=0;z<pp.length;z++){ if(pp[z].cid===it.cid){ pNm=prenomDe(pp[z].guest); break; } } } }
-            var flN=(gg.role==="parrain"||gg.role==="alumni") ? gFilleulPrenoms(it.cid, gg.token) : [];
+            var fam = gFamille(it.cid, gg);
             var evN=(f.event&&f.event.stringValue)||"le parrainage";
             var metaN={date:"",heure:"",lieu:""}; try{ if(f.eventMeta&&f.eventMeta.stringValue) metaN=JSON.parse(f.eventMeta.stringValue); }catch(e){}
-            sendParrainageEntryMail(gg, pNm, evN, metaN, flN);
+            sendParrainageEntryMail(gg, fam.parrainName, evN, metaN, fam.filleulNames);
           }
         }
       }catch(e){ rest.push(it); }                                      // encore hors-ligne -> on garde
@@ -1846,6 +1941,7 @@
     cloudPushRoster(currentCommId());
     updateCounts(); renderList();
     try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
+    try{ if(typeof renderParrainageQR==="function") renderParrainageQR(); }catch(e){}
     try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
     flash("« "+g.name+" » supprimé·e.");
   };
@@ -1862,6 +1958,7 @@
     cloudPushRoster(currentCommId());
     updateCounts(); renderList();
     try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
+    try{ if(typeof renderParrainageQR==="function") renderParrainageQR(); }catch(e){}
     try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
     flash(libelle);
   }
@@ -1895,7 +1992,7 @@
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     flash("Rappel envoyé à "+ok+" personne(s).");
@@ -1942,6 +2039,9 @@
     localRosterVersion = Date.now(); await Store.set("rosterVersion", String(localRosterVersion));
     if($("phoneLinkWrap")) $("phoneLinkWrap").style.display="none";
     if($("evName")) $("evName").value=""; if($("pEvName")) $("pEvName").value=""; renderTickets(); renderList(); updateCounts();
+    try{ if(typeof renderParrainageSummary==="function") renderParrainageSummary(); }catch(e){}
+    try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
+    try{ if(typeof renderParrainageQR==="function") renderParrainageQR(); }catch(e){}
     if(syncCode){ syncPushFull(); }
     cloudPushRoster(currentCommId());
   }
@@ -2100,6 +2200,7 @@
   // Prénom si dispo, sinon le nom complet. Salutation selon la commission/le rôle.
   function prenomDe(g){ return (g && g.prenom) ? g.prenom : ((g && g.name) ? g.name : ""); }
   function salutNom(g){
+    if(g && (g.role==="parrain" || g.role==="filleul" || g.role==="alumni")) return prenomDe(g);
     var cid=currentCommId();
     if(cid==="proclamation"){ return (g && g.role==="etudiant") ? prenomDe(g) : ((g && g.name) || ""); }
     if(cid==="parrainage"){ return prenomDe(g); }
@@ -2135,26 +2236,38 @@
     var m=src.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
     return m?m[0]:null;
   }
+  // Famille de parrainage (scanner local, basé sur roster) : nom du parrain + prénoms des filleul·e·s de la table.
+  function familleParrainage(guest){
+    if(!guest) return { parrainName:"", filleulNames:[] };
+    var parrainTok = (guest.role==="filleul") ? (guest.parrain||"") : guest.token;
+    var P = parrainTok ? tokenGuest(parrainTok) : null;
+    var parrainName = P ? prenomDe(P) : "";
+    var filleulNames = parrainTok ? roster.filter(function(f){ return f.role==="filleul" && f.parrain===parrainTok; }).map(prenomDe) : [];
+    return { parrainName:parrainName, filleulNames:filleulNames };
+  }
   /* ---------- Mail automatique à l'entrée (parrainage) : envoie la table etc. ---------- */
   function parrainageEntryHtml(guest, parrainName, ev, meta, filleulNames){
     var roleLbl = guest.role==="parrain" ? "Parrain / Marraine" : (guest.role==="alumni" ? "Alumni / Ancien·ne" : "Filleul·e");
     var isParrainOrAlumni = (guest.role==="parrain" || guest.role==="alumni");
     var sub = (guest.role==="alumni") ? (guest.section||"") : [guest.annee, guest.section].filter(Boolean).join(" · ");
+    parrainName = parrainName || "";
     filleulNames = (filleulNames||[]).filter(Boolean);
-    var filleulsBloc = (isParrainOrAlumni && filleulNames.length)
-      ? '<p style="margin:14px 0 6px"><b>Tes filleul·e·s à ta table :</b></p><ul style="line-height:1.8;color:#333;font-size:14px">'
-        + filleulNames.map(function(n){ return '<li>'+mailEsc(n)+'</li>'; }).join("") + '</ul>'
-      : '';
     var intro = (guest.role==="filleul")
-      ? '<p>Bienvenue dans ta famille de parrainage ! 🎉 Ton entrée est enregistrée — rejoins ton parrain / ta marraine et tes co-filleul·e·s à ta table :</p>'
-      : '<p>Merci pour ton engagement dans le parrainage — ta présence compte énormément. 🙌 Ton entrée est enregistrée. Voici les infos de ta table :</p>';
+      ? '<p>Bienvenue dans ta famille de parrainage ! 🎉 Ton entrée est enregistrée. Voici ta table :</p>'
+      : '<p>Merci pour ton engagement dans le parrainage — ta présence compte énormément. 🙌 Ton entrée est enregistrée. Voici ta table :</p>';
     var tableBloc = guest.table
       ? '<p style="text-align:center;margin:24px 0"><span style="display:inline-block;background:#e0b64d;color:#181233;padding:16px 32px;border-radius:12px;font-weight:bold;font-size:22px">Table '+mailEsc(guest.table)+'</span></p>'
-      : '<p style="text-align:center;color:#a15c00;margin:20px 0">Ta table te sera communiquée sur place.</p>';
+      : '';
+    // Bloc "famille" affiché pour TOUS les rôles : parrain/marraine + filleul·e·s de la table.
+    var famLignes = '';
+    if(parrainName) famLignes += '<li>Parrain / marraine : <b>'+mailEsc(parrainName)+'</b></li>';
+    if(filleulNames.length) famLignes += '<li>Filleul·e·s : <b>'+mailEsc(filleulNames.join(", "))+'</b></li>';
+    var familyBloc = famLignes
+      ? '<p style="margin:16px 0 6px"><b>Ta table de parrainage</b></p><ul style="line-height:1.9;color:#333;font-size:14px">'+famLignes+'</ul>'
+      : '';
     var info = '<ul style="line-height:1.9;color:#333;font-size:14px">'
       + '<li>Rôle : <b>'+mailEsc(roleLbl)+'</b></li>'
       + (sub ? '<li>'+mailEsc(sub)+'</li>' : '')
-      + (parrainName ? '<li>Ton parrain / ta marraine : <b>'+mailEsc(parrainName)+'</b></li>' : '')
       + '</ul>';
     var certif = isParrainOrAlumni
       ? '<div style="background:#eef4ff;border:1px solid #c9d8f2;border-radius:10px;padding:14px;margin:18px 0">'
@@ -2165,7 +2278,7 @@
       + '<h2 style="margin:0 0 12px">Bienvenue — '+mailEsc(ev)+'</h2>'
       + '<p>Bonjour '+mailEsc(prenomDe(guest))+',</p>'
       + intro
-      + tableBloc + info + filleulsBloc + certif
+      + tableBloc + familyBloc + info + certif
       + infosPratiquesHtml(meta)
       + '<p style="color:#666;font-size:13px">Bonne soirée ! 🎉</p>'
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
@@ -2262,7 +2375,7 @@
             to: emailOf(g),
             subject: "Ton billet pour "+ev,
             html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token)+mentionPerso(g),
-            from: expediteur()
+            from: expediteurPour(g)
           })
         });
         if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
@@ -2366,6 +2479,12 @@
     if(cid==="parrainage") return FROM_PARR;
     return undefined;
   }
+  // Expéditeur déterminé par le RÔLE (pas par l'onglet courant) : garantit le même expéditeur
+  // pour le billet QR et le mail au scan en parrainage, même si l'envoi part d'un autre contexte.
+  function expediteurPour(g){
+    if(g && (g.role==="parrain" || g.role==="filleul" || g.role==="alumni")) return FROM_PARR;
+    return expediteur();
+  }
   function clotureKey(){ return "qrentry:cloture:"+(currentCommId()||""); }
   function getCloture(){ try{ return window.localStorage.getItem(clotureKey())||""; }catch(e){ return ""; } }
   window.resetInscriptions=async function(){
@@ -2412,7 +2531,7 @@
         + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:html,from:expediteur()})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:html,from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
@@ -2572,6 +2691,15 @@
     }
     if(changed){ await saveSignups(); }
   }
+  async function envoyerBilletMail(g){
+    var to = emailOf(g); if(!to){ return false; }
+    try{
+      var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:to,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteurPour(g)})});
+      g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
+      return rm && rm.ok;
+    }catch(e){ g.mailEnvoye = 0; return false; }
+  }
   async function creerBilletDepuisInscription(x){
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
@@ -2583,13 +2711,12 @@
     renderTickets();                      // afficher le QR créé
     renderList(); updateCounts();
     var g=roster[roster.length-1];
-    try{
-      var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:x.email,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token)+mentionPerso(g),from:expediteur()})});
-      g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
-    }catch(e){ g.mailEnvoye = 0; }
+    await envoyerBilletMail(g);
     await Store.set("roster", JSON.stringify(roster));
     renderTickets(); renderList();
+    try{ if(typeof renderParrainageSummary==="function") renderParrainageSummary(); }catch(e){}
+    try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
+    try{ if(typeof renderParrainageQR==="function") renderParrainageQR(); }catch(e){}
   }
   document.addEventListener("click", function(e){
     var b = e.target && e.target.closest ? e.target.closest("[data-su]") : null;
@@ -3160,7 +3287,7 @@
     });
     if(name!=="scan"){ stopCam(); }
     if(name==="list"){ refreshAll(); }
-    if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); }
+    if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); renderParrainageQR(); }
     if(name==="scan"){ setTimeout(function(){ var mc=$("manualCode"); }, 0); }
   };
 
@@ -3710,9 +3837,10 @@
         var scannerEmail = f.scannerEmail && f.scannerEmail.stringValue;
         if(
           (scannerUid && a.uid===scannerUid) ||
-          (scannerEmail && myEmail===scannerEmail.trim().toLowerCase()) ||
-          (adminUid && a.uid!==adminUid)
+          (scannerEmail && myEmail===scannerEmail.trim().toLowerCase())
         ){ CURRENT_ROLE = "scanner"; }
+        // NB : on ne rétrograde plus en « scanner » sur simple différence d'adminUid.
+        // Le compte scanner reste détecté par scan@qrentry.app / scannerUid / scannerEmail ci-dessus.
       }
     }catch(e){}
     applyRoleUI();
