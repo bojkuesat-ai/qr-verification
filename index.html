@@ -323,6 +323,11 @@
       </div>
       <div style="height:8px"></div>
       <input type="email" id="g1Mail" placeholder="E-mail" autocomplete="off" onkeydown="if(event.key==='Enter')addOnePerson()">
+      <div id="genRoleWrap" style="display:none">
+        <div style="height:9px"></div>
+        <label class="fld" for="genRole">Type d'invité·e</label>
+        <select id="genRole"></select>
+      </div>
       <div style="height:9px"></div>
       <button class="btn gold sm" onclick="addOnePerson()">Ajouter cette personne</button>
 
@@ -729,6 +734,13 @@
   // Parrainage = collaboration Bureau étudiant (BE) + Délégation étudiante.
   var SIG_PARR = 'En collaboration : le Bureau étudiant (BE) et la Délégation étudiante de Droit et de Criminologie';
   var FROM_PARR = 'BE & Délégation étudiante de Droit et de Criminologie <proclamation@bureauetuidant.xyz>';
+  var ROLES_PROCLA = [
+    ["etudiant","Étudiant·e diplômé·e"],
+    ["academique","Corps académique (professeur·e)"],
+    ["scientifique","Corps scientifique (assistant·e, chercheur·se)"],
+    ["patgs","Personnel administratif, technique et de gestion"],
+    ["doyen","Doyen·ne"]
+  ];
   function signatureMail(){ return (currentCommId()==="parrainage") ? SIG_PARR : "Le bureau étudiant"; }
   var usedSet = new Set();     // tokens entrés (présence, cross-appareil)
   var usedAt = {};             // token -> timestamp (ce que cet appareil a enregistré)
@@ -813,30 +825,54 @@
     if(box){ box.innerHTML = cats.length ? cats.map(function(c,i){ return '<div style="display:flex;align-items:center;gap:8px;margin:5px 0"><span style="width:16px;height:16px;border-radius:4px;background:'+escapeHtml(c.color||"#888")+';display:inline-block"></span><span style="flex:1">'+escapeHtml(c.name)+'</span><button class="btn ghost xs" onclick="delCat('+i+')">✕</button></div>'; }).join("") : '<p class="hint">Aucune catégorie pour l\'instant.</p>'; }
     var sel=$("genCat");
     if(sel){ var cur=sel.value; sel.innerHTML='<option value="">Sans catégorie</option>'+cats.map(function(c){ return '<option value="'+escapeHtml(c.name)+'">'+escapeHtml(c.name)+'</option>'; }).join(""); sel.value=cur; }
+    majGenRole();
+  }
+  function majGenRole(){
+    var wrap=$("genRoleWrap"), sel=$("genRole");
+    if(!wrap || !sel) return;
+    if(currentCommId()==="proclamation"){
+      var cur=sel.value;
+      sel.innerHTML = ROLES_PROCLA.map(function(r){ return '<option value="'+r[0]+'">'+escapeHtml(r[1])+'</option>'; }).join("");
+      if(cur) sel.value=cur;
+      wrap.style.display="block";
+    } else {
+      wrap.style.display="none";
+    }
   }
   window.addCat=function(){ var n=($("catName")&&$("catName").value||"").trim(); var col=($("catColor")&&$("catColor").value)||"#7c5cff"; if(!n) return; var cats=getCats(); cats.push({name:n,color:col}); setCats(cats); if($("catName")) $("catName").value=""; renderCats(); };
   window.delCat=function(i){ var cats=getCats(); cats.splice(i,1); setCats(cats); renderCats(); };
+  var ADDING_ONE=false;
   window.addOnePerson = async function(){
+    if(ADDING_ONE) return;                       // verrou anti double-clic pendant l'envoi
     var nom=($("g1Nom")&&$("g1Nom").value||"").trim();
     var prenom=($("g1Prenom")&&$("g1Prenom").value||"").trim();
     var mail=($("g1Mail")&&$("g1Mail").value||"").trim();
     if(!nom && !prenom){ flash("Indique au moins un nom."); return; }
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ flash("L'e-mail est obligatoire (le billet est envoyé par mail)."); if($("g1Mail")) $("g1Mail").focus(); return; }
-    var name=(nom+" "+prenom).trim(); if(!name && mail) name=mail;
-    var existing=new Set(roster.map(function(g){return g.token;}));
-    var tok=genToken(existing);
-    var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
-    roster.push({ token:tok, name:name, prenom:prenom, nom:nom, extra:mail, cat:_gc, cc:_cc, ajoutManuel:true });
-    var evn=($("evName")&&$("evName").value||"").trim(); if(evn) eventName=evn;
-    localRosterVersion=Date.now();
-    await Store.set("roster", JSON.stringify(roster));
-    await Store.set("eventName", JSON.stringify(eventName));
-    await Store.set("rosterVersion", String(localRosterVersion));
-    if($("g1Nom")) $("g1Nom").value=""; if($("g1Prenom")) $("g1Prenom").value=""; if($("g1Mail")) $("g1Mail").value="";
-    if($("g1Nom")) $("g1Nom").focus();
-    renderTickets(); renderList(); updateCounts();
-    if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
-    flash("« "+name+" » ajouté·e · "+roster.length+" au total");
+    ADDING_ONE=true;
+    try{
+      var name=(nom+" "+prenom).trim(); if(!name && mail) name=mail;
+      var existing=new Set(roster.map(function(g){return g.token;}));
+      var tok=genToken(existing);
+      var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
+      var g={ token:tok, name:name, prenom:prenom, nom:nom, extra:mail, cat:_gc, cc:_cc, ajoutManuel:true };
+      if(currentCommId()==="proclamation" && $("genRole") && $("genRole").value){ g.role=$("genRole").value; }
+      roster.push(g);
+      var evn=($("evName")&&$("evName").value||"").trim(); if(evn) eventName=evn;
+      localRosterVersion=Date.now();
+      await Store.set("roster", JSON.stringify(roster));
+      await Store.set("eventName", JSON.stringify(eventName));
+      await Store.set("rosterVersion", String(localRosterVersion));
+      if($("g1Nom")) $("g1Nom").value=""; if($("g1Prenom")) $("g1Prenom").value=""; if($("g1Mail")) $("g1Mail").value="";
+      renderTickets(); renderList(); updateCounts();
+      if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
+      flash("« "+name+" » ajouté·e · envoi du QR…");
+      var envoye = await envoyerBilletMail(g);        // envoi du QR par mail (comme le parrainage)
+      await Store.set("roster", JSON.stringify(roster));
+      renderTickets(); renderList();
+      if($("g1Nom")) $("g1Nom").focus();
+      flash("« "+name+" » · "+(envoye?"QR envoyé ✓":"QR non envoyé (vérifie l'e-mail)")+" · "+roster.length+" au total");
+    } finally { ADDING_ONE=false; }
   };
   window.generate = async function(){
     var name = $("evName").value.trim();
@@ -3323,6 +3359,7 @@
     if(name!=="scan"){ stopCam(); }
     if(name==="list"){ refreshAll(); }
     if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); renderParrainageQR(); }
+    if(name==="guests"){ try{ majGenRole(); }catch(e){} }
     if(name==="scan"){ setTimeout(function(){ var mc=$("manualCode"); }, 0); }
   };
 

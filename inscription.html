@@ -155,6 +155,60 @@
     return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
       body:JSON.stringify({to:mail,subject:"Inscription bien reçue — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
   }
+  function nouveauToken(){ return "C"+Date.now().toString(36)+Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,6); }
+  function lienConfirmation(token){
+    return location.origin + location.pathname + "?c=" + encodeURIComponent(CID) + "&confirm=" + encodeURIComponent(token);
+  }
+  function envoyerMailConfirmationLien(nom, mail, token){
+    var lien = lienConfirmation(token);
+    var ev = esc(NOM_LIEN || NOMS[CID]);
+    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">'
+      +'<h2 style="margin:0 0 10px">Confirmez votre inscription</h2>'
+      +'<p>Bonjour '+esc(nom)+',</p>'
+      +'<p>Vous avez demandé à vous inscrire à <b>'+ev+'</b>. Pour <b>valider votre inscription</b>, cliquez sur le bouton ci-dessous :</p>'
+      +'<p style="text-align:center;margin:24px 0"><a href="'+lien+'" style="display:inline-block;background:#d8b45a;color:#241100;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:bold">Confirmer mon inscription</a></p>'
+      +'<p style="font-size:13px;color:#555">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :<br><a href="'+lien+'">'+lien+'</a></p>'
+      +'<p>Après confirmation, l\'équipe vérifiera votre <b>carte étudiante</b>, puis vous recevrez votre <b>billet QR</b> par e-mail.</p>'
+      +'<p style="font-size:13px;color:#555">Vous n\'êtes pas à l\'origine de cette demande ? Ignorez simplement cet e-mail.</p>'
+      + pieds() + '</div>';
+    return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+      body:JSON.stringify({to:mail,subject:"Confirmez votre inscription — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
+  }
+  async function assurerTokenEcriture(){
+    if(window.__tok) return window.__tok;
+    if(window.__anon) return window.__anon;
+    var ra = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
+      { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) });
+    var a = await ra.json();
+    if(!a.idToken) throw new Error("auth");
+    window.__anon=a.idToken; return a.idToken;
+  }
+  async function confirmerInscription(token){
+    try{
+      var tok = await assurerTokenEcriture();
+      var path = "commission_tickets/"+CID;
+      var rc = await fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+tok } });
+      var cur = rc.ok ? await rc.json() : null;
+      var list=[]; try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
+      var idx=-1; for(var i=0;i<list.length;i++){ if(list[i] && list[i].confToken===token){ idx=i; break; } }
+      if(idx<0){
+        popupMaison('<p class="big">✅</p><p><b>Inscription déjà confirmée</b></p><p class="hint">Votre inscription est déjà validée. L\'équipe va vérifier votre carte étudiante, puis vous recevrez votre billet QR par e-mail. Pensez à vérifier vos spams.</p>');
+        return;
+      }
+      if(list[idx].statut==="apreconfirmer"){
+        list[idx].statut="acarte";
+        list[idx].emailConfirme=true;
+        list[idx].confirmeTs=Date.now();
+        var fields={ signups:{ stringValue: JSON.stringify(list) }, updatedAt:{ stringValue: new Date().toISOString() } };
+        var qs=Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
+        var rp=await fetch(FS_BASE+path+"?"+qs, { method:"PATCH", headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" }, body:JSON.stringify({fields:fields}) });
+        if(!rp.ok) throw new Error("write");
+      }
+      popupMaison('<p class="big">✅</p><p><b>E-mail confirmé !</b></p><p class="hint">Merci, votre inscription est confirmée. L\'équipe va maintenant vérifier votre <b>carte étudiante</b>, puis vous recevrez votre <b>billet QR</b> par e-mail.</p><p class="hint">📩 Pensez à vérifier vos <b>spams</b>.</p>');
+    }catch(e){
+      popupMaison('<p class="big">⚠️</p><p><b>Confirmation impossible</b></p><p class="hint">Une erreur s\'est produite. Recliquez sur le lien de l\'e-mail, ou réessayez plus tard.</p>');
+    }
+  }
   function esc(x){ return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
   function popupMaison(html){
     var c=q("pmContent"), o=q("pmOverlay");
@@ -212,6 +266,13 @@
     q("wrapAnnee").style.display="none";
   }
   if(PAY) q("wrapPreuve").style.display="";
+
+  var CONFIRM_TOK = par("confirm");
+  if(CONFIRM_TOK){
+    if(q("form")) q("form").style.display="none";
+    if(q("msg")) q("msg").innerHTML='<div class="card"><p class="hint">Confirmation en cours…</p></div>';
+    confirmerInscription(CONFIRM_TOK);
+  }
 
   function majProcla(){
     var role=q("f_role").value;
@@ -353,6 +414,9 @@
       msg.innerHTML='<p class="err">Merci d\'indiquer votre nom, votre prénom et une adresse e-mail valide.</p>'; return; }
     if(m1.toLowerCase()!==m2.toLowerCase()){
       msg.innerHTML='<p class="err"><b>Les deux adresses e-mail ne correspondent pas.</b><br>Sans e-mail correct, vous ne recevrez pas votre billet.</p>'; return; }
+    if(isPro && !/@(?:[a-z0-9-]+\.)*ulb\.(?:ac\.)?be$/i.test(m1)){
+      msg.innerHTML='<p class="err"><b>Adresse ULB obligatoire.</b><br>Merci d\'utiliser votre adresse e-mail <b>@ulb.be</b>.</p>';
+      q("f_mail").focus(); return; }
 
     if(inscriptionsFermees(CLOTURE)){ afficherFermeture(CLOTURE); return; }
     var carte="", matricule="";
@@ -392,9 +456,14 @@
       var list=[];
       try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
 
-      if(list.some(function(x){ return String(x.email||"").toLowerCase()===m1.toLowerCase(); })){
-        msg.innerHTML='<p class="err">Cette adresse est déjà inscrite. Vérifiez votre boîte mail.</p>';
+      var estEtu = (isPro && q("f_role").value==="etudiant");
+      if(list.some(function(x){ return String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut!=="apreconfirmer"; })){
+        msg.innerHTML='<p class="err">Cette adresse est déjà inscrite. Vérifiez votre boîte mail (et vos spams).</p>';
         btn.disabled=false; btn.textContent="Je m'inscris"; return;
+      }
+      // Étudiant : on retire une éventuelle pré-inscription NON confirmée pour la même adresse (on renverra un lien frais).
+      if(estEtu){
+        list = list.filter(function(x){ return !(String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut==="apreconfirmer"); });
       }
 
       var rec = { name:(nom+" "+prenom).trim(), nom:nom, prenom:prenom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau", viaFormulaire:true };
@@ -403,7 +472,7 @@
         rec.role=rl;
         rec.section=(AVEC_SECTION.indexOf(rl)>=0) ? q("f_sec").value : "";
         rec.annee="";
-        if(rl==="etudiant"){ rec.matricule=matricule; rec.carte=carte; rec.statut="acarte"; }
+        if(rl==="etudiant"){ rec.matricule=matricule; rec.carte=carte; rec.statut="apreconfirmer"; rec.confToken=nouveauToken(); rec.emailConfirme=false; }
       } else {
         rec.section=q("f_sec").value;
         rec.annee=(isP && q("f_role").value==="alumni") ? "" : q("f_annee").value;
@@ -423,15 +492,22 @@
         throw new Error(det||("HTTP "+rp.status));
       }
 
-      if(isPro && q("f_role").value==="etudiant"){ envoyerMailConfirmationEtudiant(prenom, m1); }
-
+      var estEtudiant = (isPro && q("f_role").value==="etudiant");
       q("form").style.display="none";
-      var okHtml='<p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
-        + '<p class="hint">'+((PAY || (isPro && q("f_role").value==="etudiant"))
-            ? 'Votre inscription va être <b>vérifiée par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.'
-            : 'Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.')+'</p>'
-        + ((isPro && q("f_role").value==="etudiant") ? '<p class="hint" style="margin-top:8px">Rappel : cette invitation est <b>strictement personnelle</b> et ne vaut que pour une personne.</p>' : '')
-        + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 <b>Vous ne recevez pas votre billet QR ?</b><br>Vérifiez vos <b>spams / courriers indésirables</b>.</p>';
+      var okHtml;
+      if(estEtudiant){
+        envoyerMailConfirmationLien(prenom, m1, rec.confToken);
+        okHtml='<p class="big">📧</p><p><b>Vérifiez votre e-mail</b></p>'
+          + '<p class="hint">Un e-mail contenant un <b>lien de confirmation</b> vient d\'être envoyé à <b>'+esc(m1)+'</b>.<br>Cliquez sur ce lien pour <b>valider votre inscription</b>.</p>'
+          + '<p class="hint">Tant que vous n\'avez pas cliqué, votre inscription n\'est <b>pas</b> prise en compte. Après confirmation, l\'équipe vérifiera votre carte étudiante, puis vous recevrez votre billet QR.</p>'
+          + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 <b>Vous ne recevez pas cet e-mail ?</b><br>Vérifiez vos <b>spams / courriers indésirables</b>.</p>';
+      } else {
+        okHtml='<p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
+          + '<p class="hint">'+(PAY
+              ? 'Votre inscription va être <b>vérifiée par l\'équipe</b>. Vous recevrez ensuite votre billet QR par e-mail.'
+              : 'Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.')+'</p>'
+          + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 <b>Vous ne recevez pas votre billet QR ?</b><br>Vérifiez vos <b>spams / courriers indésirables</b>.</p>';
+      }
       msg.innerHTML='<div class="card">'+okHtml+'</div>';
       popupMaison(okHtml);
     }catch(e){
