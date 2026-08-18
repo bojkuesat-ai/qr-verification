@@ -181,16 +181,16 @@
     var lien = lienConfirmation(token);
     var ev = esc(NOM_LIEN || NOMS[CID]);
     var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">'
-      +'<h2 style="margin:0 0 10px">Confirmez votre inscription</h2>'
+      +'<h2 style="margin:0 0 10px">Confirme ton inscription</h2>'
       +'<p>Bonjour '+esc(nom)+',</p>'
-      +'<p>Vous avez demandé à vous inscrire à <b>'+ev+'</b>. Pour <b>valider votre inscription</b>, cliquez sur le bouton ci-dessous :</p>'
+      +'<p>Tu as demandé à t\'inscrire à <b>'+ev+'</b>. Pour <b>valider ton inscription</b>, clique sur le bouton ci-dessous :</p>'
       +'<p style="text-align:center;margin:24px 0"><a href="'+lien+'" style="display:inline-block;background:#d8b45a;color:#241100;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:bold">Confirmer mon inscription</a></p>'
-      +'<p style="font-size:13px;color:#555">Si le bouton ne fonctionne pas, copiez-collez ce lien dans votre navigateur :<br><a href="'+lien+'">'+lien+'</a></p>'
-      +'<p>Après confirmation, l\'équipe vérifiera votre <b>carte étudiante</b>, puis vous recevrez votre <b>billet QR</b> par e-mail.</p>'
-      +'<p style="font-size:13px;color:#555">Vous n\'êtes pas à l\'origine de cette demande ? Ignorez simplement cet e-mail.</p>'
+      +'<p style="font-size:13px;color:#555">Si le bouton ne fonctionne pas, copie-colle ce lien dans ton navigateur :<br><a href="'+lien+'">'+lien+'</a></p>'
+      +'<p>Après confirmation, l\'équipe vérifiera ta <b>carte étudiante</b>, puis tu recevras ton <b>billet QR</b> par e-mail.</p>'
+      +'<p style="font-size:13px;color:#555">Tu n\'es pas à l\'origine de cette demande ? Ignore simplement cet e-mail.</p>'
       + pieds() + '</div>';
     return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:mail,subject:"Confirmez votre inscription — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
+      body:JSON.stringify({to:mail,subject:"Confirme ton inscription — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
   }
   async function assurerTokenEcriture(){
     if(window.__tok) return window.__tok;
@@ -545,6 +545,13 @@
       if(estEtu){
         list = list.filter(function(x){ return !(String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut==="apreconfirmer"); });
       }
+      // Unicité du matricule (invitation strictement personnelle) : un matricule déjà inscrit (confirmé) ne peut pas reprendre une place avec une autre adresse.
+      if(estEtu && matricule){
+        if(list.some(function(x){ return x.role==="etudiant" && String(x.matricule||"").trim()===matricule && x.statut!=="apreconfirmer" && String(x.email||"").toLowerCase()!==m1.toLowerCase(); })){
+          msg.innerHTML='<p class="err"><b>Ce numéro de matricule est déjà inscrit</b> avec une autre adresse. L\'invitation est strictement personnelle (une place par étudiant·e).</p>';
+          btn.disabled=false; btn.textContent="Je m'inscris"; return;
+        }
+      }
 
       var rec = { name:(nom+" "+prenom).trim(), nom:nom, prenom:prenom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau", viaFormulaire:true };
       if(isPro){
@@ -577,10 +584,10 @@
       var okHtml;
       if(estEtudiant){
         envoyerMailConfirmationLien(prenom, m1, rec.confToken);
-        okHtml='<p class="big">📧</p><p><b>Vérifiez votre e-mail</b></p>'
-          + '<p class="hint">Un e-mail contenant un <b>lien de confirmation</b> vient d\'être envoyé à <b>'+esc(m1)+'</b>.<br>Cliquez sur ce lien pour <b>valider votre inscription</b>.</p>'
-          + '<p class="hint">Tant que vous n\'avez pas cliqué, votre inscription n\'est <b>pas</b> prise en compte. Après confirmation, l\'équipe vérifiera votre carte étudiante, puis vous recevrez votre billet QR.</p>'
-          + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 <b>Vous ne recevez pas cet e-mail ?</b><br>Vérifiez vos <b>spams / courriers indésirables</b>.</p>';
+        okHtml='<p class="big">📧</p><p><b>Vérifie ton e-mail</b></p>'
+          + '<p class="hint">Un e-mail contenant un <b>lien de confirmation</b> vient d\'être envoyé à <b>'+esc(m1)+'</b>.<br>Clique sur ce lien pour <b>valider ton inscription</b>.</p>'
+          + '<p class="hint">Tant que tu n\'as pas cliqué, ton inscription n\'est <b>pas</b> prise en compte. Après confirmation, l\'équipe vérifiera ta carte étudiante, puis tu recevras ton billet QR.</p>'
+          + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 <b>Tu ne reçois pas cet e-mail ?</b><br>Vérifie tes <b>spams / courriers indésirables</b>.</p>';
       } else {
         okHtml='<p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
           + '<p class="hint">'+(PAY
