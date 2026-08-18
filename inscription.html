@@ -49,7 +49,7 @@
   <div id="enteteUlb" style="display:none;text-align:center;padding-bottom:18px;margin-bottom:20px;border-bottom:1px solid var(--line)">
     <div style="font-size:12.5px;letter-spacing:.10em;text-transform:uppercase;color:var(--muted)">Université libre de Bruxelles</div>
     <div style="font-size:16px;font-weight:700;margin-top:4px">Faculté de Droit et de Criminologie</div>
-    <div style="font-size:13.5px;margin-top:6px;color:var(--gold)" id="enteteOrg">Délégation étudiante de Droit et de Criminologie</div>
+    <div style="font-size:13.5px;margin-top:6px;color:var(--gold)" id="enteteOrg">Délégation étudiante de la Faculté de Droit et de Criminologie</div>
   </div>
   <h1>Inscription</h1>
   <p class="sub" id="titre">Chargement…</p>
@@ -114,7 +114,7 @@
 
     <div id="notePerso" style="display:none;background:rgba(216,180,90,.10);border:1px solid rgba(216,180,90,.35);border-radius:12px;padding:14px;margin-top:18px">
       <b style="color:var(--gold)">Invitation strictement personnelle</b>
-      <p class="hint" style="margin-top:6px">Proclamation de la Faculté de Droit et de Criminologie de l'Université libre de Bruxelles, organisée par la Délégation étudiante de Droit et de Criminologie.</p>
+      <p class="hint" style="margin-top:6px">Proclamation de la Faculté de Droit et de Criminologie de l'Université libre de Bruxelles, organisée par la Délégation étudiante de la Faculté de Droit et de Criminologie.</p>
       <p class="hint" style="margin-top:6px">Cette invitation est nominative et donne accès à <b>une seule personne</b> : elle ne peut être ni partagée, ni transmise, ni utilisée par un accompagnant.</p>
       <p class="hint" style="margin-top:6px">Chaque billet ne peut être scanné qu'une fois. Nous comptons sur votre compréhension : la capacité de la salle ne permet malheureusement pas d'accueillir de personnes supplémentaires.</p>
     </div>
@@ -124,6 +124,24 @@
   </div>
 
   <div id="msg"></div>
+  <div id="corrCard" style="display:none">
+    <div class="card">
+      <h2 style="margin:0 0 6px">Renvoyer ma carte étudiante</h2>
+      <div id="corrMsg" class="hint" style="margin-bottom:10px"></div>
+      <div class="carte-opts">
+        <button type="button" class="opt" onclick="document.getElementById('corr_cam').click()">📷 Prendre une photo</button>
+        <button type="button" class="opt" onclick="document.getElementById('corr_img').click()">🖼️ Choisir une image</button>
+        <button type="button" class="opt" onclick="document.getElementById('corr_pdf').click()">📄 Déposer un PDF</button>
+      </div>
+      <input type="file" id="corr_cam" accept="image/*" capture="environment" style="display:none" onchange="_corrOnFile(this)">
+      <input type="file" id="corr_img" accept="image/*" style="display:none" onchange="_corrOnFile(this)">
+      <input type="file" id="corr_pdf" accept="application/pdf,.pdf" style="display:none" onchange="_corrOnFile(this)">
+      <p id="corrNom" class="hint" style="margin-top:8px;display:none"></p>
+      <div style="height:12px"></div>
+      <button type="button" id="corrBtn" onclick="renvoyerCarte()">Renvoyer ma carte</button>
+      <div id="corrResult" style="margin-top:10px"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -134,13 +152,13 @@
   var SUPA_URL = "https://mlgzdfyqjhvyubrywuim.supabase.co";
   var SUPA_ANON = "sb_publishable_xoVRiE99YOepw-sb5Tmtcg_SJ3VE_0s";
   var SEND_FN = SUPA_URL + "/functions/v1/send-email";
-  var EXPEDITEUR_PROCLA = "Délégation étudiante de Droit et de Criminologie <proclamation@bureauetuidant.xyz>";
+  var EXPEDITEUR_PROCLA = "Délégation étudiante de la Faculté de Droit et de Criminologie <proclamation@bureauetuidant.xyz>";
 
   function pieds(){
     return '<hr style="border:none;border-top:1px solid #eee;margin:18px 0">'
       +'<p style="margin:0;text-align:center;font-size:12px;color:#888;letter-spacing:.06em;text-transform:uppercase">Université libre de Bruxelles</p>'
       +'<p style="margin:2px 0 8px;text-align:center;font-size:13px;color:#555">Faculté de Droit et de Criminologie</p>'
-      +'<p style="margin:0;text-align:center;font-size:14px;color:#333"><b>Délégation étudiante de Droit et de Criminologie</b></p>'
+      +'<p style="margin:0;text-align:center;font-size:14px;color:#333"><b>Délégation étudiante de la Faculté de Droit et de Criminologie</b></p>'
       +'<p style="margin:6px 0 0;text-align:center;font-size:12px;color:#999">Ceci est un envoi automatique — merci de ne pas répondre à ce message.</p>';
   }
 
@@ -210,6 +228,64 @@
     }
   }
   function esc(x){ return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  // --- Mode "renvoyer ma carte" (proclamation étudiant refusé pour carte) ---
+  var _corrFile=null, _CORR_TOKEN="";
+  function _corrOnFile(input){
+    if(input.files && input.files.length){
+      _corrFile=input.files[0];
+      ["corr_cam","corr_img","corr_pdf"].forEach(function(id){ var e=q(id); if(e && e!==input) e.value=""; });
+      var el=q("corrNom"); if(el){ var nm=(_corrFile.name||"fichier").replace(/[<>&]/g,""); var pdf=/\.pdf$/i.test(nm); el.innerHTML="✓ "+(pdf?"PDF":"Image")+" sélectionné : <b>"+nm+"</b>"; el.style.display=""; }
+    }
+  }
+  async function chargerCorrection(token){
+    _CORR_TOKEN=token;
+    if(q("form")) q("form").style.display="none";
+    if(q("msg")) q("msg").innerHTML="";
+    if(q("corrCard")) q("corrCard").style.display="";
+    var cm=q("corrMsg"); if(cm) cm.textContent="Chargement…";
+    try{
+      var tok=await assurerTokenEcriture();
+      var rc=await fetch(FS_BASE+"commission_tickets/"+CID,{headers:{"Authorization":"Bearer "+tok}});
+      var cur=rc.ok?await rc.json():null;
+      var list=[]; try{ if(cur&&cur.fields&&cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
+      var rec=null; for(var i=0;i<list.length;i++){ if(list[i]&&list[i].corrToken===token){ rec=list[i]; break; } }
+      if(!rec){ if(cm) cm.innerHTML='<b>Lien invalide ou déjà utilisé.</b><br>Si besoin, contactez les délégués.'; if(q("corrBtn")) q("corrBtn").style.display="none"; return; }
+      if(rec.statut!=="acorriger"){
+        if(cm) cm.innerHTML='<b>Carte déjà renvoyée.</b><br>Elle est en cours de vérification. Tu recevras ton billet QR par e-mail.';
+        if(q("corrBtn")) q("corrBtn").style.display="none";
+        var opts=q("corrCard"); if(opts){ var cos=opts.querySelector(".carte-opts"); if(cos) cos.style.display="none"; }
+        return;
+      }
+      if(cm) cm.innerHTML="Bonjour <b>"+esc(rec.prenom||rec.name||"")+"</b>, dépose ci-dessous une nouvelle photo ou un PDF <b>lisible</b> de ta carte étudiante."+(rec.motif?'<br><span style="color:#d88">Raison : '+esc(rec.motif)+'</span>':'');
+    }catch(e){ if(cm) cm.innerHTML="Erreur de chargement. Réessaie plus tard."; }
+  }
+  async function renvoyerCarte(){
+    var cm=q("corrResult");
+    if(!_corrFile){ if(cm) cm.innerHTML='<p class="err">Choisis d\'abord une photo ou un PDF.</p>'; return; }
+    var btn=q("corrBtn"); if(btn){ btn.disabled=true; btn.textContent="Envoi…"; }
+    try{
+      var b64=await lireDocument(_corrFile);
+      var tok=await assurerTokenEcriture();
+      var path="commission_tickets/"+CID;
+      var rc=await fetch(FS_BASE+path,{headers:{"Authorization":"Bearer "+tok}});
+      var cur=rc.ok?await rc.json():null;
+      var list=[]; try{ if(cur&&cur.fields&&cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
+      var idx=-1; for(var i=0;i<list.length;i++){ if(list[i]&&list[i].corrToken===_CORR_TOKEN){ idx=i; break; } }
+      if(idx<0){ if(cm) cm.innerHTML='<p class="err">Lien invalide ou déjà traité.</p>'; if(btn){btn.disabled=false;btn.textContent="Renvoyer ma carte";} return; }
+      if(list[idx].statut!=="acorriger"){
+        if(q("corrCard")) q("corrCard").style.display="none";
+        popupMaison('<p class="big">✅</p><p><b>Déjà renvoyée</b></p><p class="hint">Ta carte a déjà été renvoyée et est en cours de vérification. Tu recevras ton billet QR par e-mail.</p>');
+        return;
+      }
+      list[idx].carte=b64; list[idx].statut="acarte"; list[idx].corrigee=true; list[idx].corrigeTs=Date.now();
+      var fields={ signups:{stringValue:JSON.stringify(list)}, updatedAt:{stringValue:new Date().toISOString()} };
+      var qs=Object.keys(fields).map(function(k){return "updateMask.fieldPaths="+encodeURIComponent(k);}).join("&");
+      var rp=await fetch(FS_BASE+path+"?"+qs,{method:"PATCH",headers:{"Authorization":"Bearer "+tok,"Content-Type":"application/json"},body:JSON.stringify({fields:fields})});
+      if(!rp.ok) throw new Error("write");
+      if(q("corrCard")) q("corrCard").style.display="none";
+      popupMaison('<p class="big">✅</p><p><b>Carte renvoyée !</b></p><p class="hint">Merci. Ta nouvelle carte va être vérifiée par l\'équipe, puis tu recevras ton billet QR par e-mail.</p><p class="hint">📩 Pense à vérifier tes <b>spams</b>.</p>');
+    }catch(e){ if(cm) cm.innerHTML='<p class="err">Envoi impossible. Réessaie plus tard.</p>'; if(btn){btn.disabled=false;btn.textContent="Renvoyer ma carte";} }
+  }
   function popupMaison(html){
     var c=q("pmContent"), o=q("pmOverlay");
     if(!c || !o){ return; }
@@ -257,7 +333,7 @@
   if(isP){
     q("wrapRole").style.display="";
     q("enteteUlb").style.display="block";
-    q("enteteOrg").innerHTML = 'En collaboration :<br>Le Bureau étudiant de Droit et de Criminologie<br>La Délégation étudiante de Droit et de Criminologie';
+    q("enteteOrg").innerHTML = 'En collaboration :<br>Le Bureau étudiant de la Faculté de Droit et de Criminologie<br>La Délégation étudiante de la Faculté de Droit et de Criminologie';
   }
   if(isPro){
     q("enteteUlb").style.display="block";
@@ -272,6 +348,10 @@
     if(q("form")) q("form").style.display="none";
     if(q("msg")) q("msg").innerHTML='<div class="card"><p class="hint">Confirmation en cours…</p></div>';
     confirmerInscription(CONFIRM_TOK);
+  }
+  var CORR_TOK = par("corriger");
+  if(CORR_TOK){
+    chargerCorrection(CORR_TOK);
   }
 
   function majProcla(){
