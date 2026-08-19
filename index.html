@@ -2738,9 +2738,8 @@
     if(CURRENT_ROLE!=="admin") return;
     TIMER_SIGNUPS=setInterval(function(){
       if(document.hidden) return;                 // pas d'appels inutiles si l'app est en arrière-plan
-      if(currentTab!=="guests" && currentTab!=="parrainage") return;
       try{ refreshSignups(true); }catch(e){}
-    }, 60000);
+    }, 30000);
   }
   function arreterAutoSignups(){ if(TIMER_SIGNUPS){ clearInterval(TIMER_SIGNUPS); TIMER_SIGNUPS=null; } }
   function telechargerCSV(rows, filename){
@@ -2759,7 +2758,7 @@
   window.exportPresents = function(){
     var present = roster.filter(function(g){ return usedSet.has(g.token); });
     if(!present.length){ flash("Personne n'a encore été scanné·e / enregistré·e."); return; }
-    var roleLbl={etudiant:"Étudiant·e diplômé·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne"};
+    var roleLbl={etudiant:"Étudiant·e diplômé·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
     present.sort(function(a,b){ return (a.section||"").localeCompare(b.section||"") || (a.nom||a.name||"").localeCompare(b.nom||b.name||""); });
     var rows=[["Nom","Prénom","Type","Section","E-mail","Entré·e à"]];
     present.forEach(function(g){
@@ -3020,11 +3019,12 @@
         <button class="btn ghost sm" onclick="saveNotifMail()">Enregistrer</button>
       </div>
       <div id="suStats" class="hint" style="margin-top:10px"></div>
+      <div style="margin-top:8px"><button class="btn gold sm" id="btnRefreshSu2" type="button" onclick="refreshSignups()">🔄 Rafraîchir les inscriptions</button></div>
       <div id="suList" style="margin-top:8px"></div>
       <div id="suExport" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
-        <p class="fld" style="margin:0 0 8px">Exports proclamation</p>
+        <p class="fld" style="margin:0 0 8px">Exports</p>
         <div class="row" style="gap:8px;flex-wrap:wrap">
-          <button class="btn gold sm" type="button" onclick="exportDiplomes()">Liste des diplômé·e·s (lecture des noms)</button>
+          <button class="btn gold sm" id="btnExportDiplomes" type="button" onclick="exportDiplomes()">Liste des diplômé·e·s (lecture des noms)</button>
           <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (Excel)</button>
         </div>
       </div>
@@ -3077,7 +3077,8 @@
   }
   function renderSignups(){
     majPayBadge();
-    if($("suExport")) $("suExport").style.display = (currentCommId()==="proclamation") ? "block" : "none";
+    if($("suExport")) $("suExport").style.display = "block";
+    if($("btnExportDiplomes")) $("btnExportDiplomes").style.display = (currentCommId()==="proclamation") ? "inline-block" : "none";
     var box=$("suList"), st=$("suStats"); if(!box) return;
     var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
     var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";});
@@ -3085,9 +3086,12 @@
     var acorriger=SIGNUPS.filter(function(x){return x.statut==="acorriger";});
     var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
     var ref=SIGNUPS.filter(function(x){return x.statut==="refuse";});
-    var resume = SIGNUPS.length+" inscription(s) · "+acc.length+" billet(s) envoyé(s)"
+    var manuels = roster.filter(function(g){ return !g.viaFormulaire; }).length;
+    var totalInscrits = SIGNUPS.length + manuels;
+    var resume = totalInscrits+" inscription(s)"+(manuels?" (dont "+manuels+" manuelle·s)":"")+" · "+acc.length+" billet(s) envoyé(s)"
       +(apay.length?" · "+apay.length+" paiement(s) à vérifier":"")
       +(acarte.length?" · "+acarte.length+" carte(s) à vérifier":"")
+      +(acorriger.length?" · "+acorriger.length+" en attente de nouvelle carte":"")
       +(ref.length?" · "+ref.length+" refusé(s)":"");
     if(st){
       if(currentCommId()==="proclamation"){
