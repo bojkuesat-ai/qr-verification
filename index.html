@@ -2666,11 +2666,16 @@
   function countRole(r){ return roster.filter(function(g){ return g.role===r; }).length; }
   function notifKey(){ return "qrentry:notifmail:"+(currentCommId()||""); }
   function getNotifMail(){ try{ return window.localStorage.getItem(notifKey())||""; }catch(e){ return ""; } }
-  window.saveNotifMail=function(){
+  window.saveNotifMail=async function(){
     var v=(($("suNotif")&&$("suNotif").value)||"").trim();
     if(v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){ flash("Adresse e-mail invalide."); return; }
     try{ window.localStorage.setItem(notifKey(), v); }catch(e){}
-    flash(v?"E-mail de notification enregistr\u00e9.":"Notification par e-mail d\u00e9sactiv\u00e9e.");
+    try{
+      var cid=currentCommId();
+      var ok=await ensureAuth(cid); var a=ok?loadAuth(cid):null;
+      if(a && a.idToken){ await fsPatchFields(ticketDocPath(cid), { notifMail: fsField(v), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
+    }catch(e){}
+    flash(v?"E-mail de notification enregistré (tu recevras un mail à chaque inscription en ligne).":"Notification par e-mail désactivée.");
   };
   function seenKey(){ return "qrentry:seenpay:"+(currentCommId()||""); }
   function getSeen(){ try{ return parseInt(window.localStorage.getItem(seenKey())||"0",10)||0; }catch(e){ return 0; } }
@@ -2788,6 +2793,7 @@
       var d=await fsGetDoc(signupDocPath(cid), a.idToken);
       SIGNUPS=[];
       if(d&&d.fields&&d.fields.signups){ try{ SIGNUPS=JSON.parse(d.fields.signups.stringValue||"[]"); }catch(e){} }
+      if(d&&d.fields&&d.fields.notifMail && $("suNotif") && !$("suNotif").value){ var _cm=d.fields.notifMail.stringValue||""; if(_cm){ $("suNotif").value=_cm; try{ window.localStorage.setItem(notifKey(), _cm); }catch(e){} } }
       await processSignups();
       majPayBadge();
       await alerterNouvellesPreuves();
