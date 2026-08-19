@@ -442,6 +442,14 @@
       <p class="sub">Crée les QR par groupe : choisis le rôle, l'année et la section, colle la liste (Nom + e-mail), puis « Ajouter ce groupe ». Répète pour chaque groupe.</p>
       <label class="fld" for="pEvName">Nom de l'événement</label>
       <input type="text" id="pEvName" placeholder="Parrainage Droit &amp; Crimino 2026" autocomplete="off" onchange="majNomEvent(this.value)" onblur="majNomEvent(this.value)">
+      <div style="height:10px"></div>
+      <label class="fld">Infos pratiques (ajoutées automatiquement aux e-mails — se synchronisent partout)</label>
+      <div class="prow">
+        <div><input type="text" id="evDateP" placeholder="Date — ex. 29 oct. 2026" autocomplete="off" onblur="autoSaveMeta('P')"></div>
+        <div><input type="text" id="evHeureP" placeholder="Heure — ex. 19h00" autocomplete="off" onblur="autoSaveMeta('P')"></div>
+      </div>
+      <div style="height:8px"></div>
+      <input type="text" id="evLieuP" placeholder="Lieu — ex. Salle Dupréel, ULB" autocomplete="off" onblur="autoSaveMeta('P')">
       <div style="height:12px"></div>
       <div class="prow">
         <div><label class="fld" for="pSection">Section</label>
@@ -2397,7 +2405,7 @@
   window.closeSettings=function(){ $("settingsModal").classList.remove("on"); };
   window.saveEventMeta = async function(){ return window.saveEventMetaFrom(""); };
   window.fillEventMetaInputs = function(){
-    ["","S","M"].forEach(function(sfx){
+    ["","S","M","P"].forEach(function(sfx){
       if($("evDate"+sfx)) $("evDate"+sfx).value=(eventMeta&&eventMeta.date)||"";
       if($("evHeure"+sfx)) $("evHeure"+sfx).value=(eventMeta&&eventMeta.heure)||"";
       if($("evLieu"+sfx)) $("evLieu"+sfx).value=(eventMeta&&eventMeta.lieu)||"";
@@ -3487,7 +3495,7 @@
     });
     if(name!=="scan"){ stopCam(); }
     if(name==="list"){ refreshAll(); }
-    if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); renderParrainageQR(); }
+    if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); renderParrainageQR(); try{ fillEventMetaInputs(); }catch(e){} }
     if(name==="guests"){ try{ majGenRole(); }catch(e){} try{ fillEventMetaInputs(); }catch(e){} }
     if(name==="scan"){ setTimeout(function(){ var mc=$("manualCode"); }, 0); }
   };
