@@ -3573,8 +3573,11 @@
     var cid=m[1], pay=!!m[2];
     if(["parrainage","festif","culture","aca","proclamation"].indexOf(cid)<0) return false;
     if(cid==="parrainage" && pay) return false;
-    SIGNUP_MODE = true;
-    try{ showSignupForm(cid, pay); }catch(e){ console.error(e); }
+    /* ANCIENS LIENS « #signup=... » : ce formulaire interne écrivait dans un champ « list »
+       que l'app ne lit plus, sans contrôle ULB, sans matricule, sans carte, sans RGPD —
+       la personne croyait s'être inscrite et restait invisible. On renvoie vers le vrai formulaire. */
+    var base = location.origin + location.pathname.replace(/[^\/]*$/,"") + "inscription.html";
+    location.replace(base + "?c=" + encodeURIComponent(cid) + (pay ? "&pay=1" : ""));
     return true;
   }
   var SIGNUP_MODE = false;

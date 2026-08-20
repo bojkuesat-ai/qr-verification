@@ -506,6 +506,9 @@
         var f = d && d.fields;
         var v = f && ((f.event && f.event.stringValue) || (f.evName && f.evName.stringValue));
         if(v && !NOM_LIEN) q("titre").textContent = v + (PAY?" — événement payant":"");
+        // la date de clôture publiée par l'app fait foi, même si le lien partagé ne la contient pas
+        var cl = f && f.cloture && f.cloture.stringValue;
+        if(cl){ CLOTURE = cl; if(inscriptionsFermees(CLOTURE)) afficherFermeture(CLOTURE); }
       }).catch(function(){});
   }, 0);
 
@@ -600,6 +603,11 @@
       var list=[];
       try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
 
+      var clCloud = (cur && cur.fields && cur.fields.cloture && cur.fields.cloture.stringValue) || "";
+      if(clCloud && inscriptionsFermees(clCloud)){            // fermée entre-temps ou lien sans date
+        btn.disabled=false; btn.textContent="Je m'inscris";
+        afficherFermeture(clCloud); return;
+      }
       var estEtu = (isPro && q("f_role").value==="etudiant");
       if(list.some(function(x){ return String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut!=="apreconfirmer"; })){
         msg.innerHTML='<p class="err">Cette adresse est déjà inscrite. Vérifiez votre boîte mail (et vos spams).</p>';
