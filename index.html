@@ -2266,6 +2266,8 @@
   }
   window.clearAll = async function(){
     if(!(await uiConfirm("Tout effacer : la liste d'invités, les entrées ET les inscriptions en ligne ? Action définitive."))) return;
+    flash("Archivage du bilan…");
+    try{ await archiverEvenement(); }catch(e){}      // le bilan survit à l'effacement
     await resetSignups();
     await wipeAll();
     if($("suEvName")) $("suEvName").value="";
@@ -2274,11 +2276,63 @@
     renderSignups();
     flash("Tout a été effacé.");
   };
+  /* ---------- Archives : un résumé par événement terminé (doc séparé, toutes commissions) ---------- */
+  function archiveDocPath(cid){ return "commission_archives/"+cid; }
+  async function lireArchives(cid){
+    var ok=await ensureAuth(cid); if(!ok) return [];
+    var a=loadAuth(cid); if(!a||!a.idToken) return [];
+    try{
+      var d=await fsGetDoc(archiveDocPath(cid), a.idToken, ["events"]);
+      if(d && d.fields && d.fields.events) return JSON.parse(d.fields.events.stringValue||"[]");
+    }catch(e){}
+    return [];
+  }
+  async function ecrireArchives(cid, liste){
+    var ok=await ensureAuth(cid); if(!ok) return false;
+    var a=loadAuth(cid); if(!a||!a.idToken) return false;
+    try{
+      var r=await fsPatchFields(archiveDocPath(cid),
+        { events: fsField(JSON.stringify(liste)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      return !!(r&&r.ok);
+    }catch(e){ return false; }
+  }
+  function resumeEvenementActuel(){
+    var cid=currentCommId()||"";
+    var entres=roster.filter(function(g){ return usedSet.has(g.token); }).length;
+    var parType={};
+    roster.forEach(function(g){ var r=g.role||"autre"; parType[r]=parType[r]||{t:0,e:0}; parType[r].t++; if(usedSet.has(g.token)) parType[r].e++; });
+    var su=(SIGNUPS||[]);
+    return {
+      id: "E"+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      nom: eventName || commName(cid) || "Sans nom",
+      date: (eventMeta&&eventMeta.date) || "",
+      lieu: (eventMeta&&eventMeta.lieu) || "",
+      cloture: new Date().toISOString().slice(0,10),
+      billets: roster.length,
+      entres: entres,
+      enLigne: roster.filter(function(g){ return g.viaFormulaire; }).length,
+      manuels: roster.filter(function(g){ return !g.viaFormulaire; }).length,
+      refuses: su.filter(function(x){ return x.statut==="refuse"; }).length,
+      nonConfirmes: su.filter(function(x){ return x.statut==="apreconfirmer"; }).length,
+      attente: su.filter(function(x){ return x.statut==="attente"; }).length,
+      places: (typeof getPlaces==="function" ? (getPlaces()||0) : 0),
+      parType: parType
+    };
+  }
+  async function archiverEvenement(){
+    var cid=currentCommId(); if(!cid) return false;
+    if(!roster.length && !(SIGNUPS||[]).length) return false;     // rien à archiver
+    var liste=await lireArchives(cid);
+    liste.unshift(resumeEvenementActuel());
+    if(liste.length>60) liste=liste.slice(0,60);                  // on garde les 60 derniers
+    return await ecrireArchives(cid, liste);
+  }
   var ARCHIVES=[];
   window.ouvrirArchives = async function(){
     var cid=currentCommId(); if(!cid){ flash("Ouvre d'abord une commission."); return; }
     flash("Chargement des archives…");
-    ARCHIVES = await lireArchives(cid);
+    try{ ARCHIVES = await lireArchives(cid); }
+    catch(e){ ARCHIVES=[]; flash("Archives illisibles (règles Firestore ?)."); }
     var box=$("archModal");
     if(!box){
       box=document.createElement("div");
@@ -2822,6 +2876,8 @@
   window.resetInscriptions=async function(){
     var cid=currentCommId(); if(!cid) return;
     if(!(await uiConfirm("Réinitialiser complètement cet événement ?\n\n• billets et entrées effacés\n• inscriptions en ligne effacées\n• nom, dates et clôture remis à zéro\n\nAction irréversible."))) return;
+    flash("Archivage du bilan…");
+    try{ await archiverEvenement(); }catch(e){}      // le bilan survit à la réinitialisation
     await resetSignups();
     await wipeAll();
     try{
@@ -3108,7 +3164,7 @@
       var h=""; if(usedSet.has(g.token) && usedAt[g.token]){ try{ h=new Date(usedAt[g.token]).toLocaleString("fr-BE"); }catch(e){} }
       rows.push([g.nom||g.name||"", g.prenom||"", g.extra||emailOf(g)||"", roleLbl[g.role]||g.role||"", g.section||"", g.matricule||"", (usedSet.has(g.token)?"Entré·e":"Billet émis"), h, (g.viaFormulaire?"En ligne":"Manuel")]);
     });
-    var statutSU={apreconfirmer:"À confirmer (e-mail)",acarte:"Carte à vérifier",apayer:"Paiement à vérifier",acorriger:"Nouvelle carte demandée",refuse:"Refusé·e"};
+    var statutSU={apreconfirmer:"À confirmer (e-mail)",acarte:"Carte à vérifier",apayer:"Paiement à vérifier",acorriger:"Nouvelle carte demandée",attente:"Liste d'attente",refuse:"Refusé·e"};
     (SIGNUPS||[]).forEach(function(x){
       if(x.statut==="accepte" || x.statut==="nouveau") return;
       rows.push([x.nom||x.name||"", x.prenom||"", x.email||"", roleLbl[x.role]||x.role||"", x.section||"", x.matricule||"", (statutSU[x.statut]||x.statut||""), "", "En ligne"]);
@@ -3414,8 +3470,10 @@
   window.repecherInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
     var max=getPlaces(), reste = max ? (max-placesPrises()) : 1;
+    var sansPaiement = !x.preuveId && !x.preuve;
     var msg = reste>0 ? ("Repêcher "+x.name+" ? Son billet part immédiatement par e-mail.")
                       : ("⚠️ Il n'y a AUCUNE place libre ("+placesPrises()+"/"+max+").\n\nRepêcher quand même "+x.name+" ? Tu dépasseras la jauge.");
+    if(sansPaiement) msg += "\n\n💶 Cette personne n'a PAS encore fourni de preuve de paiement (normal : on ne fait pas payer la liste d'attente). Réclame-lui le paiement avant ou après l'envoi du billet.";
     if(!(await uiConfirm(msg))) return;
     var avant=x.statut;
     await creerBilletDepuisInscription(x); x.statut="accepte";
@@ -3583,6 +3641,7 @@
       +(acarte.length?" · "+acarte.length+" carte(s) à vérifier":"")
       +(acorriger.length?" · "+acorriger.length+" en attente de nouvelle carte":"")
       +(aconf.length?" · "+aconf.length+" en attente de confirmation":"")
+      +(SIGNUPS.filter(function(x){return x.statut==="attente";}).length?" · "+SIGNUPS.filter(function(x){return x.statut==="attente";}).length+" en liste d'attente":"")
       +(ref.length?" · "+ref.length+" refusé(s)":"");
     if(st){
       if(currentCommId()==="proclamation"){

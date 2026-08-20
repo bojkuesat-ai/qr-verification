@@ -302,8 +302,10 @@
       if(btn) btn.textContent="Je m'inscris";
     } else {
       el.style.background="rgba(216,180,90,.16)"; el.style.borderColor="rgba(216,180,90,.55)";
-      el.innerHTML="⚠️ <b>COMPLET</b> ("+PLACES+" places). Tu peux rejoindre la <b>liste d'attente</b> : en cas de désistement, l'équipe repêche dans l'ordre d'inscription et t'envoie ton billet.";
+      el.innerHTML="⚠️ <b>COMPLET</b> ("+PLACES+" places). Tu peux rejoindre la <b>liste d'attente</b> : en cas de désistement, l'équipe repêche dans l'ordre d'inscription et t'envoie ton billet."
+        + (PAY ? "<br><br>💶 <b>Ne paie rien pour l'instant</b> — tu ne paieras que si une place se libère." : "");
       if(btn) btn.textContent="Rejoindre la liste d'attente";
+      var wp=q("wrapPreuve"); if(wp && PAY) wp.style.display="none";
     }
   }
   // --- Mode "renvoyer ma carte" (proclamation étudiant refusé pour carte) ---
@@ -617,7 +619,7 @@
       }
     }
     var preuve="";
-    if(PAY){
+    if(PAY && !completJauge()){                 // complet : on ne fait pas payer quelqu'un qui n'a pas de place
       var f=q("f_preuve");
       if(!f.files || !f.files.length){
         msg.innerHTML='<p class="err"><b>La preuve de paiement est obligatoire.</b></p>'; return; }
@@ -690,7 +692,7 @@
         rec.annee=(isP && q("f_role").value==="alumni") ? "" : q("f_annee").value;
         if(isP){ rec.role=q("f_role").value; rec.exPasserelle=!!q("f_pass").checked; }
       }
-      if(PAY){ rec.preuveId="P"+nouveauToken(); await ecrirePreuveDoc(rec.preuveId, preuve); _imagesEcrites.push("commission_cartes/"+CID+"__p__"+rec.preuveId); }
+      if(PAY && preuve){ rec.preuveId="P"+nouveauToken(); await ecrirePreuveDoc(rec.preuveId, preuve); _imagesEcrites.push("commission_cartes/"+CID+"__p__"+rec.preuveId); }
       list.push(rec);
 
       var fields = { signups:{ stringValue: JSON.stringify(list) },
@@ -722,6 +724,7 @@
         okHtml='<p class="big">⏳</p><p><b>Tu es sur la liste d\'attente</b></p>'
           + '<p class="hint">L\'événement est <b>complet</b>. Ton inscription est enregistrée et tu es placé·e dans la file, dans l\'ordre d\'arrivée.</p>'
           + '<p class="hint">En cas de désistement, l\'équipe repêche les premières personnes et envoie le billet QR par e-mail. Tu n\'as rien d\'autre à faire.</p>'
+          + (PAY ? '<p class="hint">💶 <b>Ne paie rien maintenant.</b> Si une place se libère, l\'équipe te contactera pour le paiement.</p>' : '')
           + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 Pense à vérifier tes <b>spams</b>.</p>';
       } else {
         okHtml='<p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
