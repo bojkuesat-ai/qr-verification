@@ -848,6 +848,7 @@
 
   /* ---------- Chargement ---------- */
   async function loadAll(){
+    await chargerTombes();
     var r = await Store.get("roster"); roster = r ? JSON.parse(r) : [];
     var e = await Store.get("eventName"); eventName = e ? JSON.parse(e) : "";
     try{ var em = await Store.get("eventMeta"); eventMeta = em ? JSON.parse(em) : {date:"",heure:"",lieu:""}; }catch(_e){ eventMeta={date:"",heure:"",lieu:""}; }
@@ -1707,6 +1708,7 @@
     }catch(e){ return false; }
   }
 
+  var gCache={};    // cid -> {rv:"...", roster:[...]} : évite de retélécharger toutes les listes toutes les 25 s
   async function gLoadAll(silent){
     if(!(await gEnsureAuth())){ gStatus("Connexion au compte scanner impossible — vérifie ta connexion.", true); return false; }
     if(!silent) gStatus("Chargement des commissions…", false);
@@ -1714,10 +1716,20 @@
     for(var i=0;i<COMMISSIONS.length;i++){
       var c=COMMISSIONS[i];
       try{
-        var data=await fsGetDoc(ticketDocPath(c.id), gAuth.idToken);
+        // sondage léger : version + entrées ; la liste n'est retéléchargée que si elle a changé
+        var data=await fsGetDoc(ticketDocPath(c.id), gAuth.idToken, ["rosterVersion","used"]);
         if(!data){ failC++; continue; }
         var f=data.fields||{};
-        var roster=[]; try{ roster=JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e){}
+        var rv=(f.rosterVersion&&f.rosterVersion.stringValue)||"";
+        var roster;
+        if(gCache[c.id] && gCache[c.id].rv===rv){ roster=gCache[c.id].roster; }
+        else {
+          var plein=await fsGetDoc(ticketDocPath(c.id), gAuth.idToken);
+          if(!plein){ failC++; continue; }
+          var pf=plein.fields||{};
+          roster=[]; try{ roster=JSON.parse((pf.roster&&pf.roster.stringValue)||"[]"); }catch(e){}
+          gCache[c.id]={rv:rv, roster:roster};
+        }
         var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
         okC++;
         for(var j=0;j<roster.length;j++){
@@ -2106,6 +2118,7 @@
     // Parrainage : délier les filleuls éventuellement rattachés à cette personne
     roster.forEach(function(f){ if(f.parrain===token){ delete f.parrain; delete f.table; } });
     roster.splice(idx,1);
+    await marquerSupprimes([token]);
     try{ await Store.del("used:"+token); }catch(e){}
     usedSet.delete(token); delete usedAt[token];
     localRosterVersion = Date.now();
@@ -2121,6 +2134,7 @@
   };
   async function _appliquerSuppression(tokensSet, libelle){
     if(!tokensSet.size) return;
+    await marquerSupprimes(Array.from(tokensSet));
     roster.forEach(function(f){ if(f.parrain && tokensSet.has(f.parrain)){ delete f.parrain; delete f.table; } });
     roster = roster.filter(function(g){ return !tokensSet.has(g.token); });
     var it=tokensSet.values(), n;
@@ -2217,7 +2231,7 @@
     try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
     try{ if(typeof renderParrainageQR==="function") renderParrainageQR(); }catch(e){}
     if(syncCode){ syncPushFull(); }
-    cloudPushRoster(currentCommId());
+    await cloudPushRoster(currentCommId(), true);      // remise à zéro : on écrase, pas de fusion
   }
   window.clearAll = async function(){
     if(!(await uiConfirm("Tout effacer : la liste d'invités, les entrées ET les inscriptions en ligne ? Action définitive."))) return;
@@ -2713,14 +2727,16 @@
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
-        +'<h2 style="margin:0 0 10px">On t\'attend !</h2>'
-        +'<p>Bonjour '+escapeHtml(g.name||"")+',</p>'
-        +'<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>'
+        +'<h2 style="margin:0 0 10px">'+(vouvoyerG(g)?'Nous vous attendons !':'On t\'attend !')+'</h2>'
+        +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
+        +(vouvoyerG(g)
+            ? '<p>Nous ne vous avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau votre billet :</p>'
+            : '<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>')
         + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))
         + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"On t'attend — "+(eventName||"notre événement"),html:html,from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:(vouvoyerG(g)?"Nous vous attendons — ":"On t'attend — ")+(eventName||"notre événement"),html:html,from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     uiAlert("Rappel envoyé à "+ok+" personne(s) non entrées.");
@@ -2736,9 +2752,10 @@
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
         +'<h2 style="margin:0 0 10px">Rappel — c\'est '+escapeHtml(quand)+'</h2>'
-        +'<p>Bonjour '+escapeHtml(g.name||"")+',</p>'
-        +'<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p>'
-        +'<p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
+        +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
+        +(vouvoyerG(g)
+            ? '<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
+            : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>')
         + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))
         + mentionPerso(g)
         +'</div>';
@@ -2747,15 +2764,40 @@
       await new Promise(function(res){setTimeout(res,120);});
     }
     try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
+    await marquerRappelCloud(getEvDate());          // partagé entre appareils : évite un 2e envoi à tout le monde
     if(!auto) uiAlert("Rappel envoyé à "+ok+" personne(s)."); else flash("Rappel envoyé à "+ok+" personne(s).");
   };
-  function verifierRappelVeille(){
+  /* Le marqueur vit dans le cloud (champ rappelFait) : sinon, ouvrir l'app sur un 2e appareil
+     la veille renvoyait le rappel à TOUT LE MONDE une seconde fois. */
+  async function lireRappelCloud(d){
+    var cid=currentCommId(); if(!cid || !d) return false;
+    try{
+      var ok=await ensureAuth(cid); if(!ok) return false;
+      var a=loadAuth(cid); if(!a||!a.idToken) return false;
+      var doc=await fsGetDoc(ticketDocPath(cid), a.idToken, ["rappelFait"]);
+      var v=doc && doc.fields && doc.fields.rappelFait && doc.fields.rappelFait.stringValue;
+      return v===d;
+    }catch(e){ return false; }
+  }
+  async function marquerRappelCloud(d){
+    var cid=currentCommId(); if(!cid || !d) return;
+    try{
+      var ok=await ensureAuth(cid); if(!ok) return;
+      var a=loadAuth(cid); if(!a||!a.idToken) return;
+      await fsPatchFields(ticketDocPath(cid), { rappelFait: fsField(d), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+    }catch(e){}
+  }
+  async function verifierRappelVeille(){
     var d=getEvDate(); if(!d) return;
     var veille=new Date(d+"T00:00:00"); veille.setDate(veille.getDate()-1);
     var auj=new Date(); auj.setHours(0,0,0,0);
     if(veille.getTime()!==auj.getTime()) return;
     var fait=false; try{ fait=window.localStorage.getItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d)==="1"; }catch(e){}
     if(fait) return;
+    if(await lireRappelCloud(d)){                    // déjà envoyé depuis un autre appareil
+      try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d,"1"); }catch(e){}
+      return;
+    }
     var n=roster.filter(function(g){ return emailOf(g); }).length;
     if(!n) return;
     uiConfirm("L'événement a lieu demain.\n\nEnvoyer maintenant le rappel avec le billet à "+n+" personne(s) ?").then(function(_ok){ if(_ok) envoyerRappel(true); else { try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d,"1"); }catch(e){} } });
@@ -3104,6 +3146,7 @@
     else if(a==="preuve") voirPreuve(i);
     else if(a==="ok")     accepterInscrit(i);
     else if(a==="recarte") demanderNouvelleCarte(i);
+    else if(a==="relance") renvoyerLienConfirmation(i);
     else if(a==="no")     refuserInscrit(i);
   }, true);
   window.voirCarte=async function(i){
@@ -3156,9 +3199,11 @@
     var motif = await uiPrompt("Motif du refus DÉFINITIF (visible par la personne) :", suggestion);
     if(motif===null) return;
     if(!(await uiConfirm("Refuser DÉFINITIVEMENT l'inscription de "+x.name+" ? (pour juste demander une nouvelle carte, utilise plutôt « Nouvelle carte »)"))) return;
+    var _avant=x.statut;
     x.statut="refuse"; x.motif=motif;
-    var _okSave = await saveSignups(x); renderSignups();
-    if(!_okSave) return;                                   // refus non enregistré : on n'envoie pas le mail
+    var _okSave = await saveSignups(x);
+    if(!_okSave){ x.statut=_avant; renderSignups(); return; }   // rien d'enregistré : on rétablit l'affichage
+    renderSignups();
     if(x.email){
       var cid=currentCommId()||"";
       var nomEv=(eventName||commName(cid)||"notre événement");
@@ -3184,9 +3229,11 @@
     if(motif===null) return;
     if(!(await uiConfirm("Demander une nouvelle carte à "+x.name+" ? Un lien de renvoi lui sera envoyé."))) return;
     if(!x.corrToken){ x.corrToken="K"+Date.now().toString(36)+Math.random().toString(36).slice(2,10); }
+    var _avant=x.statut;
     x.statut="acorriger"; x.motif=motif; x.corrigee=false;
-    var _okSave = await saveSignups(x); renderSignups();
-    if(!_okSave) return;                                   // demande non enregistrée : pas de mail avec un lien mort
+    var _okSave = await saveSignups(x);
+    if(!_okSave){ x.statut=_avant; renderSignups(); return; }    // pas de mail avec un lien mort
+    renderSignups();
     if(x.email){
       var cid=currentCommId()||"";
       var nomEv=(eventName||commName(cid)||"notre événement");
@@ -3208,6 +3255,33 @@
         body:JSON.stringify({to:x.email,subject:"Renvoie ta carte étudiante — "+nomEv,html:html,from:expediteurPour(x)})}); flash("Demande envoyée à "+x.name+"."); }
       catch(e){ flash("Demande enregistrée (e-mail non envoyé)."); }
     }
+  };
+  /* Renvoi du lien de confirmation à quelqu'un qui n'a jamais cliqué (mail perdu / spam). */
+  window.renvoyerLienConfirmation=async function(i){
+    var x=SIGNUPS[i]; if(!x || !x.email) return;
+    if(x.statut!=="apreconfirmer"){ flash("Cette personne a déjà confirmé."); return; }
+    if(!(await uiConfirm("Renvoyer le lien de confirmation à "+x.name+" ("+x.email+") ?"))) return;
+    if(!x.confToken){                                   // sécurité : ancien enregistrement sans jeton
+      x.confToken="C"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+      if(!(await saveSignups(x))) return;
+    }
+    var cid=currentCommId()||"";
+    var nomEv=(eventName||commName(cid)||"notre événement");
+    var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
+    var lien=base+"?c="+encodeURIComponent(cid)+"&confirm="+encodeURIComponent(x.confToken)+(nomEv?"&e="+encodeURIComponent(nomEv):"");
+    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
+      + '<h2 style="margin:0 0 10px">Confirme ton inscription</h2>'
+      + '<p>Bonjour '+escapeHtml(salutNom(x))+',</p>'
+      + '<p>Ton inscription à <b>'+escapeHtml(nomEv)+'</b> n\'est <b>pas encore validée</b> : il te reste à cliquer sur le lien ci-dessous.</p>'
+      + '<p style="text-align:center;margin:24px 0"><a href="'+lien+'" style="display:inline-block;background:#d8b45a;color:#241100;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:bold">Confirmer mon inscription</a></p>'
+      + '<p style="font-size:13px;color:#555">Si le bouton ne fonctionne pas, copie ce lien :<br>'+lien+'</p>'
+      + '<p>Ensuite, l\'équipe vérifiera ta <b>carte étudiante</b> et tu recevras ton <b>billet QR</b>.</p>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(cid)+'</p></div>';
+    try{
+      var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:x.email,subject:"Confirme ton inscription — "+nomEv,html:html,from:expediteurPour(x)})});
+      flash(r&&r.ok ? ("Lien renvoyé à "+x.name+" ✓") : "Échec de l'envoi.");
+    }catch(e){ flash("Échec de l'envoi."); }
   };
   window.accepterInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
@@ -3340,12 +3414,14 @@
     var acorriger=SIGNUPS.filter(function(x){return x.statut==="acorriger";});
     var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
     var ref=SIGNUPS.filter(function(x){return x.statut==="refuse";});
+    var aconf=SIGNUPS.filter(function(x){return x.statut==="apreconfirmer";});   // n'ont jamais cliqué le lien
     var manuels = roster.filter(function(g){ return !g.viaFormulaire; }).length;
     var totalInscrits = SIGNUPS.length + manuels;
     var resume = totalInscrits+" inscription(s)"+(manuels?" (dont "+manuels+" manuelle·s)":"")+" · "+acc.length+" billet(s) envoyé(s)"
       +(apay.length?" · "+apay.length+" paiement(s) à vérifier":"")
       +(acarte.length?" · "+acarte.length+" carte(s) à vérifier":"")
       +(acorriger.length?" · "+acorriger.length+" en attente de nouvelle carte":"")
+      +(aconf.length?" · "+aconf.length+" en attente de confirmation":"")
       +(ref.length?" · "+ref.length+" refusé(s)":"");
     if(st){
       if(currentCommId()==="proclamation"){
@@ -3371,7 +3447,7 @@
           lignes += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">'
             +'<span>Ajouté·e·s manuellement</span><span><b>'+sansRole+'</b></span></div>';
         }
-        var totalV=valides.length, totalA=apay.length+acarte.length;
+        var totalV=valides.length, totalA=apay.length+acarte.length+acorriger.length;
         var totalMax = totalV + totalA;
         var refuses = ref.length;
         st.innerHTML = '<div style="margin:6px 0 10px">'
@@ -3382,6 +3458,7 @@
             +'<div style="font-size:12.5px;margin-top:8px;opacity:.9">'
               +'<b>'+totalV+'</b> confirmée(s)'
               +(totalA?' · <span style="color:var(--amber,#d8b45a)"><b>'+totalA+'</b> en attente de validation</span>':'')
+              +(aconf.length?' · <span style="opacity:.6">'+aconf.length+' non confirmée(s), non comptée(s)</span>':'')
               +(refuses?' · <span style="opacity:.6">'+refuses+' refusée(s), non comptée(s)</span>':'')
             +'</div>'
           +'</div>'
@@ -3403,6 +3480,18 @@
     }
 
     var html="";
+    if(aconf.length){
+      html += '<p class="fld" style="margin-top:12px;color:var(--amber,#d8b45a)">⏳ N\'ont pas encore confirmé leur e-mail ('+aconf.length+')</p>'
+        + '<p class="hint" style="margin:0 0 6px">Elles ne comptent pas encore : tant qu\'elles n\'ont pas cliqué sur le lien reçu par mail, leur inscription n\'est pas validée. Le lien est peut-être dans leurs spams.</p>'
+        + aconf.map(function(x){ var i=SIGNUPS.indexOf(x);
+            var depuis="";
+            try{ var j=Math.floor((Date.now()-(x.ts||Date.now()))/86400000); depuis = j>=1 ? (" · depuis "+j+" jour"+(j>1?"s":"")) : " · aujourd'hui"; }catch(e){}
+            return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);opacity:.85">'
+              +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b><br>'
+              +'<span class="hint">'+escapeHtml(x.email||"")+escapeHtml(depuis)+'</span></span>'
+              +'<button class="btn gold xs" data-su="relance" data-i="'+i+'">📧 Renvoyer le lien</button>'
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
+    }
     if(acarte.length){
       html += '<p class="fld" style="margin-top:12px">Cartes étudiantes à vérifier ('+acarte.length+')</p>'
         + acarte.map(function(x){ var i=SIGNUPS.indexOf(x);
@@ -3904,11 +3993,25 @@
   function currentCommId(){ var m=NS.match(/^c:([a-z]+):$/); return m?m[1]:null; }
   function localUsedMapObj(){ var o={}; usedSet.forEach(function(t){ o[t]=usedAt[t]||Date.now(); }); return o; }
   function ticketDocPath(cid){ return "commission_tickets/"+cid; }
-  async function fsGetDoc(path, idToken){
-    var r = await fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+idToken } });
+  async function fsGetDoc(path, idToken, champs){
+    // champs = liste facultative de champs à rapatrier (allège fortement les relectures répétées)
+    var url = FS_BASE+path;
+    if(champs && champs.length){ url += "?" + champs.map(function(c){ return "mask.fieldPaths="+encodeURIComponent(c); }).join("&"); }
+    var r = await fetch(url, { headers:{ "Authorization":"Bearer "+idToken } });
     if(r.status===404) return null;
     var data = await r.json(); if(!r.ok) return null;
     return data;
+  }
+  /* Taille du document : Firestore refuse toute écriture au-delà de 1 Mo.
+     Sans ce garde-fou, l'échec était silencieux et les billets n'existaient plus que localement. */
+  var LIMITE_DOC = 1048576, SEUIL_ALERTE = 800000;
+  function tailleOctets(str){ try{ return new Blob([str]).size; }catch(e){ return String(str).length; } }
+  function alerteTailleDoc(octets, quoi){
+    if(octets > SEUIL_ALERTE){
+      flash("⚠️ "+quoi+" : "+(octets/1048576).toFixed(2)+" Mo sur 1 Mo maximum. Au-delà, plus rien ne s'enregistre — préviens le développeur.");
+      return true;
+    }
+    return false;
   }
   async function fsPatchFields(path, fieldsObj, idToken){
     var qs = Object.keys(fieldsObj).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
@@ -3921,7 +4024,14 @@
     var ok = await ensureAuth(cid); if(!ok) return;
     var a = loadAuth(cid); if(!a || !a.idToken) return;
     try{
-      var data = await fsGetDoc(ticketDocPath(cid), a.idToken);
+      // Sondage léger : on ne rapatrie la liste complète que si sa version a changé.
+      var leger = await fsGetDoc(ticketDocPath(cid), a.idToken, ["rosterVersion","used"]);
+      if(!leger) return;
+      var lf = leger.fields||{};
+      var rvLeger = parseInt((lf.rosterVersion&&lf.rosterVersion.stringValue)||"0",10);
+      var data;
+      if(rvLeger > localRosterVersion){ data = await fsGetDoc(ticketDocPath(cid), a.idToken); }
+      else { data = leger; }
       if(!data) return;
       var f = data.fields||{};
       var remoteRV = parseInt((f.rosterVersion&&f.rosterVersion.stringValue)||"0",10);
@@ -3945,51 +4055,117 @@
     }catch(e){}
   }
   // Poussée complète (roster + event) : réservée à l'admin de la commission (après générer/effacer)
-  async function cloudPushRoster(cid){
-    if(!cid) return;
-    var ok = await ensureAuth(cid); if(!ok) return;
-    var a = loadAuth(cid); if(!a || !a.idToken || !a.uid) return;
+  /* ---------- Suppressions : mémorisées pour qu'un autre appareil ne les ressuscite pas ---------- */
+  var TOMBES = {};                                   // token supprimé -> horodatage
+  async function chargerTombes(){
+    try{ var t=await Store.get("rosterTombs"); TOMBES = t ? JSON.parse(t) : {}; }catch(e){ TOMBES={}; }
+  }
+  async function marquerSupprimes(tokens){
+    (tokens||[]).forEach(function(t){ if(t) TOMBES[t]=Date.now(); });
+    try{ await Store.set("rosterTombs", JSON.stringify(TOMBES)); }catch(e){}
+  }
+  async function oublierTombes(){ TOMBES={}; try{ await Store.set("rosterTombs","{}"); }catch(e){} }
+
+  /* ---------- Poussée du roster : relecture-fusion (deux appareils admin ne s'écrasent plus) ---------- */
+  var _fileRoster = Promise.resolve();               // sérialise les poussées successives
+  function cloudPushRoster(cid, remplacer){
+    _fileRoster = _fileRoster.then(function(){ return _cloudPushRoster(cid, remplacer); }).catch(function(){});
+    return _fileRoster;
+  }
+  async function _cloudPushRoster(cid, remplacer){
+    if(!cid) return false;
+    var ok = await ensureAuth(cid); if(!ok){ flash("⚠️ Session expirée — les billets ne sont PAS enregistrés en ligne."); return false; }
+    var a = loadAuth(cid); if(!a || !a.idToken || !a.uid) return false;
     try{
+      // 1) relire le distant et fusionner par token (sauf remise à zéro : on écrase volontairement)
+      var distant = [], tombesDistantes = {};
+      if(!remplacer){
+        var d = await fsGetDoc(ticketDocPath(cid), a.idToken, ["roster","tombs"]);
+        if(d && d.fields){
+          try{ distant = JSON.parse((d.fields.roster && d.fields.roster.stringValue)||"[]"); }catch(e){}
+          try{ tombesDistantes = JSON.parse((d.fields.tombs && d.fields.tombs.stringValue)||"{}"); }catch(e){}
+        }
+      } else { await oublierTombes(); }
+      var tombes = remplacer ? {} : Object.assign({}, tombesDistantes, TOMBES);
+      TOMBES = tombes;
+      try{ await Store.set("rosterTombs", JSON.stringify(TOMBES)); }catch(e){}
+
+      var local = {}; roster.forEach(function(g){ if(g && g.token) local[g.token]=g; });
+      var fusion = [], vus = {};
+      distant.forEach(function(g){
+        if(!g || !g.token || tombes[g.token]) return;                 // supprimé quelque part
+        vus[g.token]=1;
+        fusion.push(Object.prototype.hasOwnProperty.call(local,g.token) ? local[g.token] : g);
+      });
+      roster.forEach(function(g){                                      // mes ajouts absents du distant
+        if(g && g.token && !vus[g.token] && !tombes[g.token]) fusion.push(g);
+      });
+
+      // 2) l'état local devient l'état fusionné (les deux appareils convergent)
+      var ajoutsDistants = fusion.length !== roster.length;
+      roster = fusion;
+      localRosterVersion = Date.now();
+      await Store.set("roster", JSON.stringify(roster));
+      await Store.set("rosterVersion", String(localRosterVersion));
+
+      var jsonRoster = JSON.stringify(roster);
+      var jsonUsed = JSON.stringify(localUsedMapObj());
+      alerteTailleDoc(tailleOctets(jsonRoster)+tailleOctets(jsonUsed), "Liste des billets");
+
       var fields = {
         adminUid: fsField(a.uid),
         event: fsField(eventName||""),
         eventMeta: fsField(JSON.stringify(eventMeta||{date:"",heure:"",lieu:""})),
-        roster: fsField(JSON.stringify(roster)),
+        roster: fsField(jsonRoster),
         rosterVersion: fsField(String(localRosterVersion)),
-        used: fsField(JSON.stringify(localUsedMapObj())),
+        tombs: fsField(JSON.stringify(tombes)),
+        used: fsField(jsonUsed),
         updatedAt: fsField(new Date().toISOString())
       };
-      await fsPatchFields(ticketDocPath(cid), fields, a.idToken);
-    }catch(e){}
+      var r = await fsPatchFields(ticketDocPath(cid), fields, a.idToken);
+      if(!(r && r.ok)){
+        var msg = (r && r.data && r.data.error && r.data.error.message) || "";
+        flash(/larger than|exceeds|too large|1048576/i.test(msg)
+          ? "❌ Liste trop volumineuse pour Firestore (1 Mo) : les derniers billets ne sont PAS enregistrés en ligne."
+          : "❌ Billets NON enregistrés en ligne (réseau/droits) — vérifie ta connexion.");
+        return false;
+      }
+      if(ajoutsDistants){ try{ renderTickets(); renderList(); updateCounts(); }catch(e){} }
+      return true;
+    }catch(e){ flash("❌ Billets NON enregistrés en ligne — vérifie ta connexion."); return false; }
   }
   // Poussée légère : uniquement les entrées scannées — utilisable par l'admin OU le compte scanner
   async function cloudPushUsed(cid){
-    if(!cid) return;
-    var ok = await ensureAuth(cid); if(!ok) return;
-    var a = loadAuth(cid); if(!a || !a.idToken) return;
+    if(!cid) return false;
+    var ok = await ensureAuth(cid); if(!ok){ flash("⚠️ Entrée enregistrée sur ce téléphone mais PAS en ligne (session)."); return false; }
+    var a = loadAuth(cid); if(!a || !a.idToken) return false;
     try{
       var remoteUsed = {};
-      var data = await fsGetDoc(ticketDocPath(cid), a.idToken);
+      var data = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used","rosterVersion"]);
       if(data){
         var f=data.fields||{};
         var grv = parseInt((f.rosterVersion&&f.rosterVersion.stringValue)||"0",10);
         if(grv===localRosterVersion){ try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e0){} }
       }
       var mergedUsed = Object.assign({}, remoteUsed, localUsedMapObj());
-      await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(mergedUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
-    }catch(e){}
+      var r = await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(mergedUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      if(!(r && r.ok)){ flash("⚠️ Entrée validée ici mais PAS synchronisée — les autres téléphones ne la voient pas."); return false; }
+      return true;
+    }catch(e){ flash("⚠️ Entrée validée ici mais PAS synchronisée (réseau)."); return false; }
   }
   async function cloudRemoveUsed(cid, token){
-    if(!cid) return;
-    var ok = await ensureAuth(cid); if(!ok) return;
-    var a = loadAuth(cid); if(!a || !a.idToken) return;
+    if(!cid) return false;
+    var ok = await ensureAuth(cid); if(!ok) return false;
+    var a = loadAuth(cid); if(!a || !a.idToken) return false;
     try{
       var remoteUsed = {};
-      var data = await fsGetDoc(ticketDocPath(cid), a.idToken);
+      var data = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used"]);
       if(data){ var f=data.fields||{}; try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e0){} }
       delete remoteUsed[token];
-      await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(remoteUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
-    }catch(e){}
+      var r = await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(remoteUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      if(!(r && r.ok)){ flash("⚠️ Annulation faite ici mais PAS synchronisée en ligne."); return false; }
+      return true;
+    }catch(e){ flash("⚠️ Annulation faite ici mais PAS synchronisée (réseau)."); return false; }
   }
   /* ---------- Synchro cloud de la visibilité « Proclamation » (partagée entre appareils) ----------
      Le drapeau est stocké dans le doc commission_tickets/proclamation, champ homeVisible ("1"=visible, "0"=masqué).
