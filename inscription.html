@@ -118,10 +118,11 @@
       <p class="hint" style="margin-top:6px">Cette invitation est nominative et donne accès à <b>une seule personne</b> : elle ne peut être ni partagée, ni transmise, ni utilisée par un accompagnant.</p>
       <p class="hint" style="margin-top:6px">Chaque billet ne peut être scanné qu'une fois. Nous comptons sur votre compréhension : la capacité de la salle ne permet malheureusement pas d'accueillir de personnes supplémentaires.</p>
     </div>
-    <div style="margin-top:14px">
-      <label class="hint" style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-size:12.5px;line-height:1.5">
-        <input type="checkbox" id="f_rgpd" style="margin-top:3px;flex:0 0 auto">
-        <span>J'accepte que mes données (nom, prénom, e-mail et, pour les étudiant·e·s, matricule et carte étudiante) soient collectées et traitées par le <b>Bureau étudiant</b> et la <b>Délégation étudiante de la Faculté de Droit et de Criminologie</b> (ULB), <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a>.</span>
+    <div style="margin-top:16px;background:rgba(216,180,90,.10);border:1px solid rgba(216,180,90,.45);border-radius:12px;padding:14px">
+      <div style="font-weight:700;color:var(--gold);margin-bottom:8px">Protection de tes données (RGPD)</div>
+      <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:12.5px;line-height:1.55">
+        <input type="checkbox" id="f_rgpd" style="margin-top:3px;flex:0 0 auto;width:18px;height:18px">
+        <span id="rgpdText">J'accepte que mes données (nom, prénom, e-mail, et selon l'événement matricule / carte étudiante / preuve de paiement) soient collectées et traitées <b>uniquement</b> pour la gestion de cet événement, sans transmission à des tiers, et <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a>.</span>
       </label>
     </div>
     <button id="btn">Je m'inscris</button>
@@ -383,6 +384,17 @@
     q("wrapAnnee").style.display="none";
   }
   if(PAY) q("wrapPreuve").style.display="";
+
+  // RGPD : responsable de traitement selon la commission
+  (function(){
+    var resp;
+    if(CID==="proclamation") resp="la <b>Délégation étudiante de la Faculté de Droit et de Criminologie</b> (ULB)";
+    else if(CID==="parrainage") resp="le <b>Bureau étudiant</b> et la <b>Délégation étudiante de la Faculté de Droit et de Criminologie</b> (ULB)";
+    else resp="le <b>Bureau étudiant de la Faculté de Droit et de Criminologie</b> (ULB)";
+    var donnees="nom, prénom, e-mail" + (CID==="proclamation" ? ", matricule et carte étudiante" : (PAY ? " et preuve de paiement" : ""));
+    var el=q("rgpdText");
+    if(el) el.innerHTML="J'accepte que mes données ("+donnees+") soient collectées et traitées par "+resp+", <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href=\"mailto:proclamation@bureauetuidant.xyz\">proclamation@bureauetuidant.xyz</a>.";
+  })();
 
   var CONFIRM_TOK = par("confirm");
   if(CONFIRM_TOK){
