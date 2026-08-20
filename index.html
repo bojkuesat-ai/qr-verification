@@ -768,15 +768,16 @@
     var mail=emailOf(g); if(!mail) return;
     var vous = !!(g.role && g.role!=="etudiant");
     var salut = vous ? (((g.prenom||"")+" "+(g.nom||"")).trim() || g.name || "") : (prenomDe(g) || g.name || "");
-    var ev = mailEsc(evName||eventName||"la proclamation");
+    var ev = mailEsc(evName || (currentCommId()===cid ? eventName : "") || "la proclamation");
     var corps = vous
       ? "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue à <b>"+ev+"</b>. Nous sommes ravis de vous compter parmi nous. Excellente cérémonie !</p>"
       : "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue à <b>"+ev+"</b> ! Félicitations et profite bien de <b>ta</b> proclamation 🎓</p>";
     var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
       +'<h2 style="margin:0 0 12px">Bienvenue 🎓</h2>'+corps
-      +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
+      +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(cid)+'</p></div>';
+    var sujetEv = evName || (currentCommId()===cid ? eventName : "") || "Proclamation";
     try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:mail,subject:"Bienvenue — "+(eventName||"Proclamation"),html:html,from:FROM_PROCLA})}); }catch(e){}
+      body:JSON.stringify({to:mail,subject:"Bienvenue — "+sujetEv,html:html,from:FROM_PROCLA})}); }catch(e){}
   }
   var ROLES_PROCLA = [
     ["etudiant","Étudiant·e diplômé·e"],
@@ -785,7 +786,12 @@
     ["patgs","Personnel administratif, technique et de gestion"],
     ["doyen","Doyen·ne"]
   ];
-  function signatureMail(){ return (currentCommId()==="parrainage") ? SIG_PARR : "Le bureau étudiant"; }
+  function signatureMail(cid){
+    var c = cid || currentCommId();
+    if(c==="parrainage") return SIG_PARR;
+    if(c==="proclamation") return "La Délégation étudiante de la Faculté de Droit et de Criminologie";
+    return "Le bureau étudiant";
+  }
   var usedSet = new Set();     // tokens entrés (présence, cross-appareil)
   var usedAt = {};             // token -> timestamp (ce que cet appareil a enregistré)
   var currentTab = "guests";
@@ -1486,6 +1492,7 @@
     var cidLive = currentCommId();
     if(cidLive && navigator.onLine){
       try{
+        await ensureAuth(cidLive);                 // jeton expiré => la vérif live échouait en silence
         var aLive = loadAuth(cidLive);
         if(aLive && aLive.idToken){
           var liveDoc = await fsGetDoc(ticketDocPath(cidLive), aLive.idToken);
@@ -2882,6 +2889,12 @@
     var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c==null?"":c).replace(/"/g,'""')+'"'; }).join(";"); }).join("\n");
     downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), filename);
   }
+  /* Les entrées scannées sur un AUTRE téléphone n'arrivent ici que via cloudPull, qui ne tourne
+     que sur les onglets Scan/Liste. On force donc une synchro avant tout export ou bilan. */
+  async function syncAvantExport(){
+    var cid=currentCommId(); if(!cid) return;
+    try{ await cloudPull(cid); await refreshUsed(); updateCounts(); }catch(e){}
+  }
   window.exportDiplomes = function(){
     var etu = roster.filter(function(g){ return g.role==="etudiant"; });
     if(!etu.length){ flash("Aucun·e étudiant·e validé·e pour l'instant."); return; }
@@ -2896,6 +2909,7 @@
     try{ dest = (getNotifMail && getNotifMail()) || ""; }catch(e){}
     if(!dest) dest = (($("suNotif")&&$("suNotif").value)||"").trim();
     if(!dest){ flash("Renseigne d'abord l'e-mail de notification (carte Inscriptions en ligne)."); return; }
+    flash("Synchronisation des entrées…"); await syncAvantExport();
     var total=roster.length, entres=roster.filter(function(g){return usedSet.has(g.token);}).length, absents=total-entres;
     if(!(await uiConfirm("Envoyer le bilan de fin d'événement (stats + présents) à "+dest+" ?"))) return;
     var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
@@ -2918,7 +2932,8 @@
   };
   window.exportInscriptionsXLSX = async function(){
     flash("Préparation de l'Excel des inscriptions…");
-    var XLSX; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ flash("Module Excel indisponible (vérifie la connexion)."); return; }
+    await syncAvantExport();
+    var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
     var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
     var rows=[["Nom","Prénom","E-mail","Type","Section","Matricule","Statut","Heure d'entrée","Origine"]];
     roster.forEach(function(g){
@@ -2930,13 +2945,19 @@
       if(x.statut==="accepte" || x.statut==="nouveau") return;
       rows.push([x.nom||x.name||"", x.prenom||"", x.email||"", roleLbl[x.role]||x.role||"", x.section||"", x.matricule||"", (statutSU[x.statut]||x.statut||""), "", "En ligne"]);
     });
+    if(!XLSX){                                    // CDN bloqué : repli CSV (s'ouvre dans Excel)
+      telechargerCSV(rows, sanitize(eventName||"evenement")+"_inscriptions.csv");
+      flash((rows.length-1)+" ligne(s) — CSV téléchargé (module Excel indisponible).");
+      return;
+    }
     var ws=XLSX.utils.aoa_to_sheet(rows);
     ws["!cols"]=[{wch:20},{wch:16},{wch:26},{wch:20},{wch:13},{wch:12},{wch:22},{wch:20},{wch:9}];
     var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inscriptions");
     XLSX.writeFile(wb, sanitize(eventName||"evenement")+"_inscriptions.xlsx");
     flash((rows.length-1)+" ligne(s) — Excel téléchargé.");
   };
-  window.exportPresents = function(){
+  window.exportPresents = async function(){
+    flash("Synchronisation des entrées…"); await syncAvantExport();
     var present = roster.filter(function(g){ return usedSet.has(g.token); });
     if(!present.length){ flash("Personne n'a encore été scanné·e / enregistré·e."); return; }
     var roleLbl={etudiant:"Étudiant·e diplômé·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
@@ -2977,9 +2998,51 @@
     }catch(e){ flash("Erreur de chargement : "+(e.message||e)); }
     renderSignups();
   };
-  async function saveSignups(){
-    var cid=currentCommId(); var a=loadAuth(cid); if(!a) return;
-    try{ await fsPatchFields(signupDocPath(cid), { signups: fsField(JSON.stringify(SIGNUPS)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }catch(e){}
+  /* Identifiant stable d'une inscription (survit à un rechargement du tableau). */
+  function sigId(x){
+    if(!x) return "";
+    return [String(x.confToken||""), String(x.email||"").toLowerCase(),
+            String(x.matricule||""), String(x.ts||"")].join("|");
+  }
+  /* Enregistre UNIQUEMENT les inscriptions modifiées, en relisant le cloud juste avant d'écrire.
+     Sans cela, on réécrivait tout le tableau tel qu'il était au dernier refresh (jusqu'à 30 s avant,
+     ou beaucoup plus si l'écran était éteint) => les inscriptions et confirmations arrivées
+     entre-temps étaient effacées. */
+  async function saveSignups(modifs){
+    var cid=currentCommId(); if(!cid) return false;
+    var okAuth = await ensureAuth(cid);
+    if(!okAuth){ flash("⚠️ Session expirée — reconnecte-toi à la commission."); return false; }
+    var a=loadAuth(cid); if(!a || !a.idToken){ flash("⚠️ Session expirée — reconnecte-toi."); return false; }
+
+    var listeModifs = modifs ? (Array.isArray(modifs) ? modifs : [modifs]) : null;
+    var out=null;
+    try{
+      var d = await fsGetDoc(signupDocPath(cid), a.idToken);
+      var frais=[];
+      if(d && d.fields && d.fields.signups){ try{ frais=JSON.parse(d.fields.signups.stringValue||"[]"); }catch(e){} }
+      if(listeModifs){
+        var parCle={}; listeModifs.forEach(function(x){ var k=sigId(x); if(k) parCle[k]=x; });
+        var vus={};
+        out = frais.map(function(y){
+          var k=sigId(y); vus[k]=1;
+          return Object.prototype.hasOwnProperty.call(parCle,k) ? parCle[k] : y;   // ma version pour CE qui a changé
+        });
+        listeModifs.forEach(function(x){                                            // modifiée mais absente du cloud
+          var k=sigId(x); if(k && !vus[k]) out.push(x);
+        });
+      } else {
+        out = SIGNUPS.slice();
+      }
+    }catch(e){ out = listeModifs ? null : SIGNUPS.slice(); }
+
+    if(!out){ flash("⚠️ Enregistrement impossible (réseau) — réessaie."); return false; }
+
+    var r=null;
+    try{ r = await fsPatchFields(signupDocPath(cid), { signups: fsField(JSON.stringify(out)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
+    catch(e){ r=null; }
+    if(r && r.ok){ SIGNUPS = out; return true; }
+    flash("⚠️ Enregistrement NON pris en compte (réseau/session) — réessaie.");
+    return false;
   }
   var PROCESSING_SIGNUPS=false;
   async function processSignups(){
@@ -2992,7 +3055,7 @@
       for(var i=0;i<nouveaux.length;i++){
         await creerBilletDepuisInscription(nouveaux[i]); nouveaux[i].statut="accepte"; changed=true;
       }
-      if(changed){ await saveSignups(); }
+      if(changed){ await saveSignups(nouveaux); }
     } finally { PROCESSING_SIGNUPS=false; }
   }
   async function envoyerBilletMail(g){
@@ -3093,7 +3156,9 @@
     var motif = await uiPrompt("Motif du refus DÉFINITIF (visible par la personne) :", suggestion);
     if(motif===null) return;
     if(!(await uiConfirm("Refuser DÉFINITIVEMENT l'inscription de "+x.name+" ? (pour juste demander une nouvelle carte, utilise plutôt « Nouvelle carte »)"))) return;
-    x.statut="refuse"; x.motif=motif; await saveSignups(); renderSignups();
+    x.statut="refuse"; x.motif=motif;
+    var _okSave = await saveSignups(x); renderSignups();
+    if(!_okSave) return;                                   // refus non enregistré : on n'envoie pas le mail
     if(x.email){
       var cid=currentCommId()||"";
       var nomEv=(eventName||commName(cid)||"notre événement");
@@ -3120,7 +3185,8 @@
     if(!(await uiConfirm("Demander une nouvelle carte à "+x.name+" ? Un lien de renvoi lui sera envoyé."))) return;
     if(!x.corrToken){ x.corrToken="K"+Date.now().toString(36)+Math.random().toString(36).slice(2,10); }
     x.statut="acorriger"; x.motif=motif; x.corrigee=false;
-    await saveSignups(); renderSignups();
+    var _okSave = await saveSignups(x); renderSignups();
+    if(!_okSave) return;                                   // demande non enregistrée : pas de mail avec un lien mort
     if(x.email){
       var cid=currentCommId()||"";
       var nomEv=(eventName||commName(cid)||"notre événement");
@@ -3146,7 +3212,9 @@
   window.accepterInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
     await creerBilletDepuisInscription(x); x.statut="accepte";
-    await saveSignups(); renderSignups(); flash("Billet envoyé à "+x.name+".");
+    var _okSave = await saveSignups(x); renderSignups();
+    flash(_okSave ? ("Billet envoyé à "+x.name+".")
+                  : ("Billet envoyé à "+x.name+", mais le statut n'a PAS pu être enregistré — actualise et revalide."));
   };
   var SIGNUP_HTML = `    <div class="card gen-card" id="signupCard">
       <div class="gen-head"><h2>Inscriptions en ligne</h2><button class="btn ghost sm" id="btnRefreshSu" type="button">Actualiser</button></div>
@@ -3210,7 +3278,7 @@
         <div class="row" style="gap:8px;flex-wrap:wrap">
           <button class="btn gold sm" type="button" onclick="exportInscriptionsXLSX()">Toutes les inscriptions (Excel)</button>
           <button class="btn gold sm" id="btnExportDiplomes" type="button" onclick="exportDiplomes()">Liste des diplômé·e·s (lecture des noms)</button>
-          <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (Excel)</button>
+          <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (CSV, ouvre dans Excel)</button>
           <button class="btn ghost sm" type="button" onclick="bilanFinEvenement()">📊 Bilan de fin (par e-mail)</button>
         </div>
       </div>

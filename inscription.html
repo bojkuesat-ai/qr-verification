@@ -235,6 +235,15 @@
     if(!r.ok){ var det=""; try{ var je=await r.json(); det=(je&&je.error&&je.error.message)||""; }catch(e){} throw new Error(det||("image HTTP "+r.status)); }
   }
   async function ecrireCarteDoc(carteId, b64){ return ecrireImageDoc(carteDocPath(carteId), b64); }
+  // Si l'écriture de l'inscription échoue après l'envoi de l'image, on supprime l'image restée orpheline.
+  var _imagesEcrites=[];
+  async function supprimerImagesOrphelines(){
+    for(var i=0;i<_imagesEcrites.length;i++){
+      try{ var tk=await assurerTokenEcriture();
+        await fetch(FS_BASE+_imagesEcrites[i],{method:"DELETE",headers:{"Authorization":"Bearer "+tk}}); }catch(e){}
+    }
+    _imagesEcrites=[];
+  }
   async function ecrirePreuveDoc(preuveId, b64){ return ecrireImageDoc("commission_cartes/"+CID+"__p__"+preuveId, b64); }
   async function confirmerInscription(token){
     try{
@@ -614,13 +623,13 @@
         rec.role=rl;
         rec.section=(AVEC_SECTION.indexOf(rl)>=0) ? q("f_sec").value : "";
         rec.annee="";
-        if(rl==="etudiant"){ rec.matricule=matricule; rec.carteId=nouveauToken(); rec.statut="apreconfirmer"; rec.confToken=nouveauToken(); rec.emailConfirme=false; await ecrireCarteDoc(rec.carteId, carte); }
+        if(rl==="etudiant"){ rec.matricule=matricule; rec.carteId=nouveauToken(); rec.statut="apreconfirmer"; rec.confToken=nouveauToken(); rec.emailConfirme=false; await ecrireCarteDoc(rec.carteId, carte); _imagesEcrites.push(carteDocPath(rec.carteId)); }
       } else {
         rec.section=q("f_sec").value;
         rec.annee=(isP && q("f_role").value==="alumni") ? "" : q("f_annee").value;
         if(isP){ rec.role=q("f_role").value; rec.exPasserelle=!!q("f_pass").checked; }
       }
-      if(PAY){ rec.preuveId="P"+nouveauToken(); await ecrirePreuveDoc(rec.preuveId, preuve); }
+      if(PAY){ rec.preuveId="P"+nouveauToken(); await ecrirePreuveDoc(rec.preuveId, preuve); _imagesEcrites.push("commission_cartes/"+CID+"__p__"+rec.preuveId); }
       list.push(rec);
 
       var fields = { signups:{ stringValue: JSON.stringify(list) },
@@ -631,8 +640,10 @@
         body: JSON.stringify({ fields:fields }) });
       if(!rp.ok){
         var det=""; try{ var je=await rp.json(); det=(je&&je.error&&je.error.message)||""; }catch(e){}
+        try{ await supprimerImagesOrphelines(); }catch(e){}
         throw new Error(det||("HTTP "+rp.status));
       }
+      _imagesEcrites=[];
 
       var notifMail=(cur&&cur.fields&&cur.fields.notifMail&&cur.fields.notifMail.stringValue)||"";
       if(notifMail && rec.statut!=="apreconfirmer"){ try{ envoyerNotif(notifMail, rec); }catch(e){} }
