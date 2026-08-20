@@ -125,6 +125,7 @@
         <span id="rgpdText">J'accepte que mes données (nom, prénom, e-mail, et selon l'événement matricule / carte étudiante / preuve de paiement) soient collectées et traitées <b>uniquement</b> pour la gestion de cet événement, sans transmission à des tiers, et <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a>.</span>
       </label>
     </div>
+    <div id="jaugeBox" style="display:none;margin-top:16px;border:1px solid rgba(216,180,90,.40);border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5"></div>
     <button id="btn">Je m'inscris</button>
     <p class="hint">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>.
        Si vous ne le trouvez pas, pensez à vérifier vos <b>spams / courriers indésirables</b>.</p>
@@ -274,6 +275,37 @@
     }
   }
   function esc(x){ return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  /* ---------- Jauge de places ---------- */
+  var COMM_JAUGE = ["festif","aca","culture"];
+  var PLACES = 0, PRIS = 0;
+  function placesPrisesDoc(f){
+    var billets = 0, enCours = 0;
+    try{ billets = JSON.parse((f.roster && f.roster.stringValue)||"[]").length; }catch(e){}
+    try{
+      JSON.parse((f.signups && f.signups.stringValue)||"[]").forEach(function(x){
+        if(x && (x.statut==="apayer"||x.statut==="acarte"||x.statut==="acorriger")) enCours++;
+      });
+    }catch(e){}
+    return billets + enCours;
+  }
+  function completJauge(){ return PLACES>0 && PRIS>=PLACES; }
+  function majBandeauJauge(){
+    var el=q("jaugeBox"), btn=q("btn");
+    if(!el) return;
+    if(!PLACES){ el.style.display="none"; return; }
+    el.style.display="";
+    var reste=PLACES-PRIS;
+    if(reste>0){
+      el.style.background="rgba(216,180,90,.10)"; el.style.borderColor="rgba(216,180,90,.40)";
+      el.innerHTML="🎟️ <b>"+reste+"</b> place"+(reste>1?"s":"")+" restante"+(reste>1?"s":"")+" sur "+PLACES+".";
+      if(btn) btn.textContent="Je m'inscris";
+    } else {
+      el.style.background="rgba(216,180,90,.16)"; el.style.borderColor="rgba(216,180,90,.55)";
+      el.innerHTML="⚠️ <b>COMPLET</b> ("+PLACES+" places). Tu peux rejoindre la <b>liste d'attente</b> : en cas de désistement, l'équipe repêche dans l'ordre d'inscription et t'envoie ton billet.";
+      if(btn) btn.textContent="Rejoindre la liste d'attente";
+    }
+  }
   // --- Mode "renvoyer ma carte" (proclamation étudiant refusé pour carte) ---
   var _corrFile=null, _CORR_TOKEN="";
   function _corrOnFile(input){
@@ -509,6 +541,12 @@
         // la date de clôture publiée par l'app fait foi, même si le lien partagé ne la contient pas
         var cl = f && f.cloture && f.cloture.stringValue;
         if(cl){ CLOTURE = cl; if(inscriptionsFermees(CLOTURE)) afficherFermeture(CLOTURE); }
+        // jauge de places (festif / aca / culture) : affichage du restant ou du mode liste d'attente
+        if(COMM_JAUGE.indexOf(CID)>=0){
+          PLACES = parseInt((f && f.places && f.places.stringValue)||"0",10)||0;
+          try{ PRIS = placesPrisesDoc(f); }catch(e){ PRIS = 0; }
+          majBandeauJauge();
+        }
       }).catch(function(){});
   }, 0);
 
@@ -625,7 +663,22 @@
         }
       }
 
+      // jauge : recalcul sur le document qu'on vient de relire (évite de dépasser à cause d'un affichage périmé)
+      var enAttente=false;
+      if(COMM_JAUGE.indexOf(CID)>=0 && cur && cur.fields){
+        PLACES = parseInt((cur.fields.places && cur.fields.places.stringValue)||"0",10)||0;
+        PRIS = placesPrisesDoc(cur.fields);
+        if(PLACES>0){
+          var dejaAttente=list.filter(function(x){ return x && x.statut==="attente"; }).length;
+          PRIS += 0;                                  // les personnes en attente ne prennent pas de place
+          enAttente = (PRIS >= PLACES);
+          if(enAttente) PRIS = PLACES;
+          majBandeauJauge();
+          void dejaAttente;
+        }
+      }
       var rec = { name:(nom+" "+prenom).trim(), nom:nom, prenom:prenom, email:m1, ts:Date.now(), statut: PAY?"apayer":"nouveau", viaFormulaire:true };
+      if(enAttente) rec.statut="attente";             // complet -> liste d'attente
       if(isPro){
         var rl=q("f_role").value;
         rec.role=rl;
@@ -665,6 +718,11 @@
           + '<p class="hint">Un e-mail contenant un <b>lien de confirmation</b> vient d\'être envoyé à <b>'+esc(m1)+'</b>.<br>Clique sur ce lien pour <b>valider ton inscription</b>.</p>'
           + '<p class="hint">Tant que tu n\'as pas cliqué, ton inscription n\'est <b>pas</b> prise en compte. Après confirmation, l\'équipe vérifiera ta carte étudiante, puis tu recevras ton billet QR.</p>'
           + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 <b>Tu ne reçois pas cet e-mail ?</b><br>Vérifie tes <b>spams / courriers indésirables</b>.</p>';
+      } else if(enAttente){
+        okHtml='<p class="big">⏳</p><p><b>Tu es sur la liste d\'attente</b></p>'
+          + '<p class="hint">L\'événement est <b>complet</b>. Ton inscription est enregistrée et tu es placé·e dans la file, dans l\'ordre d\'arrivée.</p>'
+          + '<p class="hint">En cas de désistement, l\'équipe repêche les premières personnes et envoie le billet QR par e-mail. Tu n\'as rien d\'autre à faire.</p>'
+          + '<p class="hint" style="margin-top:14px;background:rgba(216,180,90,.12);border:1px solid rgba(216,180,90,.40);border-radius:10px;padding:12px 14px;color:var(--text)">📩 Pense à vérifier tes <b>spams</b>.</p>';
       } else {
         okHtml='<p class="big">✅</p><p><b>Inscription enregistrée</b></p>'
           + '<p class="hint">'+(PAY

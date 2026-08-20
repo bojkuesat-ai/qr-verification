@@ -2274,8 +2274,68 @@
     renderSignups();
     flash("Tout a été effacé.");
   };
+  var ARCHIVES=[];
+  window.ouvrirArchives = async function(){
+    var cid=currentCommId(); if(!cid){ flash("Ouvre d'abord une commission."); return; }
+    flash("Chargement des archives…");
+    ARCHIVES = await lireArchives(cid);
+    var box=$("archModal");
+    if(!box){
+      box=document.createElement("div");
+      box.id="archModal"; box.className="modal";
+      box.innerHTML='<div class="modal-box" style="max-width:620px;width:100%;padding:20px">'
+        +'<div class="gen-head"><h2>🗂️ Archives des événements</h2>'
+        +'<button class="btn ghost sm" type="button" onclick="fermerArchives()">Fermer</button></div>'
+        +'<div id="archBody" style="max-height:70vh;overflow:auto"></div></div>';
+      document.body.appendChild(box);
+    }
+    rendreArchives();
+    box.classList.add("on");
+  };
+  window.fermerArchives=function(){ var b=$("archModal"); if(b) b.classList.remove("on"); };
+  function rendreArchives(){
+    var b=$("archBody"); if(!b) return;
+    if(!ARCHIVES.length){ b.innerHTML='<p class="hint">Aucun événement archivé pour l\'instant. Le bilan est enregistré automatiquement quand tu cliques sur « Nouvel événement ».</p>'; return; }
+    var tot=ARCHIVES.reduce(function(a,e){ return {b:a.b+(e.billets||0), e:a.e+(e.entres||0)}; }, {b:0,e:0});
+    var tauxG = tot.b ? Math.round(tot.e/tot.b*100) : 0;
+    var html='<div style="background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;text-align:center">'
+      +'<div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;opacity:.75">'+ARCHIVES.length+' événement(s) archivé(s)</div>'
+      +'<div style="font-size:26px;font-weight:800;margin:4px 0">'+tot.e+' / '+tot.b+'</div>'
+      +'<div style="font-size:13px;opacity:.85">présent·e·s au total · taux de participation moyen <b>'+tauxG+' %</b></div></div>';
+    html += ARCHIVES.map(function(e,i){
+      var taux = e.billets ? Math.round((e.entres||0)/e.billets*100) : 0;
+      var meta=[e.date||e.cloture, e.lieu].filter(Boolean).join(" · ");
+      return '<div style="border-bottom:1px solid var(--line);padding:10px 0;display:flex;gap:10px;align-items:flex-start">'
+        +'<span style="flex:1;min-width:0"><b>'+escapeHtml(e.nom||"Sans nom")+'</b>'
+        +(meta?'<br><span class="hint">'+escapeHtml(meta)+'</span>':'')
+        +'<br><span class="hint"><b>'+(e.entres||0)+'</b> présent(s) sur <b>'+(e.billets||0)+'</b> billet(s) — '+taux+' %'
+        +(e.enLigne?' · '+e.enLigne+' en ligne':'')+(e.manuels?' · '+e.manuels+' manuel(s)':'')
+        +(e.attente?' · '+e.attente+' en attente':'')+(e.refuses?' · '+e.refuses+' refusé(s)':'')
+        +(e.places?' · jauge '+e.places:'')+'</span></span>'
+        +'<button class="btn ghost xs" data-arch="'+escapeHtml(e.id||("i"+i))+'">🗑️</button></div>';
+    }).join("");
+    b.innerHTML=html;
+  }
+  document.addEventListener("click", function(ev){
+    var b = ev.target && ev.target.closest ? ev.target.closest("[data-arch]") : null;
+    if(!b) return;
+    ev.preventDefault();
+    supprimerArchive(b.getAttribute("data-arch"));
+  }, true);
+  window.supprimerArchive = async function(id){
+    var e = ARCHIVES.filter(function(x){ return (x.id||"")===id; })[0];
+    if(!e) return;
+    if(!(await uiConfirm("Supprimer définitivement « "+(e.nom||"Sans nom")+" » des archives ?\n\nIl ne comptera plus dans les statistiques."))) return;
+    var cid=currentCommId();
+    var reste = ARCHIVES.filter(function(x){ return (x.id||"")!==id; });
+    var ok = await ecrireArchives(cid, reste);
+    if(ok){ ARCHIVES=reste; rendreArchives(); flash("Archive supprimée."); }
+    else flash("⚠️ Suppression NON enregistrée — réessaie.");
+  };
   window.newEvent = async function(){
     if(!(await uiConfirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne (y compris les paiements en attente) seront effacées."))) return;
+    flash("Archivage du bilan…");
+    try{ await archiverEvenement(); }catch(e){}      // résumé conservé dans les Archives
     await resetSignups();
     await wipeAll();
     if($("suEvName")) $("suEvName").value="";
@@ -2724,6 +2784,41 @@
   }
   function clotureKey(){ return "qrentry:cloture:"+(currentCommId()||""); }
   function getCloture(){ try{ return window.localStorage.getItem(clotureKey())||""; }catch(e){ return ""; } }
+
+  /* ---------- Jauge de places (festif, aca, culture uniquement) ---------- */
+  var COMM_JAUGE = ["festif","aca","culture"];
+  function jaugeActive(){ return COMM_JAUGE.indexOf(currentCommId())>=0; }
+  function placesKey(){ return "qrentry:places:"+(currentCommId()||""); }
+  function getPlaces(){ try{ return parseInt(window.localStorage.getItem(placesKey())||"0",10)||0; }catch(e){ return 0; } }
+  async function publierPlaces(n){
+    var cid=currentCommId(); if(!cid) return false;
+    var ok=await ensureAuth(cid); if(!ok) return false;
+    var a=loadAuth(cid); if(!a||!a.idToken) return false;
+    try{ var r=await fsPatchFields(ticketDocPath(cid), { places: fsField(String(n||0)) }, a.idToken); return !!(r&&r.ok); }
+    catch(e){ return false; }
+  }
+  // Une place est prise par un billet émis OU une inscription en cours de validation.
+  function placesPrises(){
+    var billets = roster.length;
+    var enCours = (SIGNUPS||[]).filter(function(x){
+      return x.statut==="apayer" || x.statut==="acarte" || x.statut==="acorriger";
+    }).length;
+    return billets + enCours;
+  }
+  function majJaugeUI(){
+    var w=$("wrapJauge"); if(!w) return;
+    w.style.display = jaugeActive() ? "" : "none";
+    if(!jaugeActive()) return;
+    var inp=$("suPlaces"); if(inp && !inp.__init){ inp.__init=1; var v=getPlaces(); if(v) inp.value=String(v); }
+    var max=getPlaces(), info=$("jaugeInfo"); if(!info) return;
+    if(!max){ info.textContent="Aucune limite : le formulaire accepte tout le monde."; info.style.color=""; return; }
+    var pris=placesPrises(), reste=max-pris;
+    var att=(SIGNUPS||[]).filter(function(x){ return x.statut==="attente"; }).length;
+    info.innerHTML = reste>0
+      ? "<b>"+reste+"</b> place(s) restante(s) sur "+max+" ("+pris+" prise(s))."+(att?" · "+att+" en liste d'attente":"")
+      : "<b>COMPLET</b> — "+pris+"/"+max+". Les nouvelles inscriptions vont en liste d'attente."+(att?" ("+att+" en attente)":"");
+    info.style.color = reste>0 ? "" : "var(--amber,#d8b45a)";
+  }
   window.resetInscriptions=async function(){
     var cid=currentCommId(); if(!cid) return;
     if(!(await uiConfirm("Réinitialiser complètement cet événement ?\n\n• billets et entrées effacés\n• inscriptions en ligne effacées\n• nom, dates et clôture remis à zéro\n\nAction irréversible."))) return;
@@ -3122,7 +3217,7 @@
     if(PROCESSING_SIGNUPS) return;                 // anti-réentrance : empêche les traitements simultanés
     PROCESSING_SIGNUPS=true;
     try{
-      var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });   // "apayer"/"acarte" = validation manuelle
+      var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });   // "apayer"/"acarte"/"attente" = validation manuelle
       if(!nouveaux.length) return;
       var changed=false;
       for(var i=0;i<nouveaux.length;i++){
@@ -3178,6 +3273,7 @@
     else if(a==="ok")     accepterInscrit(i);
     else if(a==="recarte") demanderNouvelleCarte(i);
     else if(a==="relance") renvoyerLienConfirmation(i);
+    else if(a==="repecher") repecherInscrit(i);
     else if(a==="no")     refuserInscrit(i);
   }, true);
   window.voirCarte=async function(i){
@@ -3314,6 +3410,20 @@
       flash(r&&r.ok ? ("Lien renvoyé à "+x.name+" ✓") : "Échec de l'envoi.");
     }catch(e){ flash("Échec de l'envoi."); }
   };
+  /* Repêchage : la personne quitte la liste d'attente et reçoit son billet. */
+  window.repecherInscrit=async function(i){
+    var x=SIGNUPS[i]; if(!x) return;
+    var max=getPlaces(), reste = max ? (max-placesPrises()) : 1;
+    var msg = reste>0 ? ("Repêcher "+x.name+" ? Son billet part immédiatement par e-mail.")
+                      : ("⚠️ Il n'y a AUCUNE place libre ("+placesPrises()+"/"+max+").\n\nRepêcher quand même "+x.name+" ? Tu dépasseras la jauge.");
+    if(!(await uiConfirm(msg))) return;
+    var avant=x.statut;
+    await creerBilletDepuisInscription(x); x.statut="accepte";
+    var ok=await saveSignups(x);
+    if(!ok){ x.statut=avant; }
+    renderSignups();
+    flash(ok ? ("Billet envoyé à "+x.name+".") : "Billet envoyé mais statut NON enregistré — actualise et revérifie.");
+  };
   window.accepterInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
     await creerBilletDepuisInscription(x); x.statut="accepte";
@@ -3353,6 +3463,15 @@
         <input type="date" id="suCloture" style="flex:1">
         <button class="btn ghost sm" id="btnCloture" type="button">Enregistrer</button>
       </div>
+      <div style="height:10px"></div>
+      <div id="wrapJauge">
+        <label class="fld" for="suPlaces">Nombre de places (0 ou vide = illimité)</label>
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="number" id="suPlaces" min="0" step="1" placeholder="Ex. 200" style="flex:1">
+          <button class="btn ghost sm" id="btnPlaces" type="button">Enregistrer</button>
+        </div>
+        <div id="jaugeInfo" class="hint" style="margin-top:6px"></div>
+      </div>
       <div style="height:12px"></div>
       <button class="btn ghost sm" id="btnResetInsc" type="button" style="width:100%;border-color:#c0392b;color:#e88">Réinitialiser cet événement</button>
       <div style="height:12px"></div>
@@ -3385,6 +3504,7 @@
           <button class="btn gold sm" id="btnExportDiplomes" type="button" onclick="exportDiplomes()">Liste des diplômé·e·s (lecture des noms)</button>
           <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (CSV, ouvre dans Excel)</button>
           <button class="btn ghost sm" type="button" onclick="bilanFinEvenement()">📊 Bilan de fin (par e-mail)</button>
+          <button class="btn ghost sm" type="button" onclick="ouvrirArchives()">🗂️ Archives des événements</button>
         </div>
       </div>
     </div>`;
@@ -3409,6 +3529,15 @@
       uiAlert(ok ? (v ? ("CLOTURE ENREGISTREE : "+v+"\n\nLe formulaire se fermera automatiquement après cette date.")
                     : "Clôture retirée : le formulaire reste ouvert.")
                : "PROBLEME : la clôture n'a pas pu être publiée.");
+    }; }
+    b=$("btnPlaces");    if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
+      var n=parseInt(($("suPlaces")&&$("suPlaces").value)||"0",10); if(isNaN(n)||n<0) n=0;
+      try{ window.localStorage.setItem(placesKey(), String(n)); }catch(e){}
+      var ok=await publierPlaces(n);
+      majJaugeUI();
+      uiAlert(ok ? (n ? ("Jauge enregistrée : "+n+" place(s).\n\nAu-delà, les inscriptions passent en liste d'attente.")
+                      : "Jauge retirée : plus aucune limite.")
+                 : "PROBLEME : la jauge n'a pas pu être publiée.");
     }; }
     var cl=$("suCloture"); if(cl && !cl.__ok){ cl.__ok=1; if(getCloture()) cl.value=getCloture(); }
     var dd=$("suEvDate"); if(dd && !dd.__ok){ dd.__ok=1;
@@ -3436,6 +3565,7 @@
   }
   function renderSignups(){
     majPayBadge();
+    try{ majJaugeUI(); }catch(e){}
     if($("suExport")) $("suExport").style.display = "block";
     if($("btnExportDiplomes")) $("btnExportDiplomes").style.display = (currentCommId()==="proclamation") ? "inline-block" : "none";
     var box=$("suList"), st=$("suStats"); if(!box) return;
@@ -3511,6 +3641,21 @@
     }
 
     var html="";
+    var attente=SIGNUPS.filter(function(x){return x.statut==="attente";});
+    if(attente.length){
+      var maxJ=getPlaces(), restant=maxJ? Math.max(0, maxJ-placesPrises()) : 0;
+      html += '<p class="fld" style="margin-top:12px;color:var(--amber,#d8b45a)">⏳ Liste d\'attente ('+attente.length+')</p>'
+        + '<p class="hint" style="margin:0 0 6px">'+(restant>0
+              ? ('<b>'+restant+' place(s) se sont libérée(s)</b> — repêche les premières de la liste.')
+              : 'Complet. Dès qu\'une place se libère (refus ou suppression), repêche la première personne.')+'</p>'
+        + attente.map(function(x,rang){ var i=SIGNUPS.indexOf(x);
+            return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
+              +'<span style="flex:1;min-width:0"><b>'+(rang+1)+'. '+escapeHtml(x.name||"?")+'</b><br>'
+              +'<span class="hint">'+escapeHtml(x.email||"")+'</span></span>'
+              + (x.preuveId||x.preuve ? '<button class="btn ghost xs" data-su="preuve" data-i="'+i+'">Preuve</button>' : '')
+              +'<button class="btn gold xs" data-su="repecher" data-i="'+i+'">🎟️ Repêcher</button>'
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
+    }
     if(aconf.length){
       html += '<p class="fld" style="margin-top:12px;color:var(--amber,#d8b45a)">⏳ N\'ont pas encore confirmé leur e-mail ('+aconf.length+')</p>'
         + '<p class="hint" style="margin:0 0 6px">Elles ne comptent pas encore : tant qu\'elles n\'ont pas cliqué sur le lien reçu par mail, leur inscription n\'est pas validée. Le lien est peut-être dans leurs spams.</p>'
