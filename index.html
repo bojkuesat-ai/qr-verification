@@ -399,6 +399,12 @@
           <button class="btn gold sm" onclick="checkManual()">Vérifier</button>
         </div>
       </div>
+
+      <div class="manual" style="margin-top:12px">
+        <label class="fld" for="scanSearch">Rechercher par nom (si le QR est perdu)</label>
+        <input type="text" id="scanSearch" placeholder="Nom ou prénom…" autocomplete="off" oninput="renderScanSearch()">
+        <div id="scanSearchRes" style="margin-top:8px"></div>
+      </div>
     </div>
   </section>
 
@@ -554,6 +560,7 @@
       <button class="btn ghost sm" onclick="gscanClose()">✕ Fermer</button>
     </div>
     <div id="gsStatus" style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Chargement des commissions…</div>
+    <div id="gSync" style="font-size:11.5px;color:var(--muted);margin-bottom:8px"></div>
     <div class="counter"><b id="gEntered">0</b><span>entrés sur <b id="gTotal" style="font-size:15px">0</b> · toutes commissions</span></div>
     <div class="stat idle" id="gstat"><p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p></div>
     <div class="gs-ambig" id="gambig" style="display:none"></div>
@@ -572,6 +579,11 @@
           <input type="text" id="gmanual" placeholder="Code du billet" autocomplete="off" autocapitalize="characters" onkeydown="if(event.key==='Enter')gCheckManual()">
           <button class="btn gold sm" onclick="gCheckManual()">Vérifier</button>
         </div>
+      </div>
+      <div class="manual" style="margin-top:12px">
+        <label class="fld" for="gscanSearch">Rechercher par nom (si le QR est perdu)</label>
+        <input type="text" id="gscanSearch" placeholder="Nom ou prénom…" autocomplete="off" oninput="gRenderScanSearch()">
+        <div id="gscanSearchRes" style="margin-top:8px"></div>
       </div>
     </div>
   </div>
@@ -750,6 +762,22 @@
   // Parrainage = collaboration Bureau étudiant (BE) + Délégation étudiante.
   var SIG_PARR = 'En collaboration : le Bureau étudiant de la Faculté de Droit et de Criminologie (BE) et la Délégation étudiante de la Faculté de Droit et de Criminologie';
   var FROM_PARR = 'BE de la Faculté de Droit et de Criminologie & Délégation étudiante de la Faculté de Droit et de Criminologie <proclamation@bureauetuidant.xyz>';
+  var FROM_PROCLA = 'Délégation étudiante de la Faculté de Droit et de Criminologie <proclamation@bureauetuidant.xyz>';
+  async function envoyerBienvenue(g, cid, evName){
+    if(cid!=="proclamation" || !g) return;
+    var mail=emailOf(g); if(!mail) return;
+    var vous = !!(g.role && g.role!=="etudiant");
+    var salut = vous ? (((g.prenom||"")+" "+(g.nom||"")).trim() || g.name || "") : (prenomDe(g) || g.name || "");
+    var ev = mailEsc(evName||eventName||"la proclamation");
+    var corps = vous
+      ? "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue à <b>"+ev+"</b>. Nous sommes ravis de vous compter parmi nous. Excellente cérémonie !</p>"
+      : "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue à <b>"+ev+"</b> ! Félicitations et profite bien de <b>ta</b> proclamation 🎓</p>";
+    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      +'<h2 style="margin:0 0 12px">Bienvenue 🎓</h2>'+corps
+      +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
+    try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+      body:JSON.stringify({to:mail,subject:"Bienvenue — "+(eventName||"Proclamation"),html:html,from:FROM_PROCLA})}); }catch(e){}
+  }
   var ROLES_PROCLA = [
     ["etudiant","Étudiant·e diplômé·e"],
     ["academique","Corps académique (professeur·e)"],
@@ -1478,6 +1506,7 @@
     }
     var at = Date.now();
     await Store.set("used:"+token, JSON.stringify({at:at, name:guest.name}));
+    try{ envoyerBienvenue(guest, currentCommId()); }catch(e){}
     usedSet.add(token); usedAt[token]=at;
     setStat("valid","Valide", guest.name, "Entrée enregistrée · "+fmtTime(at), guest);
     flashSignal(true); beep(true); updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
@@ -1694,6 +1723,7 @@
       }catch(e){ failC++; }
     }
     gIndex=idx; gTotal=total; gUsed=used; gUpdateCounts();
+    try{ if($("gSync")) $("gSync").textContent="🟢 Synchronisation en direct active · dernière mise à jour à "+new Date().toLocaleTimeString("fr-BE"); }catch(e){}
     gStatus(okC+" commission(s) · "+total+" billets"+(failC?(" · "+failC+" non accessible(s) — active le compte scanner dessus"):""), failC>0 && okC===0);
     return true;
   }
@@ -1764,6 +1794,7 @@
       var r=await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
       if(!(r&&r.ok)){ _gQueueAdmit(m, token, at); return; }            // échec écriture -> file d'attente
       if(!m.usedAt){ gUsed++; } m.usedAt=at; gUpdateCounts();
+      try{ envoyerBienvenue(guest, cid, (f.event&&f.event.stringValue)||""); }catch(e){}
       gStat("valid","Valide — "+m.cname, guest.name||"", "Entrée enregistrée · "+fmtTime(at)+fam, guest);
       gFlash(true); beep(true);
       if(cid==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
@@ -1829,6 +1860,36 @@
   }
 
   window.gCheckManual=function(){ ensureAudio(); var v=$("gmanual").value; if(!v.trim()) return; gVerify(v); $("gmanual").value=""; $("gmanual").focus(); };
+  var gSearchRes=[];
+  window.gRenderScanSearch=function(){
+    var box=$("gscanSearchRes"); if(!box) return;
+    var q=(($("gscanSearch")&&$("gscanSearch").value)||"").trim().toLowerCase();
+    if(q.length<2){ box.innerHTML=""; gSearchRes=[]; return; }
+    var res=[];
+    Object.keys(gIndex||{}).forEach(function(k){
+      (gIndex[k]||[]).forEach(function(m){
+        var g=m.guest||{};
+        var hay=((g.name||"")+" "+(g.prenom||"")+" "+(g.nom||"")+" "+(g.extra||"")).toLowerCase();
+        if(hay.indexOf(q)>=0) res.push(m);
+      });
+    });
+    res.sort(function(a,b){ return (a.guest.name||"").localeCompare(b.guest.name||""); });
+    gSearchRes=res.slice(0,15);
+    if(!gSearchRes.length){ box.innerHTML='<p class="hint">Aucun résultat.</p>'; return; }
+    box.innerHTML=gSearchRes.map(function(m,i){
+      var g=m.guest||{}; var entre=!!m.usedAt;
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
+        +'<span style="flex:1;min-width:0"><b>'+escapeHtml(g.name||"?")+'</b> <span class="hint">('+escapeHtml(m.cname||"")+')</span><br><span class="hint">'+escapeHtml(g.extra||"")+'</span></span>'
+        +(entre
+          ? '<span style="color:#1f9d55;font-weight:700;font-size:13px;white-space:nowrap">✓ déjà entré</span>'
+          : '<button class="btn gold xs" style="white-space:nowrap" onclick="gAdmitFromSearch('+i+')">Valider l\'entrée</button>')
+        +'</div>';
+    }).join("");
+  };
+  window.gAdmitFromSearch=function(i){
+    var m=gSearchRes[i]; if(!m||!m.guest) return;
+    gAdmit(normalize(m.guest.token), m).then(function(){ try{ gRenderScanSearch(); }catch(e){} }).catch(function(){});
+  };
   window.gReload=async function(){ await gLoadAll(false); };
 
   function gGetTrack(){ try{ var v=document.querySelector('#greader video'); var s=v&&v.srcObject; return (s&&s.getVideoTracks)?(s.getVideoTracks()[0]||null):null; }catch(e){ return null; } }
@@ -1859,6 +1920,7 @@
 
   window.gscanOpen=function(){
     ensureAudio();
+    if($("gscanSearch")) $("gscanSearch").value=""; if($("gscanSearchRes")) $("gscanSearchRes").innerHTML="";
     $("gscanScreen").classList.add("on"); $("gscanScreen").setAttribute("aria-hidden","false");
     hideGAmbig();
     _gLoadQueue().then(function(){ gLoadAll(false).then(function(){ gFlushQueue().then(gShowPending); }); });
@@ -1982,12 +2044,43 @@
   window.enterManual = async function(token){
     var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
     if(!guest) return;
-    if(usedSet.has(token) || (await Store.get("used:"+token))){ usedSet.add(token); updateCounts(); renderList(); flash(guest.name+" est déjà entré."); return; }
+    if(usedSet.has(token) || (await Store.get("used:"+token))){ usedSet.add(token); updateCounts(); renderList(); try{ renderScanSearch(); }catch(e){} flash(guest.name+" est déjà entré."); return; }
     var at=Date.now();
     await Store.set("used:"+token, JSON.stringify({at:at, name:guest.name}));
+    try{ envoyerBienvenue(guest, currentCommId()); }catch(e){}
     usedSet.add(token); usedAt[token]=at;
     updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudPushUsed(currentCommId());
+    try{ renderScanSearch(); }catch(e){}
     flash(guest.name+" : entrée enregistrée.");
+  };
+  window.renvoiBillet = async function(token){
+    var g=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ g=roster[i]; break; } }
+    if(!g){ return; }
+    if(!emailOf(g)){ flash("Pas d'e-mail enregistré pour cette personne."); return; }
+    flash("Envoi du billet à "+(g.name||"")+"…");
+    var ok=false; try{ ok=await envoyerBilletMail(g); }catch(e){}
+    flash(ok ? ("Billet renvoyé à "+(g.name||"")+" ✓") : "Échec de l'envoi (réessaie).");
+  };
+  window.renderScanSearch = function(){
+    var box=$("scanSearchRes"); if(!box) return;
+    var q=(($("scanSearch")&&$("scanSearch").value)||"").trim().toLowerCase();
+    if(q.length<2){ box.innerHTML=""; return; }
+    var res=roster.filter(function(g){
+      return (g.name||"").toLowerCase().indexOf(q)>=0 || (g.prenom||"").toLowerCase().indexOf(q)>=0 || (g.nom||"").toLowerCase().indexOf(q)>=0 || (g.extra||"").toLowerCase().indexOf(q)>=0;
+    }).slice(0,15);
+    if(!res.length){ box.innerHTML='<p class="hint">Aucun résultat.</p>'; return; }
+    box.innerHTML=res.map(function(g){
+      var entre=usedSet.has(g.token);
+      var meta=[]; if(g.role) meta.push(escapeHtml(g.role)); if(g.table) meta.push("table "+escapeHtml(String(g.table)));
+      var mailBtn = emailOf(g) ? '<button class="btn ghost xs" style="white-space:nowrap" onclick="renvoiBillet(\''+g.token+'\')">📧 Renvoyer</button>' : '';
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
+        +'<span style="flex:1;min-width:0"><b>'+escapeHtml(g.name||"?")+'</b>'+(meta.length?' <span class="hint">('+meta.join(" · ")+')</span>':'')+'<br><span class="hint">'+escapeHtml(g.extra||"")+'</span></span>'
+        +mailBtn
+        +(entre
+          ? '<span style="color:#1f9d55;font-weight:700;font-size:13px;white-space:nowrap">✓ déjà entré</span>'
+          : '<button class="btn gold xs" style="white-space:nowrap" onclick="enterManual(\''+g.token+'\')">Valider l\'entrée</button>')
+        +'</div>';
+    }).join("");
   };
   window.undoEntry = async function(token){
     var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
@@ -2605,6 +2698,26 @@
   }
   function dateKey(){ return "qrentry:evdate:"+(currentCommId()||""); }
   function getEvDate(){ try{ return window.localStorage.getItem(dateKey())||""; }catch(e){ return ""; } }
+  window.rappelNonEntres = async function(){
+    var cibles = roster.filter(function(g){ return emailOf(g) && !usedSet.has(g.token); });
+    if(!cibles.length){ uiAlert("Personne à relancer (tout le monde est entré, ou pas d'e-mail)."); return; }
+    if(!(await uiConfirm("Envoyer un rappel (avec le billet) aux "+cibles.length+" personne(s) PAS encore entrées ?"))) return;
+    flash("Envoi des rappels…");
+    var ok=0;
+    for(var i=0;i<cibles.length;i++){ var g=cibles[i];
+      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
+        +'<h2 style="margin:0 0 10px">On t\'attend !</h2>'
+        +'<p>Bonjour '+escapeHtml(g.name||"")+',</p>'
+        +'<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>'
+        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))
+        + mentionPerso(g)
+        +'</div>';
+      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:emailOf(g),subject:"On t'attend — "+(eventName||"notre événement"),html:html,from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
+      await new Promise(function(res){setTimeout(res,120);});
+    }
+    uiAlert("Rappel envoyé à "+ok+" personne(s) non entrées.");
+  };
   window.envoyerRappel=async function(auto){
     var cibles = roster.filter(function(g){ return emailOf(g); });
     if(!cibles.length){ if(!auto) uiAlert("Aucun invité avec e-mail."); return; }
@@ -2707,6 +2820,24 @@
     }
     setSeen(n);
   }
+  window.afficheInscription = function(){
+    if(typeof QRious==="undefined"){ flash("Librairie QR non chargée (vérifie la connexion)."); return; }
+    var lien = signupLink(false);
+    var cv=document.createElement("canvas");
+    try{ new QRious({element:cv, value:lien, size:600, level:"M", background:"#ffffff", foreground:"#181233"}); }catch(e){ flash("QR indisponible."); return; }
+    var img=cv.toDataURL("image/png");
+    var ev=(eventName||"Inscription");
+    var w=window.open("","_blank"); if(!w){ flash("Autorise les pop-ups pour afficher l'affiche."); return; }
+    w.document.write('<title>Affiche — '+escapeHtml(ev)+'</title>'
+      +'<body style="margin:0;font-family:Arial,Helvetica,sans-serif;text-align:center;padding:48px 24px;color:#181233">'
+      +'<h1 style="font-size:36px;margin:0 0 6px">'+escapeHtml(ev)+'</h1>'
+      +'<p style="font-size:23px;margin:0 0 28px">Scanne ce QR pour t\'inscrire 👇</p>'
+      +'<img src="'+img+'" style="width:360px;height:360px;max-width:80vw">'
+      +'<p style="font-size:12px;color:#666;margin-top:18px;word-break:break-all">'+escapeHtml(lien)+'</p>'
+      +'<p style="margin-top:26px" class="noprint"><button onclick="window.print()" style="font-size:16px;padding:11px 22px;border:none;border-radius:8px;background:#e0b64d;color:#181233;font-weight:bold;cursor:pointer">Imprimer</button></p>'
+      +'<style>@media print{.noprint{display:none}}</style></body>');
+    w.document.close();
+  };
   window.copySignupLink=function(pay){
     var lien = signupLink(pay);                 // toujours recalculé : nom à jour garanti
     var i=$(pay?"suLinkPay":"suLink");
@@ -2759,6 +2890,51 @@
     etu.forEach(function(g,i){ rows.push([String(i+1), g.nom||g.name||"", g.prenom||"", g.section||"", g.matricule||"", emailOf(g)||""]); });
     telechargerCSV(rows, sanitize(eventName||"proclamation")+"_diplomes.csv");
     flash(etu.length+" diplômé·e·s exporté·e·s (triés par section puis nom).");
+  };
+  window.bilanFinEvenement = async function(){
+    var dest = "";
+    try{ dest = (getNotifMail && getNotifMail()) || ""; }catch(e){}
+    if(!dest) dest = (($("suNotif")&&$("suNotif").value)||"").trim();
+    if(!dest){ flash("Renseigne d'abord l'e-mail de notification (carte Inscriptions en ligne)."); return; }
+    var total=roster.length, entres=roster.filter(function(g){return usedSet.has(g.token);}).length, absents=total-entres;
+    if(!(await uiConfirm("Envoyer le bilan de fin d'événement (stats + présents) à "+dest+" ?"))) return;
+    var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
+    var parType={}; roster.forEach(function(g){ var r=roleLbl[g.role]||g.role||"Autre"; parType[r]=parType[r]||{t:0,e:0}; parType[r].t++; if(usedSet.has(g.token)) parType[r].e++; });
+    var typeRows=Object.keys(parType).map(function(r){ return "<tr><td>"+escapeHtml(r)+"</td><td style='text-align:center'>"+parType[r].e+" / "+parType[r].t+"</td></tr>"; }).join("");
+    var presents=roster.filter(function(g){return usedSet.has(g.token);}).sort(function(a,b){return (a.section||"").localeCompare(b.section||"")||(a.name||"").localeCompare(b.name||"");});
+    var presRows=presents.slice(0,400).map(function(g){ var h=""; try{ if(usedAt[g.token]) h=new Date(usedAt[g.token]).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){} return "<tr><td>"+escapeHtml(g.name||"")+"</td><td>"+escapeHtml(roleLbl[g.role]||g.role||"")+"</td><td>"+escapeHtml(g.section||"")+"</td><td style='text-align:center'>"+h+"</td></tr>"; }).join("");
+    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#181233">'
+      +'<h2 style="margin:0 0 10px">Bilan — '+escapeHtml(eventName||"événement")+'</h2>'
+      +'<p><b>'+entres+'</b> entré·e·s sur <b>'+total+'</b> · <b>'+absents+'</b> absent·e·s ('+(total?Math.round(entres*100/total):0)+'% de présence)</p>'
+      +'<h3>Par type</h3><table border="1" cellpadding="6" style="border-collapse:collapse;font-size:14px"><tr><th>Type</th><th>Entrés / Total</th></tr>'+typeRows+'</table>'
+      +'<h3>Présent·e·s ('+presents.length+')</h3><table border="1" cellpadding="5" style="border-collapse:collapse;font-size:13px"><tr><th>Nom</th><th>Type</th><th>Section</th><th>Entré à</th></tr>'+presRows+'</table>'
+      +(presents.length>400?'<p style="color:#888">(liste tronquée à 400 — utilise l\'export Excel pour la liste complète)</p>':'')
+      +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
+    flash("Envoi du bilan…");
+    try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+      body:JSON.stringify({to:dest,subject:"Bilan — "+(eventName||"événement"),html:html,from:(currentCommId()==="proclamation"?FROM_PROCLA:FROM_PARR)})});
+      flash(r&&r.ok ? ("Bilan envoyé à "+dest+" ✓") : "Échec de l'envoi du bilan."); }
+    catch(e){ flash("Échec de l'envoi du bilan."); }
+  };
+  window.exportInscriptionsXLSX = async function(){
+    flash("Préparation de l'Excel des inscriptions…");
+    var XLSX; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ flash("Module Excel indisponible (vérifie la connexion)."); return; }
+    var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
+    var rows=[["Nom","Prénom","E-mail","Type","Section","Matricule","Statut","Heure d'entrée","Origine"]];
+    roster.forEach(function(g){
+      var h=""; if(usedSet.has(g.token) && usedAt[g.token]){ try{ h=new Date(usedAt[g.token]).toLocaleString("fr-BE"); }catch(e){} }
+      rows.push([g.nom||g.name||"", g.prenom||"", g.extra||emailOf(g)||"", roleLbl[g.role]||g.role||"", g.section||"", g.matricule||"", (usedSet.has(g.token)?"Entré·e":"Billet émis"), h, (g.viaFormulaire?"En ligne":"Manuel")]);
+    });
+    var statutSU={apreconfirmer:"À confirmer (e-mail)",acarte:"Carte à vérifier",apayer:"Paiement à vérifier",acorriger:"Nouvelle carte demandée",refuse:"Refusé·e"};
+    (SIGNUPS||[]).forEach(function(x){
+      if(x.statut==="accepte" || x.statut==="nouveau") return;
+      rows.push([x.nom||x.name||"", x.prenom||"", x.email||"", roleLbl[x.role]||x.role||"", x.section||"", x.matricule||"", (statutSU[x.statut]||x.statut||""), "", "En ligne"]);
+    });
+    var ws=XLSX.utils.aoa_to_sheet(rows);
+    ws["!cols"]=[{wch:20},{wch:16},{wch:26},{wch:20},{wch:13},{wch:12},{wch:22},{wch:20},{wch:9}];
+    var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Inscriptions");
+    XLSX.writeFile(wb, sanitize(eventName||"evenement")+"_inscriptions.xlsx");
+    flash((rows.length-1)+" ligne(s) — Excel téléchargé.");
   };
   window.exportPresents = function(){
     var present = roster.filter(function(g){ return usedSet.has(g.token); });
@@ -2996,6 +3172,7 @@
       <div class="row" style="gap:8px;align-items:center">
         <input type="date" id="suEvDate" style="flex:1">
         <button class="btn ghost sm" id="btnRappel" type="button">Envoyer le rappel</button>
+        <button class="btn ghost sm" id="btnRappelNon" type="button" onclick="rappelNonEntres()">Rappel aux non-entré·e·s</button>
       </div>
       <div style="height:10px"></div>
       <label class="fld" for="suCloture">Clôture des inscriptions (le formulaire se ferme après cette date)</label>
@@ -3010,6 +3187,7 @@
       <div class="row" style="gap:8px;align-items:center">
         <input type="text" id="suLink" readonly style="flex:1;font-size:12px">
         <button class="btn ghost sm" id="btnCopy1" type="button">Copier</button>
+        <button class="btn ghost sm" type="button" onclick="afficheInscription()">🖨️ Affiche QR</button>
       </div>
       <div id="suPayWrap" style="margin-top:10px">
         <label class="fld">Lien inscription (événement payant)</label>
@@ -3030,8 +3208,10 @@
       <div id="suExport" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
         <p class="fld" style="margin:0 0 8px">Exports</p>
         <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn gold sm" type="button" onclick="exportInscriptionsXLSX()">Toutes les inscriptions (Excel)</button>
           <button class="btn gold sm" id="btnExportDiplomes" type="button" onclick="exportDiplomes()">Liste des diplômé·e·s (lecture des noms)</button>
           <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (Excel)</button>
+          <button class="btn ghost sm" type="button" onclick="bilanFinEvenement()">📊 Bilan de fin (par e-mail)</button>
         </div>
       </div>
     </div>`;
@@ -3507,7 +3687,7 @@
     if(name==="list"){ refreshAll(); }
     if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); renderParrainageQR(); try{ fillEventMetaInputs(); }catch(e){} }
     if(name==="guests"){ try{ majGenRole(); }catch(e){} try{ fillEventMetaInputs(); }catch(e){} }
-    if(name==="scan"){ setTimeout(function(){ var mc=$("manualCode"); }, 0); }
+    if(name==="scan"){ if($("scanSearch")) $("scanSearch").value=""; if($("scanSearchRes")) $("scanSearchRes").innerHTML=""; setTimeout(function(){ var mc=$("manualCode"); }, 0); }
   };
 
   function escapeHtml(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
