@@ -1742,6 +1742,18 @@
       }catch(e){ failC++; }
     }
     gIndex=idx; gTotal=total; gUsed=used; gUpdateCounts();
+    // Purge : après un « nouvel événement », les anciens jetons n'existent plus — on les oublie
+    // pour ne pas les réécrire indéfiniment dans le cloud.
+    try{
+      var change=false;
+      Object.keys(gMiennes).forEach(function(c){
+        Object.keys(gMiennes[c]||{}).forEach(function(tk){
+          var liste=idx[normalize(tk)]||[];
+          if(!liste.some(function(e){ return e.cid===c; })){ delete gMiennes[c][tk]; change=true; }
+        });
+      });
+      if(change) await Store.set("gscanMiennes", JSON.stringify(gMiennes));
+    }catch(e){}
     try{ if($("gSync")) $("gSync").textContent="🟢 Synchronisation en direct active · dernière mise à jour à "+new Date().toLocaleTimeString("fr-BE"); }catch(e){}
     gStatus(okC+" commission(s) · "+total+" billets"+(failC?(" · "+failC+" non accessible(s) — active le compte scanner dessus"):""), failC>0 && okC===0);
     return true;
@@ -1781,8 +1793,23 @@
     } else { parrainName = prenomDe(guest); }
     return { parrainName:parrainName, filleulNames:gFilleulPrenoms(cid, parrainTok) };
   }
+  /* Toutes les entrées validées par CE téléphone, par commission : {cid: {token: horodatage}}.
+     Elles sont réinjectées à CHAQUE écriture. Sans ça, deux téléphones qui enregistrent au même
+     instant réécrivaient chacun la liste complète telle qu'ils l'avaient lue, et le second
+     effaçait l'entrée du premier (~14 pertes pour 300 personnes sur 2 postes). */
+  var gMiennes={};
+  async function _gLoadMiennes(){ try{ var s=await Store.get("gscanMiennes"); gMiennes = s?JSON.parse(s):{}; }catch(e){ gMiennes={}; } }
+  async function _gNoterMienne(cid, token, at){
+    if(!cid||!token) return;
+    gMiennes[cid]=gMiennes[cid]||{}; gMiennes[cid][token]=at;
+    try{ await Store.set("gscanMiennes", JSON.stringify(gMiennes)); }catch(e){}
+  }
+  function _gFusionMiennes(cid, usedMap){
+    // les entrées de ce téléphone priment : une écriture concurrente perdue se répare au scan suivant
+    return Object.assign({}, usedMap, gMiennes[cid]||{});
+  }
   var gQueue=[]; // entrées en attente de synchro (hors-ligne) : {cid, token, at, name}
-  async function _gLoadQueue(){ try{ var s=await Store.get("gscanQueue"); gQueue = s?JSON.parse(s):[]; }catch(e){ gQueue=[]; } }
+  async function _gLoadQueue(){ try{ var s=await Store.get("gscanQueue"); gQueue = s?JSON.parse(s):[]; }catch(e){ gQueue=[]; } await _gLoadMiennes(); }
   async function _gSaveQueue(){ try{ await Store.set("gscanQueue", JSON.stringify(gQueue)); }catch(e){} }
   function gShowPending(){ if(gQueue.length){ var e=$("gsStatus"); if(e){ e.innerHTML='⏳ '+gQueue.length+' entrée(s) en attente de synchronisation…'; e.style.color="var(--amber,#d8b45a)"; } } }
   function _gQueueAdmit(m, token, at){
@@ -1809,6 +1836,8 @@
         m.usedAt=already; gStat("used","Déjà scanné", guest.name||"", (w?("Entré à "+w):"Déjà entré")+" · "+m.cname+fam, guest);
         gFlash(false); alertUsed(); return;
       }
+      await _gNoterMienne(cid, tkStored, at);                          // mémoire locale d'abord
+      usedMap = _gFusionMiennes(cid, usedMap);                         // + toutes mes entrées précédentes
       usedMap[tkStored]=at;
       var r=await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
       if(!(r&&r.ok)){ _gQueueAdmit(m, token, at); return; }            // échec écriture -> file d'attente
@@ -1834,6 +1863,8 @@
         var data=await fsGetDoc(ticketDocPath(it.cid), gAuth.idToken);
         var f=(data&&data.fields)||{}; var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
         if(usedMap[it.token]){ continue; }                             // déjà enregistré -> on retire de la file
+        await _gNoterMienne(it.cid, it.token, it.at);
+        usedMap = _gFusionMiennes(it.cid, usedMap);
         usedMap[it.token]=it.at;
         var r=await fsPatchFields(ticketDocPath(it.cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
         if(!(r&&r.ok)){ rest.push(it); continue; }
