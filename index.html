@@ -716,7 +716,7 @@
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
-    <div id="coorgList" style="margin-top:10px"></div>
+    <div id="coorgList" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;align-items:start"></div>
     <p class="hint" style="margin-top:8px">Chaque commission a son propre bouton : tu n'actives que celle que tu veux, les autres ne bougent pas.</p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
@@ -816,16 +816,17 @@
     var box=$("coorgList"); if(!box) return;
     box.innerHTML = COMMISSIONS.map(function(c){
       var o=getCoorg(c.id);
-      return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px">'
-        + '<div style="font-weight:700;margin-bottom:6px">'+escapeHtml(c.name)+'</div>'
+      var actifs=PARTENAIRES.filter(function(p){ return !!o[p.id]; }).length;
+      return '<div style="border:1px solid '+(actifs?'var(--gold-dim,#7a641f)':'var(--line)')+';border-radius:10px;padding:9px 11px;'
+        + (actifs?'background:rgba(216,180,90,.06)':'')+'">'
+        + '<div style="font-weight:700;font-size:13.5px;margin-bottom:5px">'+escapeHtml(c.name)+'</div>'
         + PARTENAIRES.map(function(pt){
-            return '<label style="display:flex;align-items:center;gap:9px;padding:3px 0;font-size:14px;cursor:pointer">'
-              + '<input type="checkbox" data-coorg="'+c.id+'" data-part="'+pt.id+'"'+(o[pt.id]?" checked":"")+' style="width:18px;height:18px;flex:none">'
+            return '<label style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:13px;cursor:pointer">'
+              + '<input type="checkbox" data-coorg="'+c.id+'" data-part="'+pt.id+'"'+(o[pt.id]?" checked":"")+' style="width:16px;height:16px;flex:none">'
               + '<span>'+escapeHtml(pt.nom)+'</span></label>';
           }).join("")
-        + '<div style="display:flex;align-items:center;gap:9px;margin-top:7px">'
-        + '<button class="btn ghost xs" type="button" onclick="publierCoorgUn(\''+c.id+'\')">Enregistrer</button>'
-        + '<span class="hint" id="coorgEtat_'+c.id+'"></span></div>'
+        + '<button class="btn ghost xs" type="button" style="margin-top:6px;width:100%" onclick="publierCoorgUn(\''+c.id+'\')">Enregistrer</button>'
+        + '<div class="hint" style="margin-top:4px;font-size:11.5px;min-height:14px" id="coorgEtat_'+c.id+'"></div>'
         + '</div>';
     }).join("");
   }
