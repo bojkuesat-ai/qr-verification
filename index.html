@@ -47,7 +47,7 @@
   .gear{background:var(--surface);border:1px solid var(--line);color:var(--muted);width:38px;height:38px;border-radius:11px;display:grid;place-items:center;cursor:pointer;flex:0 0 auto;transition:.15s}
   .gear:hover{color:var(--gold-soft);border-color:var(--gold-dim)}
   .gear svg{width:19px;height:19px}
-  .modal{position:fixed;inset:0;z-index:78;background:rgba(6,4,14,.88);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:26px 14px;overflow-y:auto}
+  .modal{position:fixed;inset:0;z-index:78;background:rgba(6,4,14,.88);backdrop-filter:blur(4px);display:none;align-items:flex-start;justify-content:center;padding:26px 14px;overflow-y:auto}
   .modal.on{display:flex}
   .modal-box{background:linear-gradient(180deg,var(--surface),var(--bg2));border:1px solid var(--line);border-radius:var(--r);max-width:520px;width:100%;padding:18px}
   #settingsModal .modal-box{max-width:680px}
@@ -717,13 +717,6 @@
 
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v57</b></p>
-    <h2 style="margin-top:18px">Co-organisateurs</h2>
-    <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
-    <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
-    <p class="hint" style="margin-top:8px">Chaque commission a son propre bouton : tu n'actives que celle que tu veux, les autres ne bougent pas.</p>
-
-    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Infos pratiques (dans les mails)</h2>
     <p class="sub">Date, heure et lieu de l'événement. Ces informations sont ajoutées automatiquement aux e-mails (billet et confirmation).</p>
     <div class="prow">
@@ -733,6 +726,25 @@
     <label class="fld" for="evLieu" style="margin-top:9px">Lieu</label>
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v60</b></p>
+    <h2 style="margin-top:18px">Co-organisateurs</h2>
+    <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
+    <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
+    <p class="hint" style="margin-top:8px">Chaque commission a son propre bouton : tu n'actives que celle que tu veux, les autres ne bougent pas.</p>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Recrutement de coopté·e·s (parrainage)</h2>
+    <p class="sub">Ajoute au formulaire de parrainage un encadré « Envie de rejoindre le Bureau étudiant (BE) ? » avec une case à cocher, et un paragraphe dans le mail du billet. Tu récupères la liste des intéressé·e·s dans l'onglet Inscriptions.</p>
+    <label style="display:flex;align-items:center;gap:9px;padding:4px 0;font-size:14px;cursor:pointer">
+      <input type="checkbox" id="cooptToggle" style="width:18px;height:18px;flex:none">
+      <span>Activer le recrutement de coopté·e·s</span>
+    </label>
+    <div class="row" style="margin-top:9px;align-items:center;gap:9px">
+      <button class="btn ghost sm" type="button" onclick="publierCoopt()">Enregistrer</button>
+      <span class="hint" id="cooptEtat"></span>
+    </div>
+
   </div>
 </div>
 
@@ -814,6 +826,75 @@
   function coorgLigne(cid){
     var noms=coorgNoms(cid);
     return noms.length ? ('<br>En collaboration avec '+listeFr(noms)) : "";
+  }
+  /* ---------- Recrutement de coopté·e·s (parrainage uniquement) ---------- */
+  function cooptKey(){ return "qrentry:coopt:parrainage"; }
+  function getCoopt(){ try{ return window.localStorage.getItem(cooptKey())==="1"; }catch(e){ return false; } }
+  window.publierCoopt = async function(){
+    var el=$("cooptToggle"), etat=$("cooptEtat");
+    var actif = !!(el && el.checked);
+    if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
+    var ok=false;
+    try{
+      if(await ensureAuth("parrainage")){
+        var a=loadAuth("parrainage");
+        if(a && a.idToken){
+          var r=await fsPatchFields(ticketDocPath("parrainage"), { coopt: fsField(actif?"1":"0") }, a.idToken);
+          ok = !!(r && r.ok);
+        }
+      }
+    }catch(e){}
+    if(ok){ try{ window.localStorage.setItem(cooptKey(), actif?"1":"0"); }catch(e){} }
+    if(etat){
+      etat.textContent = ok ? (actif ? "✅ Activé — l'encadré apparaît sur le formulaire de parrainage."
+                                     : "✅ Désactivé — plus aucune mention.")
+                            : "❌ Non enregistré — ouvre la commission Parrainage puis recommence.";
+      etat.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
+    }
+    if(!ok && el) el.checked = getCoopt();
+  };
+  async function chargerCooptCloud(){
+    try{
+      if(!(await ensureAuth("parrainage"))) return;
+      var a=loadAuth("parrainage"); if(!a||!a.idToken) return;
+      var d=await fsGetDoc(ticketDocPath("parrainage"), a.idToken, ["coopt"]);
+      var v = d && d.fields && d.fields.coopt && d.fields.coopt.stringValue;
+      if(v!==undefined && v!==null) window.localStorage.setItem(cooptKey(), v==="1"?"1":"0");
+    }catch(e){}
+  }
+  /* Paragraphe ajouté au mail du billet de parrainage. */
+  /* Un billet vient-il d'une inscription qui a coché « coopté·e » ? */
+  function estCoopt(g){
+    if(!g) return false;
+    if(g.coopt) return true;
+    if(!g.sigKey) return false;
+    return (SIGNUPS||[]).some(function(x){ return x && x.coopt && signupKey(x)===g.sigKey; });
+  }
+  /* Toutes les personnes intéressées par une cooptation (inscriptions + billets). */
+  function listeCooptes(){
+    var vus={}, out=[];
+    (SIGNUPS||[]).forEach(function(x){
+      if(!x || !x.coopt) return;
+      var k=String(x.email||"").toLowerCase(); if(vus[k]) return; vus[k]=1;
+      out.push({ nom:x.nom||x.name||"", prenom:x.prenom||"", email:x.email||"", section:x.section||"", annee:x.annee||"", role:x.role||"" });
+    });
+    return out;
+  }
+  window.exportCooptes = function(){
+    var l=listeCooptes();
+    if(!l.length){ flash("Personne n'a coché la case pour l'instant."); return; }
+    var rows=[["Nom","Prénom","E-mail","Rôle","Section","Année"]];
+    l.forEach(function(p){ rows.push([p.nom, p.prenom, p.email, p.role, p.section, p.annee]); });
+    telechargerCSV(rows, sanitize(eventName||"parrainage")+"_cooptes.csv");
+    flash(l.length+" personne(s) exportée(s).");
+  };
+  function blocCooptation(cid){
+    if(cid!=="parrainage" || !getCoopt()) return "";
+    return '<div style="margin-top:18px;background:#fdf6e3;border:1px solid #e2cd8f;border-radius:10px;padding:13px 15px">'
+      + '<p style="margin:0 0 6px;font-weight:bold;color:#7a5c12">Envie de rejoindre le Bureau étudiant (BE) ?</p>'
+      + '<p style="margin:0;font-size:13px;color:#5b4a1e;line-height:1.55">Le BE recrute chaque année des coopté·e·s pour organiser les soirées, '
+      + 'les activités culturelles et académiques, les services aux étudiant·e·s… Aucune expérience requise, juste l\'envie de s\'investir. '
+      + 'Réponds simplement à cet e-mail si ça t\'intéresse.</p></div>';
   }
   /* Affichage des 9 commissions avec leurs cases (Réglages). */
   function renderCoorg(){
@@ -2522,6 +2603,7 @@
   }
   window.clearAll = async function(){
     if(!(await uiConfirm("Tout effacer : la liste d'invités, les entrées ET les inscriptions en ligne ? Action définitive."))) return;
+    await proposerExportCooptes();
     flash("Archivage du bilan…");
     try{ await archiverEvenement(); }catch(e){}      // le bilan survit à l'effacement
     await resetSignups();
@@ -2572,8 +2654,18 @@
       nonConfirmes: su.filter(function(x){ return x.statut==="apreconfirmer"; }).length,
       attente: su.filter(function(x){ return x.statut==="attente"; }).length,
       places: (typeof getPlaces==="function" ? (getPlaces()||0) : 0),
+      cooptes: (typeof listeCooptes==="function" ? listeCooptes() : []),   // survit à l'effacement
       parType: parType
     };
+  }
+  /* Avant d'effacer : la liste des coopté·e·s est précieuse, on propose de la télécharger. */
+  async function proposerExportCooptes(){
+    var l=(typeof listeCooptes==="function") ? listeCooptes() : [];
+    if(!l.length) return;
+    if(await uiConfirm(l.length+" personne(s) ont coché « je veux devenir coopté·e ».\n\nTélécharger la liste avant d'effacer ?\n(elle restera aussi dans les Archives)")){
+      try{ exportCooptes(); }catch(e){}
+      await new Promise(function(r){ setTimeout(r, 900); });
+    }
   }
   async function archiverEvenement(){
     var cid=currentCommId(); if(!cid) return false;
@@ -2621,7 +2713,8 @@
         +'<br><span class="hint"><b>'+(e.entres||0)+'</b> présent(s) sur <b>'+(e.billets||0)+'</b> billet(s) — '+taux+' %'
         +(e.enLigne?' · '+e.enLigne+' en ligne':'')+(e.manuels?' · '+e.manuels+' manuel(s)':'')
         +(e.attente?' · '+e.attente+' en attente':'')+(e.refuses?' · '+e.refuses+' refusé(s)':'')
-        +(e.places?' · jauge '+e.places:'')+'</span></span>'
+        +(e.places?' · jauge '+e.places:'')
+        +(e.cooptes&&e.cooptes.length?' · <b style="color:var(--gold)">'+e.cooptes.length+' coopté·e·s intéressé·e·s</b>':'')+'</span></span>'
         +'<button class="btn ghost xs" data-arch="'+escapeHtml(e.id||("i"+i))+'">🗑️</button></div>';
     }).join("");
     b.innerHTML=html;
@@ -2644,6 +2737,7 @@
   };
   window.newEvent = async function(){
     if(!(await uiConfirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne (y compris les paiements en attente) seront effacées."))) return;
+    await proposerExportCooptes();
     flash("Archivage du bilan…");
     try{ await archiverEvenement(); }catch(e){}      // résumé conservé dans les Archives
     await resetSignups();
@@ -3161,6 +3255,7 @@
   window.resetInscriptions=async function(){
     var cid=currentCommId(); if(!cid) return;
     if(!(await uiConfirm("Réinitialiser complètement cet événement ?\n\n• billets et entrées effacés\n• inscriptions en ligne effacées\n• nom, dates et clôture remis à zéro\n\nAction irréversible."))) return;
+    await proposerExportCooptes();
     flash("Archivage du bilan…");
     try{ await archiverEvenement(); }catch(e){}      // le bilan survit à la réinitialisation
     await resetSignups();
@@ -3449,15 +3544,15 @@
     await syncAvantExport();
     var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
     var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
-    var rows=[["Nom","Prénom","E-mail","Type","Section","Matricule","Statut","Heure d'entrée","Origine"]];
+    var rows=[["Nom","Prénom","E-mail","Type","Section","Matricule","Statut","Heure d'entrée","Origine","Coopté·e"]];
     roster.forEach(function(g){
       var h=""; if(usedSet.has(g.token) && usedAt[g.token]){ try{ h=new Date(usedAt[g.token]).toLocaleString("fr-BE"); }catch(e){} }
-      rows.push([g.nom||g.name||"", g.prenom||"", g.extra||emailOf(g)||"", roleLbl[g.role]||g.role||"", g.section||"", g.matricule||"", (usedSet.has(g.token)?"Entré·e":"Billet émis"), h, (g.viaFormulaire?"En ligne":"Manuel")]);
+      rows.push([g.nom||g.name||"", g.prenom||"", g.extra||emailOf(g)||"", roleLbl[g.role]||g.role||"", g.section||"", g.matricule||"", (usedSet.has(g.token)?"Entré·e":"Billet émis"), h, (g.viaFormulaire?"En ligne":"Manuel"), (estCoopt(g)?"OUI":"")]);
     });
     var statutSU={apreconfirmer:"À confirmer (e-mail)",acarte:"Carte à vérifier",apayer:"Paiement à vérifier",acorriger:"Nouvelle carte demandée",attente:"Liste d'attente",refuse:"Refusé·e"};
     (SIGNUPS||[]).forEach(function(x){
       if(x.statut==="accepte" || x.statut==="nouveau") return;
-      rows.push([x.nom||x.name||"", x.prenom||"", x.email||"", roleLbl[x.role]||x.role||"", x.section||"", x.matricule||"", (statutSU[x.statut]||x.statut||""), "", "En ligne"]);
+      rows.push([x.nom||x.name||"", x.prenom||"", x.email||"", roleLbl[x.role]||x.role||"", x.section||"", x.matricule||"", (statutSU[x.statut]||x.statut||""), "", "En ligne", (x.coopt?"OUI":"")]);
     });
     if(!XLSX){                                    // CDN bloqué : repli CSV (s'ouvre dans Excel)
       telechargerCSV(rows, sanitize(eventName||"evenement")+"_inscriptions.csv");
@@ -3579,7 +3674,7 @@
     var to = emailOf(g); if(!to){ return false; }
     try{
       var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:to,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g)})});
+        body:JSON.stringify({to:to,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g)})});
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
       return rm && rm.ok;
     }catch(e){ g.mailEnvoye = 0; return false; }
@@ -4023,6 +4118,7 @@
           <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (CSV, ouvre dans Excel)</button>
           <button class="btn ghost sm" type="button" onclick="bilanFinEvenement()">📊 Bilan de fin (par e-mail)</button>
           <button class="btn ghost sm" type="button" onclick="ouvrirArchives()">🗂️ Archives des événements</button>
+          <button class="btn ghost sm" id="btnExportCooptes" type="button" style="display:none" onclick="exportCooptes()">🤝 Liste des coopté·e·s intéressé·e·s</button>
         </div>
       </div>
     </div>`;
@@ -4084,6 +4180,10 @@
   function renderSignups(){
     majPayBadge();
     try{ majJaugeUI(); }catch(e){}
+    try{
+      var bc=$("btnExportCooptes");
+      if(bc) bc.style.display = (currentCommId()==="parrainage" && listeCooptes().length) ? "" : "none";
+    }catch(e){}
     if($("suExport")) $("suExport").style.display = "block";
     if($("btnExportDiplomes")) $("btnExportDiplomes").style.display = (currentCommId()==="proclamation") ? "inline-block" : "none";
     var box=$("suList"), st=$("suStats"); if(!box) return;
@@ -4102,6 +4202,7 @@
       +(acorriger.length?" · "+acorriger.length+" en attente de nouvelle carte":"")
       +(aconf.length?" · "+aconf.length+" en attente de confirmation":"")
       +(SIGNUPS.filter(function(x){return x.statut==="attente";}).length?" · "+SIGNUPS.filter(function(x){return x.statut==="attente";}).length+" en liste d'attente":"")
+      +(currentCommId()==="parrainage" && listeCooptes().length ? " · <b style=\"color:var(--gold)\">"+listeCooptes().length+" intéressé·e·s par une cooptation</b>" : "")
       +(ref.length?" · "+ref.length+" refusé(s)":"");
     if(st){
       if(currentCommId()==="proclamation"){
