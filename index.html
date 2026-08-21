@@ -714,6 +714,12 @@
 
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Co-organisateurs</h2>
+    <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
+    <div id="coorgList" style="margin-top:10px"></div>
+    <p class="hint" style="margin-top:8px">Chaque commission a son propre bouton : tu n'actives que celle que tu veux, les autres ne bougent pas.</p>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Infos pratiques (dans les mails)</h2>
     <p class="sub">Date, heure et lieu de l'événement. Ces informations sont ajoutées automatiquement aux e-mails (billet et confirmation).</p>
     <div class="prow">
@@ -784,11 +790,87 @@
     ["patgs","Personnel administratif, technique et de gestion"],
     ["doyen","Doyen·ne"]
   ];
+  /* ---------- Co-organisateurs (associations partenaires, par commission) ---------- */
+  var PARTENAIRES = [ {id:"elsa", nom:"ELSA-Brussels"}, {id:"cercle", nom:"le Cercle de droit de l'ULB"} ];
+  function coorgKey(cid){ return "qrentry:coorg:"+(cid||""); }
+  function getCoorg(cid){
+    try{ var v=window.localStorage.getItem(coorgKey(cid)); return v?JSON.parse(v):{}; }catch(e){ return {}; }
+  }
+  function setCoorgLocal(cid, obj){ try{ window.localStorage.setItem(coorgKey(cid), JSON.stringify(obj||{})); }catch(e){} }
+  function coorgNoms(cid){
+    var o=getCoorg(cid||currentCommId());
+    return PARTENAIRES.filter(function(p){ return !!o[p.id]; }).map(function(p){ return p.nom; });
+  }
+  function listeFr(noms){
+    if(!noms.length) return "";
+    if(noms.length===1) return noms[0];
+    return noms.slice(0,-1).join(", ")+" et "+noms[noms.length-1];
+  }
+  /* Ligne ajoutée sous la signature des mails. Vide si aucun partenaire n'est activé. */
+  function coorgLigne(cid){
+    var noms=coorgNoms(cid);
+    return noms.length ? ('<br>En collaboration avec '+listeFr(noms)) : "";
+  }
+  /* Affichage des 9 commissions avec leurs cases (Réglages). */
+  function renderCoorg(){
+    var box=$("coorgList"); if(!box) return;
+    box.innerHTML = COMMISSIONS.map(function(c){
+      var o=getCoorg(c.id);
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px">'
+        + '<div style="font-weight:700;margin-bottom:6px">'+escapeHtml(c.name)+'</div>'
+        + PARTENAIRES.map(function(pt){
+            return '<label style="display:flex;align-items:center;gap:9px;padding:3px 0;font-size:14px;cursor:pointer">'
+              + '<input type="checkbox" data-coorg="'+c.id+'" data-part="'+pt.id+'"'+(o[pt.id]?" checked":"")+' style="width:18px;height:18px;flex:none">'
+              + '<span>'+escapeHtml(pt.nom)+'</span></label>';
+          }).join("")
+        + '<div style="display:flex;align-items:center;gap:9px;margin-top:7px">'
+        + '<button class="btn ghost xs" type="button" onclick="publierCoorgUn(\''+c.id+'\')">Enregistrer</button>'
+        + '<span class="hint" id="coorgEtat_'+c.id+'"></span></div>'
+        + '</div>';
+    }).join("");
+  }
+  /* Enregistre UNE commission : les autres ne sont pas touchées. */
+  window.publierCoorgUn = async function(cid){
+    var etat=$("coorgEtat_"+cid);
+    if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
+    var o={};
+    var cases=document.querySelectorAll('[data-coorg="'+cid+'"]');
+    for(var i=0;i<cases.length;i++){ if(cases[i].checked) o[cases[i].getAttribute("data-part")]=true; }
+    var noms=PARTENAIRES.filter(function(p){ return !!o[p.id]; }).map(function(p){ return p.nom; });
+    var ok=false;
+    try{
+      if(await ensureAuth(cid)){
+        var a=loadAuth(cid);
+        if(a && a.idToken){
+          var r=await fsPatchFields(ticketDocPath(cid), { coorg: fsField(JSON.stringify(o)) }, a.idToken);
+          ok = !!(r && r.ok);
+        }
+      }
+    }catch(e){}
+    if(ok) setCoorgLocal(cid, o);
+    if(etat){
+      etat.textContent = ok ? ("✅ "+(noms.length?("Enregistré : "+listeFr(noms)):"Aucun partenaire"))
+                            : "❌ Non enregistré — ouvre cette commission puis recommence.";
+      etat.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
+    }
+    if(!ok) renderCoorg();                     // on remet les cases à leur état réel
+  };
+  /* Relit le réglage publié (utile si tu l'as changé depuis un autre appareil). */
+  async function chargerCoorgCloud(cid){
+    try{
+      if(!(await ensureAuth(cid))) return;
+      var a=loadAuth(cid); if(!a||!a.idToken) return;
+      var d=await fsGetDoc(ticketDocPath(cid), a.idToken, ["coorg"]);
+      if(d && d.fields && d.fields.coorg){ setCoorgLocal(cid, JSON.parse(d.fields.coorg.stringValue||"{}")); }
+    }catch(e){}
+  }
   function signatureMail(cid){
     var c = cid || currentCommId();
-    if(c==="parrainage") return SIG_PARR;
-    if(c==="proclamation") return "La Délégation étudiante de la Faculté de Droit et de Criminologie";
-    return "Le bureau étudiant";
+    var base;
+    if(c==="parrainage") base = SIG_PARR;
+    else if(c==="proclamation") base = "La Délégation étudiante de la Faculté de Droit et de Criminologie";
+    else base = "Le bureau étudiant";
+    return base + coorgLigne(c);
   }
   var usedSet = new Set();     // tokens entrés (présence, cross-appareil)
   var usedAt = {};             // token -> timestamp (ce que cet appareil a enregistré)
@@ -1384,7 +1466,7 @@
         +'<p>Bonjour '+mailEsc(prenomDe(F))+',</p>'
         +'<p>Ton parrain / ta marraine est : <b>'+mailEsc(P?prenomDe(P):"")+'</b>'+(P&&emailOf(P)?(' (<a href="mailto:'+mailEsc(emailOf(P))+'">'+mailEsc(emailOf(P))+'</a>)'):'')+'.</p>'
         +'<p>N\'hésite pas à prendre contact avec lui/elle. 🙂</p>'
-        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
+        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+coorgLigne("parrainage")+'</p></div>';
       if(await sendMailQR(to, "Ton parrain/marraine — "+ev, html, FROM_PARR)) ok++;
       await new Promise(function(r){ setTimeout(r,120); });
     }
@@ -1397,7 +1479,7 @@
         +'<p>Bonjour '+mailEsc(prenomDe(P2))+',</p>'
         +'<p>Voici la ou les personne(s) que tu parraines :</p><ul style="line-height:1.7">'+lis+'</ul>'
         +'<p>Prends contact avec elle(s) pour faire connaissance. 🙂</p>'
-        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
+        +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+coorgLigne("parrainage")+'</p></div>';
       if(await sendMailQR(to2, "Tes filleul·e·s — "+ev, html2, FROM_PARR)) ok++;
       await new Promise(function(r){ setTimeout(r,120); });
     }
@@ -1996,6 +2078,7 @@
       // Re-vérification EN DIRECT dans le cloud : empêche la double-entrée entre plusieurs téléphones
       var data=await fsGetDoc(ticketDocPath(cid), gAuth.idToken);
       var f=(data&&data.fields)||{}; var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+      try{ if(f.coorg) setCoorgLocal(cid, JSON.parse(f.coorg.stringValue||"{}")); }catch(e){}   // partenaires publiés
       var already = usedMap[tkStored] || usedMap[token];
       if(already){
         var w=""; try{ w=fmtTime(already); }catch(e){}
@@ -2582,7 +2665,8 @@
       for(var i=0;i<aSupprimer.length;i++){
         try{ await fetch(FS_BASE+aSupprimer[i], { method:"DELETE", headers:{ "Authorization":"Bearer "+a.idToken } }); }catch(e){}
       }
-      await fsPatchFields(signupDocPath(cid), { signups: fsField("[]"), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      var rz = await fsPatchFields(signupDocPath(cid), { signups: fsField("[]"), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      if(!(rz && rz.ok)) flash("⚠️ Les inscriptions en ligne n'ont PAS été effacées côté cloud — réessaie.");
       SIGNUPS=[]; renderSignups();
     }catch(e){}
   }
@@ -2808,7 +2892,7 @@
       + tableBloc + familyBloc + info + certif
       + infosPratiquesHtml(meta)
       + '<p style="color:#666;font-size:13px">Bonne soirée ! 🎉</p>'
-      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+'</p></div>';
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+SIG_PARR+coorgLigne("parrainage")+'</p></div>';
   }
   async function sendParrainageEntryMail(guest, parrainName, ev, meta, filleulNames){
     var to = emailOf(guest); if(!to) return false;
@@ -2831,6 +2915,12 @@
     if(!$("gScannerEmail").value){ $("gScannerEmail").value="scan@qrentry.app"; }
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
+    renderCoorg();                                   // co-organisateurs : cases à jour
+
+    (async function(){                               // rafraîchit depuis le cloud sans bloquer l'ouverture
+      for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
+      renderCoorg();
+    })();
     if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
     if($("proclaToggle")) $("proclaToggle").checked = !proclaHidden();
     try{ renderCats(); }catch(e){}
@@ -3209,7 +3299,10 @@
     try{
       var cid=currentCommId();
       var ok=await ensureAuth(cid); var a=ok?loadAuth(cid):null;
-      if(a && a.idToken){ await fsPatchFields(ticketDocPath(cid), { notifMail: fsField(v), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
+      if(a && a.idToken){
+        var rn = await fsPatchFields(ticketDocPath(cid), { notifMail: fsField(v), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+        if(!(rn && rn.ok)) flash("⚠️ E-mail de notification NON enregistré — réessaie.");
+      }
     }catch(e){}
     flash(v?"E-mail de notification enregistré (tu recevras un mail à chaque inscription en ligne).":"Notification par e-mail désactivée.");
   };
@@ -4900,8 +4993,9 @@
       if(!ok){ lines.push("⚠️ "+c.name+" — pas connecté sur cet appareil, ignoré (connecte-toi une fois à cette commission puis relance)."); continue; }
       var a=loadAuth(c.id);
       try{
-        await fsPatchFields(ticketDocPath(c.id), { scannerUid: fsField(uid), scannerEmail: fsField(email) }, a.idToken);
-        lines.push("✅ "+c.name+" — accès scanner activé.");
+        var rs = await fsPatchFields(ticketDocPath(c.id), { scannerUid: fsField(uid), scannerEmail: fsField(email) }, a.idToken);
+        lines.push((rs && rs.ok) ? ("✅ "+c.name+" — accès scanner activé.")
+                                 : ("❌ "+c.name+" — REFUSÉ par Firestore, le scan ne marchera pas sur cette commission."));
       }catch(e3){ lines.push("❌ "+c.name+" — échec de l'enregistrement."); }
     }
     $("gScannerResult").innerHTML = lines.join("<br>");

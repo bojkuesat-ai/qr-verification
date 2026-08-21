@@ -50,6 +50,7 @@
     <div style="font-size:12.5px;letter-spacing:.10em;text-transform:uppercase;color:var(--muted)">Université libre de Bruxelles</div>
     <div style="font-size:16px;font-weight:700;margin-top:4px">Faculté de Droit et de Criminologie</div>
     <div style="font-size:13.5px;margin-top:6px;color:var(--gold)" id="enteteOrg">Délégation étudiante de la Faculté de Droit et de Criminologie</div>
+    <div style="font-size:12.5px;margin-top:5px;color:var(--muted);display:none" id="enteteCoorg"></div>
   </div>
   <h1>Inscription</h1>
   <p class="sub" id="titre">Chargement…</p>
@@ -290,6 +291,33 @@
   }
   function esc(x){ return String(x==null?"":x).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
 
+  /* ---------- Co-organisateurs (partenaires activés depuis l'app) ---------- */
+  var PARTENAIRES = [ {id:"elsa", nom:"ELSA-Brussels"}, {id:"cercle", nom:"le Cercle de droit de l'ULB"} ];
+  var COORG = {};
+  function coorgNoms(){ return PARTENAIRES.filter(function(p){ return !!COORG[p.id]; }).map(function(p){ return p.nom; }); }
+  function listeFr(noms){
+    if(!noms.length) return "";
+    if(noms.length===1) return noms[0];
+    return noms.slice(0,-1).join(", ")+" et "+noms[noms.length-1];
+  }
+  function appliquerCoorg(){
+    var noms=coorgNoms();
+    var el=q("enteteCoorg");
+    if(el){
+      if(noms.length){
+        el.textContent="En collaboration avec "+listeFr(noms); el.style.display="";
+        var bloc=q("enteteUlb");
+        if(bloc && bloc.style.display==="none"){       // festif/aca/culture : l'en-tête était masqué
+          bloc.style.display="block";
+          var org=q("enteteOrg");
+          if(org) org.textContent="Bureau étudiant de la Faculté de Droit et de Criminologie";
+        }
+      }
+      else { el.textContent=""; el.style.display="none"; }
+    }
+    majTexteRgpd();
+  }
+
   /* ---------- Jauge de places ---------- */
   var COMM_JAUGE = ["festif","aca","culture"];
   var PLACES = 0, PRIS = 0;
@@ -442,16 +470,19 @@
   }
   if(PAY) q("wrapPreuve").style.display="";
 
-  // RGPD : responsable de traitement selon la commission
-  (function(){
+  // RGPD : responsable de traitement selon la commission (+ partenaires activés)
+  function majTexteRgpd(){
     var resp;
     if(CID==="proclamation") resp="la <b>Délégation étudiante de la Faculté de Droit et de Criminologie</b> (ULB)";
     else if(CID==="parrainage") resp="le <b>Bureau étudiant</b> et la <b>Délégation étudiante de la Faculté de Droit et de Criminologie</b> (ULB)";
     else resp="le <b>Bureau étudiant de la Faculté de Droit et de Criminologie</b> (ULB)";
+    var partenaires = (typeof coorgNoms==="function") ? coorgNoms() : [];
+    if(partenaires.length) resp += ", en collaboration avec <b>"+listeFr(partenaires)+"</b>";
     var donnees="nom, prénom, e-mail" + (CID==="proclamation" ? ", matricule et carte étudiante" : (PAY ? " et preuve de paiement" : ""));
     var el=q("rgpdText");
     if(el) el.innerHTML="J'accepte que mes données ("+donnees+") soient collectées et traitées par "+resp+", <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href=\"mailto:proclamation@bureauetuidant.xyz\">proclamation@bureauetuidant.xyz</a>.";
-  })();
+  }
+  majTexteRgpd();
 
   var CONFIRM_TOK = par("confirm");
   if(CONFIRM_TOK){
@@ -605,6 +636,10 @@
         var v = f && ((f.event && f.event.stringValue) || (f.evName && f.evName.stringValue));
         if(v && !NOM_LIEN) q("titre").textContent = v + (PAY?" — événement payant":"");
         // la date de clôture publiée par l'app fait foi, même si le lien partagé ne la contient pas
+        try{
+          COORG = (f && f.coorg && f.coorg.stringValue) ? JSON.parse(f.coorg.stringValue) : {};
+        }catch(e){ COORG={}; }
+        appliquerCoorg();
         var cl = f && f.cloture && f.cloture.stringValue;
         if(cl){ CLOTURE = cl; if(inscriptionsFermees(CLOTURE)) afficherFermeture(CLOTURE); }
         // jauge de places (festif / aca / culture) : affichage du restant ou du mode liste d'attente
