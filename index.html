@@ -50,6 +50,9 @@
   .modal{position:fixed;inset:0;z-index:78;background:rgba(6,4,14,.88);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center;padding:26px 14px;overflow-y:auto}
   .modal.on{display:flex}
   .modal-box{background:linear-gradient(180deg,var(--surface),var(--bg2));border:1px solid var(--line);border-radius:var(--r);max-width:520px;width:100%;padding:18px}
+  #settingsModal .modal-box{max-width:680px}
+  .coorg-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
+  @media (max-width:600px){ .coorg-grid{grid-template-columns:1fr} }
   .modal-box.big{max-width:460px;padding:30px 26px;border-width:2px;border-color:var(--gold-dim)}
   .modal-box.big h2{font-size:24px}
   .modal-box.big .sub{font-size:16px;line-height:1.5}
@@ -714,9 +717,10 @@
 
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v57</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
-    <div id="coorgList" style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px;align-items:start"></div>
+    <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
     <p class="hint" style="margin-top:8px">Chaque commission a son propre bouton : tu n'actives que celle que tu veux, les autres ne bougent pas.</p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
