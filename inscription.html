@@ -259,6 +259,20 @@
         return;
       }
       if(list[idx].statut==="apreconfirmer"){
+        // Le contrôle d'unicité à l'inscription ignore les non-confirmés : on le refait ici,
+        // sinon deux personnes ayant saisi le même matricule pouvaient toutes deux confirmer.
+        var mat=String(list[idx].matricule||"").trim();
+        if(mat && list.some(function(x,k){
+              return k!==idx && x && x.role==="etudiant"
+                && String(x.matricule||"").trim()===mat
+                && x.statut!=="apreconfirmer" && x.statut!=="refuse";
+            })){
+          popupMaison('<p class="big">⚠️</p><p><b>Ce matricule est déjà confirmé</b></p>'
+            +'<p class="hint">Une inscription avec ce numéro de matricule a déjà été validée avec une autre adresse e-mail. '
+            +'L\'invitation est strictement personnelle : une seule place par étudiant·e.</p>'
+            +'<p class="hint">Si c\'est une erreur, contacte l\'équipe organisatrice.</p>');
+          return;
+        }
         list[idx].statut="acarte";
         list[idx].emailConfirme=true;
         list[idx].confirmeTs=Date.now();
@@ -448,6 +462,56 @@
   var CORR_TOK = par("corriger");
   if(CORR_TOK){
     chargerCorrection(CORR_TOK);
+  }
+  var ANNUL_TOK = par("annuler");
+  if(ANNUL_TOK){
+    if(q("form")) q("form").style.display="none";
+    q("msg").innerHTML='<div class="card"><p class="big">🤔</p><p><b>Annuler ton inscription ?</b></p>'
+      + '<p class="hint">Ta place sera <b>libérée</b> et proposée à quelqu\'un d\'autre. Ton billet QR ne sera plus valable.</p>'
+      + '<p class="hint">Si tu changes d\'avis ensuite, il faudra te réinscrire — sans garantie qu\'il reste de la place.</p>'
+      + '<div style="display:flex;gap:10px;margin-top:18px">'
+      + '<button id="btnAnnulOui" style="flex:1;background:#8a2b2b;color:#fff">Oui, j\'annule</button>'
+      + '<button id="btnAnnulNon" style="flex:1">Non, je viens</button></div></div>';
+    q("btnAnnulNon").onclick=function(){
+      q("msg").innerHTML='<div class="card"><p class="big">🎉</p><p><b>Parfait, à bientôt !</b></p><p class="hint">Ton inscription est inchangée, garde bien ton billet QR.</p></div>';
+    };
+    q("btnAnnulOui").onclick=function(){ annulerInscription(ANNUL_TOK); };
+  }
+
+  /* Désistement : on ne peut écrire que dans « signups », on y dépose donc un marqueur
+     que l'app traitera (retrait du billet + repêchage de la liste d'attente). */
+  async function annulerInscription(token){
+    q("msg").innerHTML='<div class="card"><p class="hint">Annulation en cours…</p></div>';
+    try{
+      var tok = await assurerTokenEcriture();
+      var path = "commission_tickets/"+CID;
+      var rc = await fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+tok } });
+      var cur = rc.ok ? await rc.json() : null;
+      var list=[]; try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
+
+      if(list.some(function(x){ return x && x.statut==="annule" && x.annuleToken===token; })){
+        q("msg").innerHTML='<div class="card"><p class="big">✅</p><p><b>Déjà annulé</b></p><p class="hint">Ton inscription a bien été annulée, ta place est libérée.</p></div>';
+        return;
+      }
+      var nom="", mail="";
+      try{
+        var roster=JSON.parse((cur&&cur.fields&&cur.fields.roster&&cur.fields.roster.stringValue)||"[]");
+        var g=roster.filter(function(x){ return x && x.token===token; })[0];
+        if(g){ nom=g.name||""; mail=g.extra||g.email||""; }
+      }catch(e){}
+      list.push({ statut:"annule", annuleToken:token, name:nom, email:mail, ts:Date.now(), viaFormulaire:true });
+
+      var fields={ signups:{ stringValue: JSON.stringify(list) }, updatedAt:{ stringValue: new Date().toISOString() } };
+      var qs=Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
+      var rp=await fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
+        headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" }, body:JSON.stringify({fields:fields}) });
+      if(!rp.ok) throw new Error("write");
+      q("msg").innerHTML='<div class="card"><p class="big">👋</p><p><b>Inscription annulée</b></p>'
+        + '<p class="hint">Merci de nous avoir prévenus — ta place est libérée pour quelqu\'un d\'autre.</p>'
+        + '<p class="hint">Ton billet QR n\'est plus valable.</p></div>';
+    }catch(e){
+      q("msg").innerHTML='<div class="card"><p class="err"><b>Annulation impossible</b></p><p class="hint">Réessaie plus tard, ou préviens directement l\'équipe organisatrice.</p></div>';
+    }
   }
 
   function majProcla(){

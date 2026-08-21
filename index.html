@@ -343,9 +343,6 @@
       <label class="fld" for="names">…ou colle une liste — une ligne par personne : Nom, Prénom, e-mail. Tu peux coller directement depuis Excel ou Google Sheets.</label>
       <textarea id="names" placeholder="Belkacem, Amina, amina.belkacem@gmail.com&#10;Dupont, Thomas, thomas.dupont@gmail.com"></textarea>
       <p class="hint">Séparateur virgule, point-virgule ou tabulation (collage Excel/Sheets) — peu importe. L'adresse mail est détectée automatiquement. Sans e-mail, le billet est créé mais ne pourra pas être envoyé par mail. Un simple nom par ligne fonctionne aussi.</p>
-      <div style="height:12px"></div>
-      <label class="fld" for="genCat">Catégorie (facultatif — se configure dans les Réglages ⚙)</label>
-      <select id="genCat"><option value="">Sans catégorie</option></select>
       <div style="height:13px"></div>
       <button class="btn gold block" onclick="generate()">Générer les billets</button>
     </div>
@@ -705,15 +702,7 @@
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="createScannerAllCommissions()">Activer sur toutes les commissions</button></div>
     <div id="gScannerResult" style="margin-top:11px;font-size:13px;color:var(--muted);line-height:1.7"></div>
 
-    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <h2 style="margin-top:18px">Catégories de billets</h2>
-    <p class="sub">Crée tes propres catégories (ex. Cooptés, Professeurs…). À la création des billets tu pourras en choisir une ; elle s'affiche en couleur au moment du scan.</p>
-    <div class="row" style="gap:8px;align-items:center">
-      <input type="text" id="catName" placeholder="Nom (ex. Professeurs)" style="flex:1" autocomplete="off">
-      <input type="color" id="catColor" value="#7c5cff" style="width:46px;height:40px;padding:0;border:none;background:none;cursor:pointer">
-      <button class="btn gold sm" onclick="addCat()">Ajouter</button>
-    </div>
-    <div id="catList" style="margin-top:10px"></div>
+
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Infos pratiques (dans les mails)</h2>
@@ -1160,13 +1149,31 @@
   }
   window.setMatch = async function(filleulTok, parrainTok){
     var F = tokenGuest(filleulTok); if(!F) return;
+    var force = false;
+    if(parrainTok && parrainTok.indexOf("F:")===0){ force = true; parrainTok = parrainTok.slice(2); }
     if(parrainTok){
-      if(loadOf(parrainTok) >= MATCH_MAX && F.parrain!==parrainTok){ flash("Ce parrain a déjà "+MATCH_MAX+" filleul·e·s."); renderMatching(); return; }
+      if(!force && loadOf(parrainTok) >= MATCH_MAX && F.parrain!==parrainTok){ flash("Ce parrain a déjà "+MATCH_MAX+" filleul·e·s."); renderMatching(); return; }
+      if(force && loadOf(parrainTok) >= MATCH_MAX && F.parrain!==parrainTok){
+        if(!(await uiConfirm("Ce parrain a déjà "+MATCH_MAX+" filleul·e·s.\n\nL'ajouter quand même à cette famille ? La table sera partagée."))){ renderMatching(); return; }
+      }
       F.parrain = parrainTok;
       var Pp = tokenGuest(parrainTok); if(Pp && Pp.table){ F.table = Pp.table; } else { delete F.table; }
     } else { delete F.parrain; delete F.table; }
     await saveRosterMatches(); renderMatching();
   };
+  /* Placer un filleul sans parrain à une table existante (il rejoint la famille de cette table). */
+  window.setTableFilleul = async function(filleulTok, table){
+    var F = tokenGuest(filleulTok); if(!F) return;
+    if(!table){ delete F.table; await saveRosterMatches(); renderMatching(); return; }
+    F.table = String(table);
+    await saveRosterMatches(); renderMatching();
+    flash("Placé·e à la table "+table+".");
+  };
+  /* Toutes les tables déjà utilisées, triées. */
+  function tablesExistantes(){
+    var t={}; roster.forEach(function(g){ if(g.table) t[String(g.table)]=1; });
+    return Object.keys(t).sort(function(a,b){ return String(a).localeCompare(String(b), undefined, {numeric:true}); });
+  }
   window.autoMatch = async function(){
     var filleuls = roster.filter(function(g){ return g.role==="filleul"; });
     var ordre = {Droit:0, Criminologie:1};
@@ -1212,15 +1219,41 @@
         if(!F.parrain) nonAttrib++;
         elig.sort(cmpCandidats(F));
         var opts = '<option value="">— non attribué —</option>';
+        var dejaVu = {};
         elig.forEach(function(C){
           var load=loadOf(C.token);
           var sel = (F.parrain===C.token) ? " selected" : "";
-          var full = (load>=MATCH_MAX && F.parrain!==C.token) ? " disabled" : "";
-          opts += '<option value="'+C.token+'"'+sel+full+'>'+escapeHtml(C.name)+' ('+escapeHtml(C.annee)+(C.role==="alumni"?" · alumni":"")+(C.exPasserelle?" · ex-pass.":"")+' · '+load+'/'+MATCH_MAX+')</option>';
+          var plein = (load>=MATCH_MAX && F.parrain!==C.token);
+          if(plein) return;                     // les familles complètes passent dans le groupe « hors règles »
+          dejaVu[C.token]=1;
+          opts += '<option value="'+C.token+'"'+sel+'>'+escapeHtml(C.name)+' ('+escapeHtml(C.annee)+(C.role==="alumni"?" · alumni":"")+(C.exPasserelle?" · ex-pass.":"")+' · '+load+'/'+MATCH_MAX+')</option>';
         });
+        // Personne n'est laissé sans solution : toutes les autres familles restent proposées, en forçant.
+        var autres = candidatsParrains().filter(function(C){ return !dejaVu[C.token]; });
+        if(autres.length){
+          autres.sort(function(a,b){ return (a.section||"").localeCompare(b.section||"") || a.name.localeCompare(b.name); });
+          opts += '<optgroup label="Rejoindre une famille existante (hors règles)">';
+          autres.forEach(function(C){
+            var load=loadOf(C.token);
+            var sel = (F.parrain===C.token) ? " selected" : "";
+            opts += '<option value="F:'+C.token+'"'+sel+'>'+escapeHtml(C.name)+' ('+escapeHtml(C.section||"")+(C.table?" · table "+escapeHtml(C.table):"")+' · '+load+'/'+MATCH_MAX+')</option>';
+          });
+          opts += '</optgroup>';
+        }
         var warn = (!elig.length) ? ' <span style="color:#ff9b9b">aucun parrain éligible</span>' : (!F.parrain ? ' <span style="color:var(--muted)">à attribuer</span>' : '');
-        html += '<div class="mrow"><div class="mf">'+escapeHtml(F.name)+' <span style="color:var(--muted)">('+escapeHtml(F.annee)+')</span>'+warn+'</div>'
-          + '<select onchange="setMatch(\''+F.token+'\', this.value)">'+opts+'</select></div>';
+        // Filleul sans parrain : on lui permet quand même de s'asseoir à une table déjà existante.
+        var selTable = "";
+        if(!F.parrain){
+          var tbs = tablesExistantes();
+          if(tbs.length){
+            var o = '<option value="">— sans table —</option>';
+            tbs.forEach(function(t){ o += '<option value="'+escapeHtml(t)+'"'+(String(F.table||"")===String(t)?" selected":"")+'>Table '+escapeHtml(t)+'</option>'; });
+            selTable = '<select style="max-width:130px" onchange="setTableFilleul(\''+F.token+'\', this.value)">'+o+'</select>';
+          }
+        }
+        html += '<div class="mrow"><div class="mf">'+escapeHtml(F.name)+' <span style="color:var(--muted)">('+escapeHtml(F.annee)+')</span>'+warn
+          + (!F.parrain && F.table ? ' <span style="color:var(--gold)">· table '+escapeHtml(F.table)+'</span>' : '')+'</div>'
+          + '<select onchange="setMatch(\''+F.token+'\', this.value)">'+opts+'</select>'+selTable+'</div>';
       });
     });
     $("matchWrap").innerHTML = html;
@@ -1786,9 +1819,19 @@
   function gFamille(cid, guest){
     if(!guest) return { parrainName:"", filleulNames:[] };
     var parrainTok = (guest.role==="filleul") ? (guest.parrain||"") : guest.token;
+    if(guest.role==="filleul" && !parrainTok && guest.table){          // placé à une table sans parrain
+      try{
+        Object.keys(gIndex).forEach(function(k){
+          (gIndex[k]||[]).forEach(function(e){
+            if(!parrainTok && e.cid===cid && e.guest && (e.guest.role==="parrain"||e.guest.role==="alumni")
+               && String(e.guest.table||"")===String(guest.table)) parrainTok = e.guest.token;
+          });
+        });
+      }catch(e){}
+    }
     var parrainName = "";
     if(guest.role==="filleul"){
-      var pl = gIndex[normalize(parrainTok)];
+      var pl = parrainTok ? gIndex[normalize(parrainTok)] : null;
       if(pl){ for(var i=0;i<pl.length;i++){ if(pl[i].cid===cid && pl[i].guest){ parrainName=prenomDe(pl[i].guest); break; } } }
     } else { parrainName = prenomDe(guest); }
     return { parrainName:parrainName, filleulNames:gFilleulPrenoms(cid, parrainTok) };
@@ -2211,7 +2254,7 @@
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g),from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     flash("Rappel envoyé à "+ok+" personne(s).");
@@ -2589,9 +2632,19 @@
   function familleParrainage(guest){
     if(!guest) return { parrainName:"", filleulNames:[] };
     var parrainTok = (guest.role==="filleul") ? (guest.parrain||"") : guest.token;
+    // Filleul placé directement à une table (sans parrain attribué) : on reconstruit la famille via la table.
+    if(guest.role==="filleul" && !parrainTok && guest.table){
+      var hote = roster.filter(function(g){ return (g.role==="parrain"||g.role==="alumni") && String(g.table||"")===String(guest.table); })[0];
+      if(hote) parrainTok = hote.token;
+    }
     var P = parrainTok ? tokenGuest(parrainTok) : null;
     var parrainName = P ? prenomDe(P) : "";
-    var filleulNames = parrainTok ? roster.filter(function(f){ return f.role==="filleul" && f.parrain===parrainTok; }).map(prenomDe) : [];
+    var filleulNames = parrainTok
+      ? roster.filter(function(f){
+          return f.role==="filleul" && (f.parrain===parrainTok
+            || (!f.parrain && guest.table && String(f.table||"")===String(guest.table)));   // placés à la table sans parrain
+        }).map(prenomDe)
+      : [];
     return { parrainName:parrainName, filleulNames:filleulNames };
   }
   /* ---------- Mail automatique à l'entrée (parrainage) : envoie la table etc. ---------- */
@@ -2609,7 +2662,7 @@
       : '';
     // Bloc "famille" affiché pour TOUS les rôles : parrain/marraine + filleul·e·s de la table.
     var famLignes = '';
-    if(parrainName) famLignes += '<li>Parrain / marraine : <b>'+mailEsc(parrainName)+'</b></li>';
+    if(parrainName && guest.role==="filleul") famLignes += '<li>Parrain / marraine : <b>'+mailEsc(parrainName)+'</b></li>';
     if(filleulNames.length) famLignes += '<li>Filleul·e·s : <b>'+mailEsc(filleulNames.join(", "))+'</b></li>';
     var familyBloc = famLignes
       ? '<p style="margin:16px 0 6px"><b>Ta table de parrainage</b></p><ul style="line-height:1.9;color:#333;font-size:14px">'+famLignes+'</ul>'
@@ -2725,7 +2778,7 @@
           body: JSON.stringify({
             to: emailOf(g),
             subject: "Ton billet pour "+ev,
-            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+mentionPerso(g),
+            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+lienDesistement(g)+mentionPerso(g),
             from: expediteurPour(g)
           })
         });
@@ -2806,6 +2859,17 @@
     else if(t.id==="btnCopy1"){ e.preventDefault(); copySignupLink(false); }
     else if(t.id==="btnCopy2"){ e.preventDefault(); copySignupLink(true); }
   }, true);
+  /* Lien de désistement : la personne libère sa place elle-même. */
+  function lienDesistement(g){
+    var cid=currentCommId()||""; if(!g || !g.token || !cid) return "";
+    var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
+    var url=base+"?c="+encodeURIComponent(cid)+"&annuler="+encodeURIComponent(g.token);
+    var vous=vouvoyerG(g);
+    return '<p style="color:#888;font-size:12.5px;margin-top:18px;text-align:center">'
+      + (vous ? 'Un empêchement ? ' : 'Un empêchement ? ')
+      + '<a href="'+url+'" style="color:#888">'+(vous?'Annulez votre inscription':'Annule ton inscription')+'</a>'
+      + (vous ? ' pour libérer votre place.' : ' pour libérer ta place.')+'</p>';
+  }
   function mentionPerso(g){
     if(currentCommId()!=="proclamation") return "";
     var bloc = "";
@@ -2915,6 +2979,7 @@
             ? '<p>Nous ne vous avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau votre billet :</p>'
             : '<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>')
         + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))
+        + lienDesistement(g)
         + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
@@ -2939,6 +3004,7 @@
             ? '<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
             : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>')
         + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))
+        + lienDesistement(g)
         + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
@@ -3216,6 +3282,9 @@
       if(d&&d.fields&&d.fields.signups){ try{ SIGNUPS=JSON.parse(d.fields.signups.stringValue||"[]"); }catch(e){} }
       if(d&&d.fields&&d.fields.notifMail && $("suNotif") && !$("suNotif").value){ var _cm=d.fields.notifMail.stringValue||""; if(_cm){ $("suNotif").value=_cm; try{ window.localStorage.setItem(notifKey(), _cm); }catch(e){} } }
       await processSignups();
+      var libere = await traiterDesistements();       // annulations reçues depuis le formulaire
+      if(libere) await repechageAuto();               // les places libérées profitent à la liste d'attente
+      await relancerNonConfirmes();                   // relance 48 h après une inscription jamais confirmée
       majPayBadge();
       await alerterNouvellesPreuves();
       if(!silencieuxRefresh) flash(SIGNUPS.length ? (SIGNUPS.length+" inscription(s) chargée(s).") : "Aucune inscription pour l'instant.");
@@ -3286,7 +3355,7 @@
     var to = emailOf(g); if(!to){ return false; }
     try{
       var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:to,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g),from:expediteurPour(g)})});
+        body:JSON.stringify({to:to,subject:"Votre billet — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g)})});
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
       return rm && rm.ok;
     }catch(e){ g.mailEnvoye = 0; return false; }
@@ -3444,9 +3513,14 @@
     var x=SIGNUPS[i]; if(!x || !x.email) return;
     if(x.statut!=="apreconfirmer"){ flash("Cette personne a déjà confirmé."); return; }
     if(!(await uiConfirm("Renvoyer le lien de confirmation à "+x.name+" ("+x.email+") ?"))) return;
+    var ok = await envoyerLienConfirmation(x);
+    flash(ok ? ("Lien renvoyé à "+x.name+" ✓") : "Échec de l'envoi.");
+  };
+  async function envoyerLienConfirmation(x){
+    if(!x || !x.email) return false;
     if(!x.confToken){                                   // sécurité : ancien enregistrement sans jeton
       x.confToken="C"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
-      if(!(await saveSignups(x))) return;
+      if(!(await saveSignups(x))) return false;
     }
     var cid=currentCommId()||"";
     var nomEv=(eventName||commName(cid)||"notre événement");
@@ -3463,10 +3537,79 @@
     try{
       var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
         body:JSON.stringify({to:x.email,subject:"Confirme ton inscription — "+nomEv,html:html,from:expediteurPour(x)})});
-      flash(r&&r.ok ? ("Lien renvoyé à "+x.name+" ✓") : "Échec de l'envoi.");
-    }catch(e){ flash("Échec de l'envoi."); }
-  };
+      return !!(r&&r.ok);
+    }catch(e){ return false; }
+  }
+  /* Relance automatique : une seule fois, 48 h après une inscription jamais confirmée. */
+  var DELAI_RELANCE = 48*3600*1000;
+  async function relancerNonConfirmes(){
+    var aRelancer = SIGNUPS.filter(function(x){
+      return x && x.statut==="apreconfirmer" && x.email && !x.relanceTs
+        && x.ts && (Date.now()-x.ts) > DELAI_RELANCE;
+    });
+    if(!aRelancer.length) return;
+    var faits=[];
+    for(var i=0;i<aRelancer.length;i++){
+      var x=aRelancer[i];
+      if(await envoyerLienConfirmation(x)){ x.relanceTs=Date.now(); faits.push(x); }
+    }
+    if(faits.length){
+      await saveSignups(faits);
+      flash("🔔 Relance automatique envoyée à "+faits.length+" personne(s) qui n'avaient pas confirmé.");
+    }
+  }
   /* Repêchage : la personne quitte la liste d'attente et reçoit son billet. */
+  /* ---------- Désistements ----------
+     La page publique ne peut écrire que dans « signups » : elle y dépose un marqueur
+     {statut:"annule", annuleToken}. L'app retire le billet correspondant et repêche. */
+  async function traiterDesistements(){
+    var cid=currentCommId(); if(!cid) return false;
+    var marques = SIGNUPS.filter(function(x){ return x && x.statut==="annule" && x.annuleToken && !x.traite; });
+    if(!marques.length) return false;
+    var retires=[], noms=[];
+    for(var i=0;i<marques.length;i++){
+      var m=marques[i];
+      var g = roster.filter(function(x){ return x.token===m.annuleToken; })[0];
+      if(g){
+        noms.push(g.name||m.name||"?");
+        retires.push(g.token);
+        // libérer aussi l'inscription d'origine (la personne pourra se réinscrire)
+        SIGNUPS.forEach(function(x){ if(x && x.statut==="accepte" && g.sigKey && signupKey(x)===g.sigKey){ x.statut="annule"; x.annuleTs=Date.now(); } });
+        roster = roster.filter(function(x){ return x.token!==m.annuleToken; });
+      }
+      m.traite=true; m.traiteTs=Date.now();
+    }
+    if(retires.length){
+      await marquerSupprimes(retires);
+      localRosterVersion=Date.now();
+      await Store.set("roster", JSON.stringify(roster));
+      await Store.set("rosterVersion", String(localRosterVersion));
+      await cloudPushRoster(cid);
+      try{ renderTickets(); renderList(); updateCounts(); }catch(e){}
+    }
+    await saveSignups(marques.concat(SIGNUPS.filter(function(x){ return x && x.statut==="annule" && x.annuleTs; })));
+    if(noms.length) flash("❌ Désistement : "+noms.join(", ")+" — place(s) libérée(s).");
+    return retires.length>0;
+  }
+  /* Repêchage automatique de la liste d'attente quand des places se libèrent. */
+  async function repechageAuto(){
+    if(!jaugeActive()) return;
+    var max=getPlaces(); if(!max) return;
+    var attente=SIGNUPS.filter(function(x){ return x && x.statut==="attente"; })
+                       .sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
+    if(!attente.length) return;
+    var repeches=[];
+    while(attente.length && placesPrises() < max){
+      var x=attente.shift();
+      await creerBilletDepuisInscription(x);          // crée le billet ET envoie le mail
+      x.statut="accepte"; repeches.push(x);
+    }
+    if(repeches.length){
+      await saveSignups(repeches);
+      renderSignups();
+      flash("🎟️ "+repeches.length+" personne(s) repêchée(s) automatiquement de la liste d'attente.");
+    }
+  }
   window.repecherInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
     var max=getPlaces(), reste = max ? (max-placesPrises()) : 1;
@@ -3730,9 +3873,12 @@
     if(acarte.length){
       html += '<p class="fld" style="margin-top:12px">Cartes étudiantes à vérifier ('+acarte.length+')</p>'
         + acarte.map(function(x){ var i=SIGNUPS.indexOf(x);
+            var _mat=String(x.matricule||"").trim();
+            var _dbl = _mat && SIGNUPS.filter(function(y){ return y!==x && String(y.matricule||"").trim()===_mat && y.statut!=="refuse"; }).length>0;
             var badge = x.corrigee ? ' <span style="background:#1f6f3f;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;white-space:nowrap">🔄 carte corrigée</span>' : '';
             return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
-              +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b>'+badge+'<br>'
+              +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b>'+badge
+              +(_dbl?' <span style="background:#8a2b2b;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;white-space:nowrap">⚠ matricule en double</span>':'')+'<br>'
               +'<span class="hint">Matricule '+escapeHtml(x.matricule||"—")+' · '+escapeHtml(x.section||"")+' — '+escapeHtml(x.email||"")+'</span></span>'
               +'<button class="btn ghost xs" data-su="carte" data-i="'+i+'">Carte</button>'
               +'<button class="btn gold xs" data-su="ok" data-i="'+i+'">Valider</button>'
