@@ -148,6 +148,8 @@
   .stat.invalid .word{color:var(--red)}
   .stat.used{background:var(--amber-bg);border-color:#7a561b}
   .stat.used .word{color:var(--amber)}
+  .stat.validbleu{background:#0f2c47;border-color:#1f5f8b}
+  .stat.validbleu .word{color:#6fb8ef}
 
   #reader{border-radius:14px;overflow:hidden;border:1px solid var(--line);background:#000;min-height:60px}
   #reader video{display:block;width:100%!important;height:auto!important}
@@ -516,9 +518,16 @@
       <div id="matchWarn" class="hint" style="margin-top:9px"></div>
       <div id="matchWrap" style="margin-top:6px"></div>
       <div style="border-top:1px solid var(--line);margin:14px 0 0;padding-top:12px">
+        <div class="row" style="gap:8px;align-items:center;margin-bottom:8px">
+          <label class="fld" for="capTable" style="margin:0">Places par table</label>
+          <input type="number" id="capTable" min="0" step="1" placeholder="ex. 4" style="max-width:110px">
+          <button class="btn ghost sm" type="button" onclick="enregistrerCapacite()">Enregistrer</button>
+          <button class="btn ghost sm" type="button" onclick="ouvrirVueTables()">👀 Vue en direct</button>
+        </div>
         <div class="row"><button class="btn gold sm" onclick="assignTables()">Attribuer les tables</button><button class="btn ghost sm" onclick="exportMatchingList()">Liste des matchings (par table)</button></div>
-        <p class="hint" style="margin-top:6px">1 famille (parrain + ses filleul·e·s) par table, dans l'ordre. Droit et Crimino sur des plages de tables séparées, 40 tables max. Tu peux modifier un numéro à la main (ex. « 1-2 » pour coller deux tables).</p>
+<p class="hint" style="margin-top:6px">1 famille (parrain + ses filleul·e·s) par table, dans l'ordre. Droit et Crimino sur des plages de tables séparées, 40 tables max. Tu peux modifier un numéro à la main ci-dessous. Avec un nombre de places par table, plusieurs petites familles partagent une table.</p>
         <div id="tablesWrap" style="margin-top:6px"></div>
+      
       </div>
     </div>
 
@@ -1147,6 +1156,31 @@
     await Store.set("rosterVersion", String(localRosterVersion));
     if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
   }
+  /* Attribue immédiatement une table à une famille qui n'en a pas encore.
+     Avec une capacité définie, on complète d'abord une table de la même section. */
+  function placerFamilleAuto(parrainTok){
+    var P=tokenGuest(parrainTok); if(!P || P.table) return false;
+    var membres = [P].concat(roster.filter(function(f){ return f.role==="filleul" && f.parrain===parrainTok; }));
+    var taille = membres.length, cap = getCapacite();
+    var num = "";
+    if(cap>0){
+      var occ={};
+      roster.forEach(function(g){ if(g.table){ (occ[String(g.table)] = occ[String(g.table)] || []).push(g); } });
+      var libres = Object.keys(occ).filter(function(t){
+        var memeSec = occ[t].every(function(g){ return (g.section||"")===(P.section||""); });
+        return memeSec && (occ[t].length + taille) <= cap;
+      }).sort(function(a,b){ return String(a).localeCompare(String(b), undefined, {numeric:true}); });
+      if(libres.length) num = libres[0];                       // on complète une table entamée
+    }
+    if(!num){
+      var maxi=0;
+      roster.forEach(function(g){ var n=parseInt(g.table,10); if(!isNaN(n) && n>maxi) maxi=n; });
+      if(maxi >= TABLE_MAX){ flash("⚠️ "+TABLE_MAX+" tables atteintes — attribue la table à la main."); return false; }
+      num = String(maxi+1);
+    }
+    membres.forEach(function(g){ g.table = num; });
+    return num;
+  }
   window.setMatch = async function(filleulTok, parrainTok){
     var F = tokenGuest(filleulTok); if(!F) return;
     var force = false;
@@ -1157,7 +1191,13 @@
         if(!(await uiConfirm("Ce parrain a déjà "+MATCH_MAX+" filleul·e·s.\n\nL'ajouter quand même à cette famille ? La table sera partagée."))){ renderMatching(); return; }
       }
       F.parrain = parrainTok;
-      var Pp = tokenGuest(parrainTok); if(Pp && Pp.table){ F.table = Pp.table; } else { delete F.table; }
+      var Pp = tokenGuest(parrainTok);
+      if(Pp && Pp.table){ F.table = Pp.table; }
+      else {
+        delete F.table;
+        var t = placerFamilleAuto(parrainTok);      // nouvelle famille : table attribuée immédiatement
+        if(t) flash("Table "+t+" attribuée à la famille de "+(Pp?Pp.name:"?")+".");
+      }
     } else { delete F.parrain; delete F.table; }
     await saveRosterMatches(); renderMatching();
   };
@@ -1187,8 +1227,12 @@
       cands.sort(cmpCandidats(F));                             // ex-passerelle d'abord (si filleul passerelle), puis le moins chargé
       F.parrain = cands[0].token; n++;
     });
+    var nt=0;
+    candidatsParrains().forEach(function(P){                    // chaque famille repart avec une table
+      if(loadOf(P.token)>0 && !P.table && placerFamilleAuto(P.token)) nt++;
+    });
     await saveRosterMatches(); renderMatching();
-    flash(n+" binôme(s) proposé(s).");
+    flash(n+" binôme(s) proposé(s)"+(nt?(" · "+nt+" table(s) attribuée(s)"):"")+".");
   };
   window.clearMatches = async function(){
     if(!(await uiConfirm("Effacer tous les binômes ?"))) return;
@@ -1360,24 +1404,104 @@
     flash(ok+" mail(s) envoyé(s).");
   };
 
-  /* ---------- Parrainage — tables ---------- */
+  /* ---------- Tables ---------- */
   var TABLE_MAX = 40;
+  function capKey(){ return "qrentry:capTable:"+(currentCommId()||""); }
+  function getCapacite(){ try{ return parseInt(window.localStorage.getItem(capKey())||"0",10)||0; }catch(e){ return 0; } }
+  window.enregistrerCapacite=async function(){
+    var n=parseInt(($("capTable")&&$("capTable").value)||"0",10); if(isNaN(n)||n<0) n=0;
+    try{ window.localStorage.setItem(capKey(), String(n)); }catch(e){}
+    uiAlert(n ? ("Places par table : "+n+".\n\nClique « Attribuer les tables » pour regrouper les familles et remplir les tables.")
+              : "Capacité retirée : une famille = une table.");
+  };
   window.assignTables = async function(){
     roster.forEach(function(g){ if(g.role==="filleul"||g.role==="parrain"||g.role==="alumni") delete g.table; });
+    var cap=getCapacite();
     var num=0, overflow=0;
     ["Droit","Criminologie"].forEach(function(sec){
       var fams = candidatsParrains().filter(function(P){ return P.section===sec && loadOf(P.token)>0; });
       fams.sort(function(a,b){ return a.name.localeCompare(b.name); });
-      fams.forEach(function(P){
-        num++;
-        if(num>TABLE_MAX){ overflow++; return; }
-        P.table=String(num);
-        roster.forEach(function(f){ if(f.role==="filleul" && f.parrain===P.token) f.table=String(num); });
-      });
+      if(cap>0){
+        // Remplissage : on regroupe plusieurs familles sur une même table sans jamais couper une famille.
+        var restant=0;
+        fams.forEach(function(P){
+          var taille = 1 + loadOf(P.token);
+          if(num===0 || taille>restant){ num++; restant = Math.max(cap - taille, 0); }
+          else { restant -= taille; }
+          if(num>TABLE_MAX){ overflow++; return; }
+          P.table=String(num);
+          roster.forEach(function(f){ if(f.role==="filleul" && f.parrain===P.token) f.table=String(num); });
+        });
+      } else {
+        fams.forEach(function(P){
+          num++;
+          if(num>TABLE_MAX){ overflow++; return; }
+          P.table=String(num);
+          roster.forEach(function(f){ if(f.role==="filleul" && f.parrain===P.token) f.table=String(num); });
+        });
+      }
     });
     await saveRosterMatches(); renderMatching();
     flash(overflow ? ("Tables attribuées, mais "+overflow+" table(s) au-delà de "+TABLE_MAX+" !") : ("Tables attribuées (1 à "+Math.min(num,TABLE_MAX)+")."));
   };
+  /* Vue en direct : qui est arrivé, table par table. */
+  window.ouvrirVueTables=function(){
+    var box=$("vueTablesModal");
+    if(!box){
+      box=document.createElement("div"); box.id="vueTablesModal"; box.className="modal";
+      box.innerHTML='<div class="modal-box" style="max-width:640px;width:100%;padding:18px">'
+        +'<div class="gen-head"><h2 style="margin:0">👀 Tables en direct</h2>'
+        +'<button class="btn ghost sm" type="button" onclick="fermerVueTables()">Fermer</button></div>'
+        +'<div id="vueTablesBody" style="max-height:70vh;overflow:auto;margin-top:8px"></div></div>';
+      document.body.appendChild(box);
+    }
+    box.classList.add("on");
+    rendreVueTables();
+    if(window.__vueTablesTimer) clearInterval(window.__vueTablesTimer);
+    window.__vueTablesTimer=setInterval(function(){
+      if($("vueTablesModal") && $("vueTablesModal").classList.contains("on")) rendreVueTables();
+      else { clearInterval(window.__vueTablesTimer); window.__vueTablesTimer=null; }
+    }, 8000);
+  };
+  window.fermerVueTables=function(){
+    var b=$("vueTablesModal"); if(b) b.classList.remove("on");
+    if(window.__vueTablesTimer){ clearInterval(window.__vueTablesTimer); window.__vueTablesTimer=null; }
+  };
+  function rendreVueTables(){
+    var b=$("vueTablesBody"); if(!b) return;
+    var avec = roster.filter(function(g){ return g.table; });
+    if(!avec.length){ b.innerHTML='<p class="hint">Aucune table attribuée pour l\'instant.</p>'; return; }
+    var parTable={};
+    avec.forEach(function(g){ (parTable[String(g.table)] = parTable[String(g.table)] || []).push(g); });
+    var nums=Object.keys(parTable).sort(function(a,b){ return String(a).localeCompare(String(b), undefined, {numeric:true}); });
+    var totalE=0, totalP=0, cap=getCapacite();
+    var html=nums.map(function(t){
+      var gs=parTable[t];
+      var e=gs.filter(function(g){ return usedSet.has(g.token); }).length;
+      totalE+=e; totalP+=gs.length;
+      var complet = (e===gs.length);
+      var libres = cap ? Math.max(cap-gs.length,0) : 0;
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px;'
+        +(complet?'background:rgba(31,111,63,.14)':'')+'">'
+        +'<div style="display:flex;align-items:center;gap:8px">'
+        +'<b style="flex:1">Table '+escapeHtml(t)+'</b>'
+        +'<span style="font-weight:800;color:'+(complet?'#7ddc9a':'var(--gold)')+'">'+e+' / '+gs.length+'</span>'
+        +(libres?'<span class="hint">· '+libres+' place(s) libre(s)</span>':'')+'</div>'
+        +'<div class="hint" style="margin-top:5px;line-height:1.7">'
+        + gs.map(function(g){
+            var la=usedSet.has(g.token);
+            return '<span style="display:inline-block;margin-right:9px;'+(la?'color:#7ddc9a':'opacity:.55')+'">'
+              +(la?'✅ ':'⬜️ ')+escapeHtml(prenomDe(g)||g.name||"?")+'</span>';
+          }).join("")
+        +'</div></div>';
+    }).join("");
+    var pct = totalP ? Math.round(totalE/totalP*100) : 0;
+    b.innerHTML='<div style="background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px;text-align:center">'
+      +'<div style="font-size:26px;font-weight:800">'+totalE+' / '+totalP+'</div>'
+      +'<div class="hint">arrivé·e·s · '+pct+' % · '+nums.length+' table(s)</div></div>' + html;
+  }
+
+
   window.setTable = async function(parrainTok, val){
     var P=tokenGuest(parrainTok); if(!P) return;
     val=String(val||"").trim();
@@ -1401,8 +1525,6 @@
     });
     wrap.innerHTML = html || '<p class="hint">Fais d\'abord le matching, puis clique « Attribuer les tables ».</p>';
   }
-
-
 
   function renderTickets(){
     var wrap = $("ticketWrap");
@@ -1577,7 +1699,7 @@
   }
 
   var clearT=null;
-  function buildBadges(guest){
+  function buildBadges(guest, famFournie){
     var cat="";
     var PROCLA_LB={ doyen:"DOYEN·NE", academique:"CORPS ACADÉMIQUE", scientifique:"CORPS SCIENTIFIQUE",
                     patgs:"PERSONNEL ADM., TECHNIQUE ET DE GESTION", etudiant:"ÉTUDIANT·E DIPLÔMÉ·E" };
@@ -1599,7 +1721,7 @@
       var tbl = guest.table ? '<div class="cattable">Table '+escapeHtml(guest.table)+'</div>' : '';
       var famInfo="";
       try{
-        var ff=familleParrainage(guest);
+        var ff = famFournie || familleParrainage(guest);   // dans le scanner global, la famille vient de l'index cloud
         if(guest.role==="filleul" && ff.parrainName) famInfo='<div class="catsub">Parrain·e : '+escapeHtml(ff.parrainName)+'</div>';
         else if((guest.role==="parrain"||guest.role==="alumni") && ff.filleulNames.length) famInfo='<div class="catsub">Filleul·e·s : '+escapeHtml(ff.filleulNames.join(", "))+'</div>';
       }catch(e){}
@@ -1717,9 +1839,9 @@
   function gUpdateCounts(){ if($("gEntered")) $("gEntered").textContent=gUsed; if($("gTotal")) $("gTotal").textContent=gTotal; }
   function gFlash(ok){ try{ flashSignal(ok); }catch(e){} }
   function hideGAmbig(){ var b=$("gambig"); if(b){ b.style.display="none"; b.innerHTML=""; } }
-  function gStat(kind,word,who,note,guest){
+  function gStat(kind,word,who,note,guest,fam){
     var s=$("gstat"); if(!s) return; s.className="stat "+kind;
-    var cat = guest ? buildBadges(guest) : "";
+    var cat = guest ? buildBadges(guest, fam) : "";
     s.innerHTML='<p class="word">'+escapeHtml(word)+'</p>'+(who?'<p class="who">'+escapeHtml(who)+'</p>':'')+cat+(note?'<p class="note">'+escapeHtml(note)+'</p>':'');
     if(gClearT) clearTimeout(gClearT);
     gClearT=setTimeout(function(){ s.className="stat idle"; s.innerHTML='<p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p>'; }, 4500);
@@ -1861,7 +1983,8 @@
     gQueue.push({ cid:cid, token:tkStored, at:at, name:guest.name||"" });
     _gSaveQueue(); gUpdateCounts();
     var fam=gParrainInfo(cid, guest);
-    gStat("valid","Validé (hors-ligne) — "+m.cname, guest.name||"", "Sera synchronisé au retour du réseau"+fam, guest);
+    var kindHL = (cid==="proclamation" && guest.role && guest.role!=="etudiant") ? "validbleu" : "valid";
+    gStat(kindHL,"Validé (hors-ligne) — "+m.cname, guest.name||"", "Sera synchronisé au retour du réseau"+fam, guest, gFamille(cid, guest));
     gFlash(true); beep(true); gShowPending();
   }
   async function gAdmit(token, m){
@@ -1876,7 +1999,7 @@
       var already = usedMap[tkStored] || usedMap[token];
       if(already){
         var w=""; try{ w=fmtTime(already); }catch(e){}
-        m.usedAt=already; gStat("used","Déjà scanné", guest.name||"", (w?("Entré à "+w):"Déjà entré")+" · "+m.cname+fam, guest);
+        m.usedAt=already; gStat("used","Déjà scanné", guest.name||"", (w?("Entré à "+w):"Déjà entré")+" · "+m.cname+fam, guest, gFamille(cid, guest));
         gFlash(false); alertUsed(); return;
       }
       await _gNoterMienne(cid, tkStored, at);                          // mémoire locale d'abord
@@ -1886,7 +2009,9 @@
       if(!(r&&r.ok)){ _gQueueAdmit(m, token, at); return; }            // échec écriture -> file d'attente
       if(!m.usedAt){ gUsed++; } m.usedAt=at; gUpdateCounts();
       try{ envoyerBienvenue(guest, cid, (f.event&&f.event.stringValue)||""); }catch(e){}
-      gStat("valid","Valide — "+m.cname, guest.name||"", "Entrée enregistrée · "+fmtTime(at)+fam, guest);
+      // Proclamation : vert pour les étudiant·e·s diplômé·e·s, bleu pour les autres (profs, doyen, PATGS…)
+      var kindOk = (cid==="proclamation" && guest.role && guest.role!=="etudiant") ? "validbleu" : "valid";
+      gStat(kindOk,"Valide — "+m.cname, guest.name||"", "Entrée enregistrée · "+fmtTime(at)+fam, guest, gFamille(cid, guest));
       gFlash(true); beep(true);
       if(cid==="parrainage" && ["filleul","parrain","alumni"].indexOf(guest.role)>=0 && emailOf(guest)){
         var fam = gFamille(cid, guest);
@@ -2928,6 +3053,7 @@
     w.style.display = jaugeActive() ? "" : "none";
     if(!jaugeActive()) return;
     var inp=$("suPlaces"); if(inp && !inp.__init){ inp.__init=1; var v=getPlaces(); if(v) inp.value=String(v); }
+    var ic2=$("capTable"); if(ic2 && !ic2.__init){ ic2.__init=1; var c2=getCapacite(); if(c2) ic2.value=String(c2); }
     var max=getPlaces(), info=$("jaugeInfo"); if(!info) return;
     if(!max){ info.textContent="Aucune limite : le formulaire accepte tout le monde."; info.style.color=""; return; }
     var pris=placesPrises(), reste=max-pris;
@@ -3401,6 +3527,99 @@
     else if(a==="repecher") repecherInscrit(i);
     else if(a==="no")     refuserInscrit(i);
   }, true);
+  /* ---------- Revue rapide des cartes (proclamation) ---------- */
+  var REVUE=[], REVUE_POS=0;
+  async function chargerImageCarte(x){
+    if(x.carte) return x.carte;
+    if(!x.carteId) return "";
+    try{
+      var cid=currentCommId(); await ensureAuth(cid); var a=loadAuth(cid);
+      if(a && a.idToken){
+        var d=await fsGetDoc("commission_cartes/"+cid+"__c__"+x.carteId, a.idToken);
+        if(d && d.fields && d.fields.carte) return d.fields.carte.stringValue||"";
+      }
+    }catch(e){}
+    return "";
+  }
+  window.ouvrirRevueCartes=async function(){
+    REVUE = SIGNUPS.filter(function(x){ return x && (x.statut==="acarte"||x.statut==="acorriger"); });
+    if(!REVUE.length){ flash("Aucune carte à vérifier."); return; }
+    REVUE_POS=0;
+    var box=$("revueModal");
+    if(!box){
+      box=document.createElement("div"); box.id="revueModal"; box.className="modal";
+      box.innerHTML='<div class="modal-box" style="max-width:640px;width:100%;padding:16px">'
+        +'<div class="gen-head" style="margin-bottom:8px"><h2 id="revueTitre" style="margin:0">Revue des cartes</h2>'
+        +'<button class="btn ghost sm" type="button" onclick="fermerRevue()">Fermer</button></div>'
+        +'<div id="revueBody"></div></div>';
+      document.body.appendChild(box);
+    }
+    box.classList.add("on");
+    await afficherRevue();
+  };
+  window.fermerRevue=function(){ var b=$("revueModal"); if(b) b.classList.remove("on"); renderSignups(); };
+  async function afficherRevue(){
+    var b=$("revueBody"), t=$("revueTitre"); if(!b) return;
+    // on saute ceux qui ont été traités entre-temps
+    while(REVUE_POS<REVUE.length && REVUE[REVUE_POS] && REVUE[REVUE_POS].statut!=="acarte" && REVUE[REVUE_POS].statut!=="acorriger") REVUE_POS++;
+    if(REVUE_POS>=REVUE.length){
+      if(t) t.textContent="Revue terminée";
+      b.innerHTML='<p class="big" style="text-align:center;font-size:44px;margin:10px 0">✅</p>'
+        +'<p style="text-align:center"><b>File vidée</b></p>'
+        +'<p class="hint" style="text-align:center">Toutes les cartes en attente ont été traitées.</p>'
+        +'<button class="btn gold block" type="button" onclick="fermerRevue()" style="margin-top:14px">Fermer</button>';
+      return;
+    }
+    var x=REVUE[REVUE_POS];
+    if(t) t.textContent="Carte "+(REVUE_POS+1)+" / "+REVUE.length;
+    b.innerHTML='<p class="hint" style="text-align:center">Chargement de la carte…</p>';
+    var b64 = await chargerImageCarte(x);
+    var media = !b64
+      ? '<div style="padding:26px;text-align:center;color:#e88;border:1px dashed var(--line);border-radius:12px">Carte introuvable</div>'
+      : (/^data:application\/pdf/i.test(b64)
+          ? '<iframe src="'+b64+'" style="width:100%;height:46vh;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe>'
+          : '<img src="'+b64+'" style="width:100%;max-height:46vh;object-fit:contain;background:#fff;border-radius:12px" alt="carte">');
+    b.innerHTML = media
+      + '<div style="margin:12px 0 4px;font-size:19px;font-weight:800">'+escapeHtml(x.name||"?")
+      + (x.corrigee?' <span style="background:#1f6f3f;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px">🔄 corrigée</span>':'')+'</div>'
+      + '<div class="hint" style="margin-bottom:12px">Matricule <b style="color:var(--text)">'+escapeHtml(x.matricule||"—")+'</b> · '
+      + escapeHtml(x.section||"—")+' · '+escapeHtml(x.email||"")+'</div>'
+      + '<div style="display:flex;gap:8px">'
+      + '<button class="btn gold" style="flex:2;padding:16px;font-size:16px" type="button" onclick="revueValider()">✅ Valider</button>'
+      + '<button class="btn ghost" style="flex:1;padding:16px" type="button" onclick="revueNouvelleCarte()">🔄 Nouvelle</button>'
+      + '<button class="btn ghost" style="flex:1;padding:16px;border-color:#8a2b2b;color:#e88" type="button" onclick="revueRefuser()">❌ Refuser</button>'
+      + '</div>'
+      + '<div style="display:flex;gap:8px;margin-top:8px">'
+      + '<button class="btn ghost sm" style="flex:1" type="button" onclick="revuePrecedent()">← Précédent</button>'
+      + '<button class="btn ghost sm" style="flex:1" type="button" onclick="revueSuivant()">Passer →</button></div>';
+  }
+  window.revueSuivant=async function(){ REVUE_POS++; await afficherRevue(); };
+  window.revuePrecedent=async function(){ if(REVUE_POS>0) REVUE_POS--; await afficherRevue(); };
+  window.revueValider=async function(){
+    var x=REVUE[REVUE_POS]; if(!x) return;
+    var b=$("revueBody"); if(b) b.innerHTML='<p class="hint" style="text-align:center">Envoi du billet…</p>';
+    await creerBilletDepuisInscription(x); x.statut="accepte";
+    var ok=await saveSignups(x);
+    if(!ok){ x.statut="acarte"; flash("⚠️ Statut non enregistré — réessaie."); }
+    else flash("Billet envoyé à "+x.name+".");
+    REVUE_POS++; await afficherRevue();
+  };
+  window.revueNouvelleCarte=async function(){
+    var x=REVUE[REVUE_POS]; if(!x) return;
+    var i=SIGNUPS.indexOf(x); if(i<0) return;
+    var b=$("revueModal"); if(b) b.classList.remove("on");     // on rend la main aux popups
+    await demanderNouvelleCarte(i);
+    if(b) b.classList.add("on");
+    REVUE_POS++; await afficherRevue();
+  };
+  window.revueRefuser=async function(){
+    var x=REVUE[REVUE_POS]; if(!x) return;
+    var i=SIGNUPS.indexOf(x); if(i<0) return;
+    var b=$("revueModal"); if(b) b.classList.remove("on");
+    await refuserInscrit(i);
+    if(b) b.classList.add("on");
+    REVUE_POS++; await afficherRevue();
+  };
   window.voirCarte=async function(i){
     var x=SIGNUPS[i]; if(!x) return flash("Aucune carte.");
     var w=window.open("","_blank");
@@ -3871,6 +4090,7 @@
               +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
     }
     if(acarte.length){
+      html += '<div style="margin-top:12px"><button class="btn gold sm" type="button" onclick="ouvrirRevueCartes()" style="width:100%;padding:12px">⚡ Revue rapide des cartes ('+(acarte.length+acorriger.length)+')</button></div>';
       html += '<p class="fld" style="margin-top:12px">Cartes étudiantes à vérifier ('+acarte.length+')</p>'
         + acarte.map(function(x){ var i=SIGNUPS.indexOf(x);
             var _mat=String(x.matricule||"").trim();
