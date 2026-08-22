@@ -727,7 +727,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v61</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v62</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -2371,14 +2371,30 @@
       if(mail && !scanner){ acts += '<button class="btn ghost xs" onclick="resendTicket(\''+g.token+'\')">Renvoyer</button>'; }
       if(!scanner){ acts += '<button class="btn danger xs" onclick="deleteGuest(\''+g.token+'\')" title="Supprimer cet invité">✕</button>'; }
       var chk = scanner ? "" : ('<input type="checkbox" class="lst-chk" '+(_selTokens.has(g.token)?"checked":"")+' onchange="toggleSel(\''+g.token+'\',this.checked)" style="width:auto;margin-right:8px">');
+      var etatMail = "";
+      if(mail){
+        if(g.mailEnvoye) etatMail = ' · <span style="color:var(--green,#4caf7d)">✉ envoyé</span>';
+        else if(g.mailEnvoye===0) etatMail = ' · <span style="background:#8a2b2b;color:#fff;border-radius:6px;padding:1px 7px;font-weight:700;white-space:nowrap">⚠ mail non reçu</span>';
+        else etatMail = ' · <span style="color:var(--amber,#d8b45a)">✉ non envoyé</span>';
+      }
       var r=document.createElement("div"); r.className="lst-row";
       r.innerHTML=chk+'<span class="nm">'+escapeHtml(g.name)+'</span>'+
-        '<span class="cd">'+g.token+(when?' · '+when:'')+(mail?(g.mailEnvoye?' · <span style="color:var(--green,#4caf7d)">✉ envoyé</span>':' · <span style="color:var(--amber,#d8b45a)">✉ non envoyé</span>'):'')+'</span>'+
+        '<span class="cd">'+g.token+(when?' · '+when:'')+etatMail+'</span>'+
         '<span class="badge '+(isIn?"in":"wait")+'">'+(isIn?"Entré":"En attente")+'</span>'+
         '<span class="lst-acts">'+acts+'</span>';
       box.appendChild(r);
     });
     wrap.innerHTML="";
+    if(!scanner){
+      var nbEchecs = roster.filter(function(g){ return g.mailEnvoye===0 && emailOf(g); }).length;
+      if(nbEchecs){
+        var alerte=document.createElement("div");
+        alerte.style.cssText="display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:rgba(138,43,43,.16);border:2px solid #8a2b2b;border-radius:12px;padding:11px 13px;margin-bottom:10px";
+        alerte.innerHTML='<span style="flex:1;min-width:180px;font-weight:700">⚠ '+nbEchecs+' billet(s) non reçu(s) — l\'e-mail n\'est pas parti.</span>'
+          +'<button class="btn gold sm" onclick="renvoyerEchecs()">Renvoyer à tous</button>';
+        wrap.appendChild(alerte);
+      }
+    }
     if(!scanner && _selTokens.size){
       var bar=document.createElement("div"); bar.style.cssText="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap";
       bar.innerHTML='<span style="font-size:13px;color:var(--muted)">'+_selTokens.size+' sélectionné(s)</span>'+
@@ -2564,7 +2580,36 @@
         headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
         body: JSON.stringify({ to:to, subject:"Ton billet pour "+(eventName||"notre événement"), html: billetHtml(salutNom(guest), eventName||"notre événement", ticketLinkFor(guest), guest.token, vouvoyerG(guest)) }) });
       flash(r.ok ? ("Billet renvoyé à "+guest.name+".") : "Envoi impossible.");
-    }catch(e){ flash("Envoi impossible (hors ligne ?)."); }
+      guest.mailEnvoye = r.ok ? Date.now() : 0;
+      try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+      renderList();
+    }catch(e){
+      flash("Envoi impossible (hors ligne ?).");
+      guest.mailEnvoye = 0;
+      try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+      renderList();
+    }
+  };
+  /* Renvoie tous les billets dont l'envoi a échoué (mailEnvoye === 0). */
+  window.renvoyerEchecs = async function(){
+    var rates = roster.filter(function(g){ return g.mailEnvoye===0 && emailOf(g); });
+    if(!rates.length){ flash("Aucun envoi en échec."); return; }
+    if(!(await uiConfirm("Renvoyer le billet à "+rates.length+" personne(s) ?"))) return;
+    var ok=0, fail=0;
+    for(var i=0;i<rates.length;i++){
+      var g=rates[i];
+      flash("Renvoi "+(i+1)+"/"+rates.length+"…");
+      try{
+        var r= await fetch(SEND_FN, { method:"POST",
+          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+          body: JSON.stringify({ to:emailOf(g), subject:"Ton billet pour "+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g)), from: expediteurPour(g) }) });
+        if(r && r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
+      }catch(e){ fail++; }
+      await new Promise(function(res){ setTimeout(res,600); });
+    }
+    try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+    renderList();
+    flash(fail ? (ok+" renvoyé(s), "+fail+" encore en échec.") : (ok+" billet(s) renvoyé(s) ✓"));
   };
   window.exportNoShow = function(){
     var ns = roster.filter(function(g){ return !usedSet.has(g.token); });
@@ -3096,8 +3141,8 @@
             from: expediteurPour(g)
           })
         });
-        if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
-      }catch(e){ fail++; }
+        if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; }
+      }catch(e){ fail++; g.mailEnvoye=0; }
       await new Promise(function(r){ setTimeout(r,600); });
     }
     try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
