@@ -727,7 +727,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v60</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v61</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -4277,16 +4277,20 @@
               +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
     }
     if(aconf.length){
-      html += '<p class="fld" style="margin-top:12px;color:var(--amber,#d8b45a)">⏳ N\'ont pas encore confirmé leur e-mail ('+aconf.length+')</p>'
-        + '<p class="hint" style="margin:0 0 6px">Elles ne comptent pas encore : tant qu\'elles n\'ont pas cliqué sur le lien reçu par mail, leur inscription n\'est pas validée. Le lien est peut-être dans leurs spams.</p>'
+      html += '<div style="margin-top:14px;background:rgba(216,180,90,.10);border:2px solid var(--amber,#d8b45a);border-radius:14px;padding:14px 16px">'
+        + '<p style="margin:0 0 4px;font-size:17px;font-weight:800;color:var(--amber,#d8b45a);display:flex;align-items:center;gap:9px">'
+          + '<span>⏳</span><span>En attente de confirmation</span>'
+          + '<span style="background:var(--amber,#d8b45a);color:#241100;border-radius:999px;padding:2px 11px;font-size:15px;font-weight:800">'+aconf.length+'</span></p>'
+        + '<p class="hint" style="margin:0 0 10px">Elles ne comptent pas encore : tant qu\'elles n\'ont pas cliqué sur le lien reçu par mail, leur inscription n\'est pas validée. Le lien est peut-être dans leurs spams.</p>'
         + aconf.map(function(x){ var i=SIGNUPS.indexOf(x);
             var depuis="";
             try{ var j=Math.floor((Date.now()-(x.ts||Date.now()))/86400000); depuis = j>=1 ? (" · depuis "+j+" jour"+(j>1?"s":"")) : " · aujourd'hui"; }catch(e){}
-            return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);opacity:.85">'
+            return '<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)">'
               +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b><br>'
               +'<span class="hint">'+escapeHtml(x.email||"")+escapeHtml(depuis)+'</span></span>'
               +'<button class="btn gold xs" data-su="relance" data-i="'+i+'">📧 Renvoyer le lien</button>'
-              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("")
+        + '</div>';
     }
     if(acarte.length){
       html += '<div style="margin-top:12px"><button class="btn gold sm" type="button" onclick="ouvrirRevueCartes()" style="width:100%;padding:12px">⚡ Revue rapide des cartes ('+(acarte.length+acorriger.length)+')</button></div>';

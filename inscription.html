@@ -256,7 +256,11 @@
       var list=[]; try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
       var idx=-1; for(var i=0;i<list.length;i++){ if(list[i] && list[i].confToken===token){ idx=i; break; } }
       if(idx<0){
-        popupMaison('<p class="big">✅</p><p><b>Inscription déjà confirmée</b></p><p class="hint">Votre inscription est déjà validée. L\'équipe va vérifier votre carte étudiante, puis vous recevrez votre billet QR par e-mail. Pensez à vérifier vos spams.</p>');
+        popupMaison('<p class="big">⚠️</p><p><b>Ce lien n\'est plus valide</b></p>'
+          +'<p class="hint">Ce lien de confirmation a expiré ou a été remplacé par un plus récent. '
+          +'<b>Vérifie ta boîte mail</b> : ouvre le <b>dernier</b> e-mail « Confirme ton inscription » reçu et clique sur son lien.</p>'
+          +'<p class="hint">Si tu es déjà confirmé·e, tu n\'as rien à faire : l\'équipe vérifie ta carte étudiante et tu recevras ton billet QR par e-mail (pense à regarder tes spams).</p>'
+          +'<p class="hint">Si tu ne retrouves aucun e-mail, réinscris-toi avec le formulaire pour recevoir un nouveau lien.</p>');
         return;
       }
       if(list[idx].statut==="apreconfirmer"){
@@ -752,8 +756,16 @@
         msg.innerHTML='<p class="err">Cette adresse est déjà inscrite. Vérifiez votre boîte mail (et vos spams).</p>';
         btn.disabled=false; btn.textContent="Je m'inscris"; return;
       }
-      // Étudiant : on retire une éventuelle pré-inscription NON confirmée pour la même adresse (on renverra un lien frais).
+      // Étudiant : on retire une éventuelle pré-inscription NON confirmée pour la même adresse.
+      // On CONSERVE son jeton de confirmation : sinon le lien du premier mail devient mort
+      // et la personne qui clique dessus n'est jamais confirmée.
+      var _ancienConfToken = "";
       if(estEtu){
+        list.forEach(function(x){
+          if(String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut==="apreconfirmer" && x.confToken && !_ancienConfToken){
+            _ancienConfToken = x.confToken;
+          }
+        });
         list = list.filter(function(x){ return !(String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut==="apreconfirmer"); });
       }
       // Unicité du matricule (invitation strictement personnelle) : un matricule déjà inscrit (confirmé) ne peut pas reprendre une place avec une autre adresse.
@@ -785,7 +797,7 @@
         rec.role=rl;
         rec.section=(AVEC_SECTION.indexOf(rl)>=0) ? q("f_sec").value : "";
         rec.annee="";
-        if(rl==="etudiant"){ rec.matricule=matricule; rec.carteId=nouveauToken(); rec.statut="apreconfirmer"; rec.confToken=nouveauToken(); rec.emailConfirme=false; await ecrireCarteDoc(rec.carteId, carte); _imagesEcrites.push(carteDocPath(rec.carteId)); }
+        if(rl==="etudiant"){ rec.matricule=matricule; rec.carteId=nouveauToken(); rec.statut="apreconfirmer"; rec.confToken=(_ancienConfToken||nouveauToken()); rec.emailConfirme=false; await ecrireCarteDoc(rec.carteId, carte); _imagesEcrites.push(carteDocPath(rec.carteId)); }
       } else {
         rec.section=q("f_sec").value;
         rec.annee=(isP && q("f_role").value==="alumni") ? "" : q("f_annee").value;
