@@ -200,7 +200,28 @@
     return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
       body:JSON.stringify({to:dest,subject:"Nouvelle inscription — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
   }
-  function nouveauToken(){ return "C"+Date.now().toString(36)+Math.random().toString(36).slice(2,10)+Math.random().toString(36).slice(2,6); }
+  /* Tirage aléatoire cryptographique (imprévisible), avec repli sur Math.random
+     si le navigateur ne fournit pas crypto — le formulaire doit rester utilisable.
+     Le rejet des valeurs hors plage évite de favoriser les premiers caractères. */
+  function aleaIndex(max){
+    try{
+      if(window.crypto && window.crypto.getRandomValues){
+        var limite = Math.floor(256/max)*max;
+        var buf = new Uint8Array(1);
+        for(var essais=0; essais<50; essais++){
+          window.crypto.getRandomValues(buf);
+          if(buf[0] < limite) return buf[0] % max;
+        }
+      }
+    }catch(e){}
+    return Math.floor(Math.random()*max);
+  }
+  function aleaSuite(n){
+    var jeu="abcdefghijklmnopqrstuvwxyz0123456789", s="";
+    for(var i=0;i<n;i++) s+=jeu[aleaIndex(jeu.length)];
+    return s;
+  }
+  function nouveauToken(){ return "C"+Date.now().toString(36)+aleaSuite(12); }
   function lienConfirmation(token){
     return location.origin + location.pathname + "?c=" + encodeURIComponent(CID) + "&confirm=" + encodeURIComponent(token);
   }
@@ -403,7 +424,7 @@
         popupMaison('<p class="big">✅</p><p><b>Déjà renvoyée</b></p><p class="hint">Ta carte a déjà été renvoyée et est en cours de vérification. Tu recevras ton billet QR par e-mail.</p>');
         return;
       }
-      if(!list[idx].carteId){ list[idx].carteId="K"+Date.now().toString(36)+Math.random().toString(36).slice(2,10); }
+      if(!list[idx].carteId){ list[idx].carteId="K"+Date.now().toString(36)+aleaSuite(8); }
       await ecrireCarteDoc(list[idx].carteId, b64);
       delete list[idx].carte;
       list[idx].statut="acarte"; list[idx].corrigee=true; list[idx].corrigeTs=Date.now();
@@ -504,18 +525,29 @@
     q("msg").innerHTML='<div class="card"><p class="big">🤔</p><p><b>Annuler ton inscription ?</b></p>'
       + '<p class="hint">Ta place sera <b>libérée</b> et proposée à quelqu\'un d\'autre. Ton billet QR ne sera plus valable.</p>'
       + '<p class="hint">Si tu changes d\'avis ensuite, il faudra te réinscrire — sans garantie qu\'il reste de la place.</p>'
+      + '<label class="fld" for="annulMail" style="margin-top:14px;display:block">Confirme ton adresse e-mail</label>'
+      + '<input type="email" id="annulMail" placeholder="prenom.nom@ulb.be" autocomplete="off" style="width:100%">'
+      + '<p class="hint" style="margin-top:6px">Celle avec laquelle tu t\'es inscrit·e. Elle nous sert à vérifier que c\'est bien toi.</p>'
       + '<div style="display:flex;gap:10px;margin-top:18px">'
       + '<button id="btnAnnulOui" style="flex:1;background:#8a2b2b;color:#fff">Oui, j\'annule</button>'
       + '<button id="btnAnnulNon" style="flex:1">Non, je viens</button></div></div>';
     q("btnAnnulNon").onclick=function(){
       q("msg").innerHTML='<div class="card"><p class="big">🎉</p><p><b>Parfait, à bientôt !</b></p><p class="hint">Ton inscription est inchangée, garde bien ton billet QR.</p></div>';
     };
-    q("btnAnnulOui").onclick=function(){ annulerInscription(ANNUL_TOK); };
+    q("btnAnnulOui").onclick=function(){
+      var saisi=((q("annulMail")&&q("annulMail").value)||"").trim();
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(saisi)){
+        q("annulMail").focus();
+        q("annulMail").style.borderColor="#8a2b2b";
+        return;
+      }
+      annulerInscription(ANNUL_TOK, saisi);
+    };
   }
 
   /* Désistement : on ne peut écrire que dans « signups », on y dépose donc un marqueur
      que l'app traitera (retrait du billet + repêchage de la liste d'attente). */
-  async function annulerInscription(token){
+  async function annulerInscription(token, mailSaisi){
     q("msg").innerHTML='<div class="card"><p class="hint">Annulation en cours…</p></div>';
     try{
       var tok = await assurerTokenEcriture();
@@ -528,12 +560,25 @@
         q("msg").innerHTML='<div class="card"><p class="big">✅</p><p><b>Déjà annulé</b></p><p class="hint">Ton inscription a bien été annulée, ta place est libérée.</p></div>';
         return;
       }
-      var nom="", mail="";
+      /* Le code du billet figure sur le QR : il ne suffit pas à prouver l'identité.
+         On exige l'adresse e-mail de l'inscription, et on refuse tout code inconnu
+         (sinon un balayage automatisé libérerait des places au hasard). */
+      var nom="", mail="", trouve=null;
       try{
         var roster=JSON.parse((cur&&cur.fields&&cur.fields.roster&&cur.fields.roster.stringValue)||"[]");
-        var g=roster.filter(function(x){ return x && x.token===token; })[0];
-        if(g){ nom=g.name||""; mail=g.extra||g.email||""; }
+        trouve = roster.filter(function(x){ return x && x.token===token; })[0] || null;
+        if(trouve){ nom=trouve.name||""; mail=trouve.extra||trouve.email||""; }
       }catch(e){}
+
+      var attendu=String(mail||"").trim().toLowerCase();
+      var fourni=String(mailSaisi||"").trim().toLowerCase();
+      if(!trouve || !attendu || attendu!==fourni){
+        q("msg").innerHTML='<div class="card"><p class="big">🚫</p><p><b>Annulation impossible</b></p>'
+          + '<p class="hint">Le lien ou l\'adresse e-mail ne correspond pas à une inscription. '
+          + 'Vérifie que tu utilises bien le lien reçu dans ton mail de billet, et l\'adresse avec laquelle tu t\'es inscrit·e.</p>'
+          + '<p class="hint">Si le problème persiste, écris à l\'équipe organisatrice.</p></div>';
+        return;
+      }
       list.push({ statut:"annule", annuleToken:token, name:nom, email:mail, ts:Date.now(), viaFormulaire:true });
 
       var fields={ signups:{ stringValue: JSON.stringify(list) }, updatedAt:{ stringValue: new Date().toISOString() } };

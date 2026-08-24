@@ -727,7 +727,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v65</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v67</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -776,6 +776,28 @@
 (function(){
   "use strict";
   var ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // pas de I,L,O,0,1
+  /* Tirage aléatoire cryptographique (imprévisible), avec repli sur Math.random
+     si le navigateur ne fournit pas crypto — l'app doit continuer à fonctionner.
+     Le rejet des valeurs hors plage évite de favoriser les premières lettres. */
+  function aleaIndex(max){
+    try{
+      if(window.crypto && window.crypto.getRandomValues){
+        var limite = Math.floor(256/max)*max;      // borne pour un tirage équitable
+        var buf = new Uint8Array(1);
+        for(var essais=0; essais<50; essais++){
+          window.crypto.getRandomValues(buf);
+          if(buf[0] < limite) return buf[0] % max;
+        }
+      }
+    }catch(e){}
+    return Math.floor(Math.random()*max);
+  }
+  /* Suite de n caractères alphanumériques minuscules, façon Math.random().toString(36). */
+  function aleaSuite(n){
+    var jeu="abcdefghijklmnopqrstuvwxyz0123456789", s="";
+    for(var i=0;i<n;i++) s+=jeu[aleaIndex(jeu.length)];
+    return s;
+  }
   var roster = [];
   var eventName = "";
   var eventMeta = { date:"", heure:"", lieu:"" };
@@ -1008,7 +1030,7 @@
   var COMM_PREFIX = { festif:"F", code:"C", aca:"A", culture:"U", social:"S", crimino:"R", salle:"M", parrainage:"P", proclamation:"T" };
   function genToken(existing){
     var pfx=""; try{ var cid=currentCommId(); if(cid && COMM_PREFIX[cid]) pfx=COMM_PREFIX[cid]; }catch(e){}
-    var t; do{ t=pfx; for(var i=0;i<6;i++) t+=ALPHA[Math.floor(Math.random()*ALPHA.length)]; }while(existing.has(t)); return t;
+    var t; do{ t=pfx; for(var i=0;i<6;i++) t+=ALPHA[aleaIndex(ALPHA.length)]; }while(existing.has(t)); return t;
   }
   function downloadBlob(blob, name){
     var u=URL.createObjectURL(blob), a=document.createElement("a");
@@ -3950,7 +3972,7 @@
     var motif = await uiPrompt("Message à la personne (raison de la demande) :", "La photo/PDF de ta carte n'est pas lisible.");
     if(motif===null) return;
     if(!(await uiConfirm("Demander une nouvelle carte à "+x.name+" ? Un lien de renvoi lui sera envoyé."))) return;
-    if(!x.corrToken){ x.corrToken="K"+Date.now().toString(36)+Math.random().toString(36).slice(2,10); }
+    if(!x.corrToken){ x.corrToken="K"+Date.now().toString(36)+aleaSuite(8); }
     var _avant=x.statut;
     x.statut="acorriger"; x.motif=motif; x.corrigee=false;
     var _okSave = await saveSignups(x);
@@ -3989,7 +4011,7 @@
   async function envoyerLienConfirmation(x){
     if(!x || !x.email) return false;
     if(!x.confToken){                                   // sécurité : ancien enregistrement sans jeton
-      x.confToken="C"+Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+      x.confToken="C"+Date.now().toString(36)+aleaSuite(8);
       if(!(await saveSignups(x))) return false;
     }
     var cid=currentCommId()||"";
