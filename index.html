@@ -727,7 +727,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v67</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v68</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -823,7 +823,7 @@
       +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(cid)+'</p></div>';
     var sujetEv = evName || (currentCommId()===cid ? eventName : "") || "Proclamation";
     try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:mail,subject:"Bienvenue — "+sujetEv,html:html,from:FROM_PROCLA})}); }catch(e){}
+      body:JSON.stringify({to:mail,subject:"Bienvenue — "+sujetEv,html:html,from:FROM_PROCLA,reply_to:MAIL_REPONSES})}); }catch(e){}
   }
   var ROLES_PROCLA = [
     ["etudiant","Étudiant·e diplômé·e"],
@@ -1558,7 +1558,7 @@
     try{
       var r = await fetch(SEND_FN, { method:"POST",
         headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-        body: JSON.stringify({ to:to, subject:subject, html:html, from:from }) });
+        body: JSON.stringify({ to:to, subject:subject, html:html, from:from, reply_to:MAIL_REPONSES }) });
       return r.ok;
     }catch(e){ return false; }
   }
@@ -2590,7 +2590,7 @@
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     flash("Rappel envoyé à "+ok+" personne(s).");
@@ -2604,7 +2604,7 @@
     try{
       var r= await fetch(SEND_FN, { method:"POST",
         headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-        body: JSON.stringify({ to:to, subject:(vouvoyerG(guest)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(guest), eventName||"notre événement", ticketLinkFor(guest), guest.token, vouvoyerG(guest)) }) });
+        body: JSON.stringify({ to:to, subject:(vouvoyerG(guest)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(guest), eventName||"notre événement", ticketLinkFor(guest), guest.token, vouvoyerG(guest)), from: expediteurPour(guest), reply_to:MAIL_REPONSES }) });
       flash(r.ok ? ("Billet renvoyé à "+guest.name+".") : "Envoi impossible.");
       guest.mailEnvoye = r.ok ? Date.now() : 0;
       try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
@@ -2628,7 +2628,7 @@
       try{
         var r= await fetch(SEND_FN, { method:"POST",
           headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-          body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g)), from: expediteurPour(g) }) });
+          body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g)), from: expediteurPour(g), reply_to:MAIL_REPONSES }) });
         if(r && r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
       }catch(e){ fail++; }
       await new Promise(function(res){ setTimeout(res,600); });
@@ -3168,7 +3168,8 @@
             to: emailOf(g),
             subject: (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+ev,
             html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+lienDesistement(g)+mentionPerso(g),
-            from: expediteurPour(g)
+            from: expediteurPour(g),
+            reply_to: MAIL_REPONSES
           })
         });
         if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; }
@@ -3374,7 +3375,7 @@
         + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:(vouvoyerG(g)?"Nous vous attendons — ":"On t'attend — ")+(eventName||"notre événement"),html:html,from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:(vouvoyerG(g)?"Nous vous attendons — ":"On t'attend — ")+(eventName||"notre événement"),html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     uiAlert("Rappel envoyé à "+ok+" personne(s) non entrées.");
@@ -3399,7 +3400,7 @@
         + mentionPerso(g)
         +'</div>';
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:html,from:expediteurPour(g)})}); if(r.ok) ok++; }catch(e){}
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
@@ -3506,7 +3507,7 @@
           +'<p>Total en attente : <b>'+n+'</b></p>'
           +'<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Ouvrir l\'application</a></p></div>';
         try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-          body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" à vérifier",html:html,from:expediteur()})}); }catch(e){}
+          body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" à vérifier",html:html,from:expediteur(),reply_to:MAIL_REPONSES})}); }catch(e){}
       }
     }
     setSeen(n);
@@ -3615,7 +3616,7 @@
       +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
     flash("Envoi du bilan…");
     try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:dest,subject:"Bilan — "+(eventName||"événement"),html:html,from:(currentCommId()==="proclamation"?FROM_PROCLA:FROM_PARR)})});
+      body:JSON.stringify({to:dest,subject:"Bilan — "+(eventName||"événement"),html:html,from:(currentCommId()==="proclamation"?FROM_PROCLA:FROM_PARR),reply_to:MAIL_REPONSES})});
       flash(r&&r.ok ? ("Bilan envoyé à "+dest+" ✓") : "Échec de l'envoi du bilan."); }
     catch(e){ flash("Échec de l'envoi du bilan."); }
   };
@@ -3754,7 +3755,7 @@
     var to = emailOf(g); if(!to){ return false; }
     try{
       var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g)})});
+        body:JSON.stringify({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})});
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
       return rm && rm.ok;
     }catch(e){ g.mailEnvoye = 0; return false; }
@@ -4028,7 +4029,7 @@
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(cid)+'</p></div>';
     try{
       var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:x.email,subject:"Confirme ton inscription — "+nomEv,html:html,from:expediteurPour(x)})});
+        body:JSON.stringify({to:x.email,subject:"Confirme ton inscription — "+nomEv,html:html,from:expediteurPour(x),reply_to:MAIL_REPONSES})});
       return !!(r&&r.ok);
     }catch(e){ return false; }
   }
