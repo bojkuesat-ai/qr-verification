@@ -161,44 +161,31 @@
   var SUPA_URL = "https://mlgzdfyqjhvyubrywuim.supabase.co";
   var SUPA_ANON = "sb_publishable_xoVRiE99YOepw-sb5Tmtcg_SJ3VE_0s";
   var SEND_FN = SUPA_URL + "/functions/v1/send-email";
-  var EXPEDITEUR_PROCLA = "Délégation étudiante de la Faculté de Droit et de Criminologie <proclamation@bureauetuidant.xyz>";
-
-  function pieds(){
-    return '<hr style="border:none;border-top:1px solid #eee;margin:18px 0">'
-      +'<p style="margin:0;text-align:center;font-size:12px;color:#888;letter-spacing:.06em;text-transform:uppercase">Université libre de Bruxelles</p>'
-      +'<p style="margin:2px 0 8px;text-align:center;font-size:13px;color:#555">Faculté de Droit et de Criminologie</p>'
-      +'<p style="margin:0;text-align:center;font-size:14px;color:#333"><b>Délégation étudiante de la Faculté de Droit et de Criminologie</b></p>'
-      +'<p style="margin:6px 0 0;text-align:center;font-size:12px;color:#999">Ceci est un envoi automatique — merci de ne pas répondre à ce message.</p>';
+  /* Le contenu des messages est construit par le serveur (gabarits de send-email).
+     Cette page etant publique, elle ne transmet plus de HTML libre. */
+  function envoyerGabarit(dest, modele, donnees){
+    return fetch(SEND_FN,{method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+      body:JSON.stringify({to:dest, modele:modele, data:donnees})}).catch(function(){});
   }
 
   function envoyerMailConfirmationEtudiant(nom, mail){
-    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">'
-      +'<h2 style="margin:0 0 10px">Inscription enregistrée</h2>'
-      +'<p>Bonjour '+esc(nom)+',</p>'
-      +'<p>Votre inscription à <b>'+esc(NOM_LIEN || NOMS[CID])+'</b> a bien été reçue.</p>'
-      +'<p>Votre inscription va être <b>vérifiée par l\'équipe</b> (carte étudiante et matricule). Vous recevrez ensuite votre billet QR par e-mail.</p>'
-      +'<p style="margin-top:8px">Rappel : cette invitation est <b>strictement personnelle</b> et ne vaut que pour une personne.</p>'
-      + pieds() + '</div>';
-    return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:mail,subject:"Inscription bien reçue — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
+    return envoyerGabarit(mail, "inscription_recue", {
+      nom: nom,
+      evenement: (NOM_LIEN || NOMS[CID])
+    });
   }
   function envoyerNotif(dest, rec){
     if(!dest || !rec) return;
-    var ev=esc(NOM_LIEN||NOMS[CID]);
-    var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
-    var statutLbl = rec.statut==="acarte" ? "carte étudiante à vérifier" : (rec.statut==="apayer" ? "preuve de paiement à vérifier" : "inscription enregistrée");
-    var lignes="<li>Nom : <b>"+esc(rec.name||((rec.nom||"")+" "+(rec.prenom||"")))+"</b></li>"
-      +"<li>E-mail : "+esc(rec.email||"")+"</li>"
-      +(rec.role?"<li>Type : "+esc(roleLbl[rec.role]||rec.role)+"</li>":"")
-      +(rec.section?"<li>Section : "+esc(rec.section)+"</li>":"")
-      +(rec.matricule?"<li>Matricule : "+esc(rec.matricule)+"</li>":"")
-      +"<li>À faire : <b>"+statutLbl+"</b></li>";
-    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">'
-      +'<h2 style="margin:0 0 10px">Nouvelle inscription — '+ev+'</h2>'
-      +'<ul style="line-height:1.8">'+lignes+'</ul>'
-      +'<p style="font-size:13px;color:#555">Connecte-toi à l\'app (onglet « Inscriptions en ligne ») pour vérifier et valider.</p></div>';
-    return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:dest,subject:"Nouvelle inscription — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
+    return envoyerGabarit(dest, "inscription_alerte_equipe", {
+      evenement: (NOM_LIEN || NOMS[CID]),
+      nom: rec.name || ((rec.nom||"") + " " + (rec.prenom||"")),
+      email: rec.email || "",
+      role: rec.role || "",
+      section: rec.section || "",
+      matricule: rec.matricule || "",
+      statut: rec.statut || ""
+    });
   }
   /* Tirage aléatoire cryptographique (imprévisible), avec repli sur Math.random
      si le navigateur ne fournit pas crypto — le formulaire doit rester utilisable.
@@ -226,19 +213,11 @@
     return location.origin + location.pathname + "?c=" + encodeURIComponent(CID) + "&confirm=" + encodeURIComponent(token);
   }
   function envoyerMailConfirmationLien(nom, mail, token){
-    var lien = lienConfirmation(token);
-    var ev = esc(NOM_LIEN || NOMS[CID]);
-    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a1a">'
-      +'<h2 style="margin:0 0 10px">Confirme ton inscription</h2>'
-      +'<p>Bonjour '+esc(nom)+',</p>'
-      +'<p>Tu as demandé à t\'inscrire à <b>'+ev+'</b>. Pour <b>valider ton inscription</b>, clique sur le bouton ci-dessous :</p>'
-      +'<p style="text-align:center;margin:24px 0"><a href="'+lien+'" style="display:inline-block;background:#d8b45a;color:#241100;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:bold">Confirmer mon inscription</a></p>'
-      +'<p style="font-size:13px;color:#555">Si le bouton ne fonctionne pas, copie-colle ce lien dans ton navigateur :<br><a href="'+lien+'">'+lien+'</a></p>'
-      +'<p>Après confirmation, l\'équipe vérifiera ta <b>carte étudiante</b>, puis tu recevras ton <b>billet QR</b> par e-mail.</p>'
-      +'<p style="font-size:13px;color:#555">Tu n\'es pas à l\'origine de cette demande ? Ignore simplement cet e-mail.</p>'
-      + pieds() + '</div>';
-    return fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:mail,subject:"Confirme ton inscription — "+(NOM_LIEN||NOMS[CID]),html:html,from:EXPEDITEUR_PROCLA})}).catch(function(){});
+    return envoyerGabarit(mail, "inscription_confirmer", {
+      nom: nom,
+      evenement: (NOM_LIEN || NOMS[CID]),
+      lien: lienConfirmation(token)
+    });
   }
   async function assurerTokenEcriture(){
     if(window.__tok) return window.__tok;
