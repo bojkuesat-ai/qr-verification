@@ -3616,7 +3616,7 @@
       +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
     flash("Envoi du bilan…");
     try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:dest,subject:"Bilan — "+(eventName||"événement"),html:html,from:(currentCommId()==="proclamation"?FROM_PROCLA:FROM_PARR),reply_to:MAIL_REPONSES})});
+      body:JSON.stringify({to:dest,subject:"Bilan — "+(eventName||"événement"),html:html,from:expediteur(),reply_to:MAIL_REPONSES})});
       flash(r&&r.ok ? ("Bilan envoyé à "+dest+" ✓") : "Échec de l'envoi du bilan."); }
     catch(e){ flash("Échec de l'envoi du bilan."); }
   };
