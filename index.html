@@ -731,7 +731,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v70</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v71</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -1005,22 +1005,35 @@
         + '</div>';
     }).join("");
   }
+  /* Jeton utilisable pour ce réglage. On prend d'abord celui de la commission ;
+     sinon celui de n'importe quelle commission ouverte sur cet appareil — le compte
+     scanner partagé écrit déjà dans les 9 documents, donc un compte connecté suffit.
+     Sans ça, impossible de masquer une commission à laquelle on ne s'est jamais connecté. */
+  async function jetonPourReglage(cid){
+    try{ if(await ensureAuth(cid)){ var a=loadAuth(cid); if(a && a.idToken) return a.idToken; } }catch(e){}
+    for(var i=0;i<COMMISSIONS.length;i++){
+      var autre=COMMISSIONS[i].id;
+      if(autre===cid) continue;
+      try{ if(await ensureAuth(autre)){ var b=loadAuth(autre); if(b && b.idToken) return b.idToken; } }catch(e2){}
+    }
+    return null;
+  }
   /* Enregistre UNE commission : les autres ne sont pas touchées. */
   window.publierCommActif = async function(cid){
     var etat=$("commActifEtat_"+cid);
     if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
     var cb=document.querySelector('[data-commactif="'+cid+'"]');
     var actif=!!(cb && cb.checked);
-    var ok=false;
+    var ok=false, souci="";
     try{
-      if(await ensureAuth(cid)){
-        var a=loadAuth(cid);
-        if(a && a.idToken){
-          var r=await fsPatchFields(ticketDocPath(cid), { actif: fsField(actif?"1":"0") }, a.idToken);
-          ok = !!(r && r.ok);
-        }
+      var tok=await jetonPourReglage(cid);
+      if(!tok) souci="aucun compte connecté sur cet appareil";
+      else{
+        var r=await fsPatchFields(ticketDocPath(cid), { actif: fsField(actif?"1":"0") }, tok);
+        ok = !!(r && r.ok);
+        if(!ok) souci = "refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
       }
-    }catch(e){}
+    }catch(e){ souci="pas de connexion"; }
     if(ok){
       setCommActifLocal(cid, actif);
       renderCommActif();                       // encadré et case à jour
@@ -1031,22 +1044,22 @@
     var fin=$("commActifEtat_"+cid);           // l'élément vient d'être recréé
     if(fin){
       fin.textContent = ok ? (actif ? "✅ Affichée sur l'accueil" : "✅ Retirée de l'accueil")
-                           : "❌ Non enregistré — ouvre cette commission puis recommence.";
+                           : ("❌ Non enregistré — "+souci+".");
       fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
     }
   };
   /* Relit l'état publié des 9 commissions (autre appareil, autre délégué). */
   var actifsSyncAt = 0;
-  async function syncCommActifs(){
-    if(Date.now() - actifsSyncAt < 30000) return;
+  async function syncCommActifs(force){
+    if(!force && Date.now() - actifsSyncAt < 30000) return;
     actifsSyncAt = Date.now();
+    var tok=await jetonPourReglage("");
+    if(!tok) return;
     var change=false;
     for(var i=0;i<COMMISSIONS.length;i++){
       var cid=COMMISSIONS[i].id;
       try{
-        if(!(await ensureAuth(cid))) continue;
-        var a=loadAuth(cid); if(!a||!a.idToken) continue;
-        var d=await fsGetDoc(ticketDocPath(cid), a.idToken, ["actif"]);
+        var d=await fsGetDoc(ticketDocPath(cid), tok, ["actif"]);
         var v = d && d.fields && d.fields.actif && d.fields.actif.stringValue;
         if(v==="0"||v==="1"){
           var nouveau = (v!=="0");
@@ -3173,9 +3186,10 @@
     renderCommActif();                               // commissions actives : cases à jour
 
     (async function(){                               // rafraîchit depuis le cloud sans bloquer l'ouverture
+      try{ await syncCommActifs(true); }catch(e){}
+      renderCommActif();
       for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
       renderCoorg();
-      renderCommActif();
     })();
     if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
     if($("proclaToggle")) $("proclaToggle").checked = !proclaHidden();
