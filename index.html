@@ -687,14 +687,21 @@
       <h2>Réglages</h2>
       <button class="x-btn" onclick="closeSettingsPwd()" aria-label="Fermer" style="font-size:32px">&times;</button>
     </div>
-    <p class="sub">Accès réservé — entre le mot de passe des réglages.</p>
-    <label class="fld" for="settingsPwdInput">Mot de passe</label>
-    <input type="password" id="settingsPwdInput" placeholder="••••••••" autocomplete="off" onkeydown="if(event.key==='Enter')submitSettingsPwd();">
-    <p class="lock-err" id="settingsPwdErr" style="text-align:left"></p>
-    <div class="row" style="margin-top:20px">
-      <button class="btn gold" onclick="submitSettingsPwd()" style="flex:1">Entrer</button>
-      <button class="btn ghost" onclick="closeSettingsPwd()" style="flex:1">Annuler</button>
+    <div id="admLogin">
+      <p class="sub">Accès réservé — connecte-toi avec ton adresse et ton mot de passe.</p>
+      <label class="fld" for="settingsMailInput">Adresse e-mail</label>
+      <input type="email" id="settingsMailInput" placeholder="toi@exemple.com" autocomplete="username" onkeydown="if(event.key==='Enter')submitSettingsPwd();">
+      <label class="fld" for="settingsPwdInput" style="margin-top:12px">Mot de passe</label>
+      <input type="password" id="settingsPwdInput" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')submitSettingsPwd();">
+      <p class="lock-err" id="settingsPwdErr" style="text-align:left"></p>
+      <div class="row" style="margin-top:20px">
+        <button class="btn gold" onclick="submitSettingsPwd()" style="flex:1">Entrer</button>
+        <button class="btn ghost" onclick="closeSettingsPwd()" style="flex:1">Annuler</button>
+      </div>
+      <p class="hint" style="margin-top:14px;text-align:center"><a href="#" onclick="return admOubli()" style="color:var(--gold-soft);text-decoration:underline">Mot de passe oublié ?</a></p>
+      <p class="hint" id="admOubliEtat" style="margin-top:6px;text-align:center;min-height:14px"></p>
     </div>
+
   </div>
 </div>
 
@@ -731,7 +738,13 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v77</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v79</b></p>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Accès aux réglages</h2>
+    <p class="sub" id="admInfo">—</p>
+    <button class="btn ghost xs" type="button" onclick="admChanger()">Changer le mot de passe</button>
+    <p class="hint" id="admChangeEtat" style="margin-top:6px;min-height:14px"></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -3189,17 +3202,111 @@
     return await sendMailQR(to, subj, parrainageEntryHtml(guest, parrainName, ev, meta, filleulNames), FROM_PARR);
   }
   function mailableGuests(){ return roster.filter(function(g){ return !!emailOf(g); }); }
-  var SETTINGS_PWD = "admin2026";
+  /* ---------- Accès aux Réglages : compte administrateur ----------
+     Vérification par Firebase Authentication : le mot de passe n'existe nulle part
+     dans ce fichier ni dans Firestore. Seules les adresses listées ci-dessous
+     peuvent ouvrir le panneau — les comptes des commissions, eux, ne le peuvent pas.
+     Le compte se crée dans la console Firebase (Authentication -> Users). */
+  var ADMINS = ["bojkuesat@gmail.com"];
+  var CLE_ADMIN = "qrentry:admin";
+  var ADMIN_JOURS = 30;                        // accès hors-ligne après une connexion réussie
+  var admTok = null;                           // jeton de la session, gardé en mémoire seulement
+  function estAdmin(mail){ return ADMINS.indexOf(String(mail||"").trim().toLowerCase())>=0; }
+  async function sha256(txt){
+    try{
+      var buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(txt)));
+      return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ("0"+b.toString(16)).slice(-2); }).join("");
+    }catch(e){ return null; }
+  }
+  function empreinte(mail, pwd){ return sha256(String(mail).toLowerCase()+":"+pwd+":qrentry"); }
+  function admLocal(){ try{ var v=window.localStorage.getItem(CLE_ADMIN); var m=v?JSON.parse(v):{}; return (m && typeof m==="object")?m:{}; }catch(e){ return {}; } }
+  function setAdmLocal(m){ try{ window.localStorage.setItem(CLE_ADMIN, JSON.stringify(m||{})); }catch(e){} }
+  function admErr(id, msg){ var e=$(id); if(e){ e.textContent=msg; e.style.display= msg?"block":"none"; } }
+  /* Messages de Firebase traduits. */
+  function admMsg(err){
+    var m=String(err&&err.message||err||"");
+    if(m.indexOf("EMAIL_NOT_FOUND")>=0) return "Ce compte n'existe pas encore — crée-le dans la console Firebase.";
+    if(m.indexOf("INVALID_PASSWORD")>=0 || m.indexOf("INVALID_LOGIN_CREDENTIALS")>=0) return "Adresse ou mot de passe incorrect.";
+    if(m.indexOf("USER_DISABLED")>=0) return "Ce compte est désactivé.";
+    if(m.indexOf("TOO_MANY_ATTEMPTS")>=0) return "Trop d'essais — réessaie dans quelques minutes.";
+    return "Connexion impossible. Vérifie ta connexion internet.";
+  }
   window.openSettings=function(){
     $("settingsPwdInput").value="";
-    $("settingsPwdErr").style.display="none";
+    if($("settingsMailInput")) $("settingsMailInput").value = admLocal().mail || "";
+    admErr("settingsPwdErr","");
+    if($("admOubliEtat")) $("admOubliEtat").textContent="";
     $("settingsPwdModal").classList.add("on");
   };
+  window.submitSettingsPwd = async function(){
+    var mail=(($("settingsMailInput")&&$("settingsMailInput").value)||"").trim().toLowerCase();
+    var p=($("settingsPwdInput").value||"").trim();
+    admErr("settingsPwdErr","");
+    if(!estAdmin(mail)) return admErr("settingsPwdErr","Adresse ou mot de passe incorrect.");
+    if(!p) return admErr("settingsPwdErr","Entre ton mot de passe.");
+    admErr("settingsPwdErr","Vérification…");
+    try{
+      var d = await fbCall("signInWithPassword", { email:mail, password:p, returnSecureToken:true });
+      admTok = d.idToken || null;
+      var h = await empreinte(mail, p);        // empreinte gardée sur l'appareil, pour le hors-ligne
+      setAdmLocal({ mail:mail, hash:h, okUntil: Date.now()+ADMIN_JOURS*86400000 });
+      admErr("settingsPwdErr","");
+      ouvrirReglages();
+    }catch(e){
+      /* Pas de réseau : on accepte si cet appareil s'est déjà connecté récemment. */
+      var loc=admLocal();
+      var horsLigne = (String(e&&e.message||"").indexOf("_")<0);
+      if(horsLigne && loc.hash && loc.mail===mail && loc.okUntil && Date.now()<loc.okUntil){
+        var h2=await empreinte(mail,p);
+        if(h2 && h2===loc.hash){ admTok=null; admErr("settingsPwdErr",""); ouvrirReglages(); return; }
+        return admErr("settingsPwdErr","Adresse ou mot de passe incorrect.");
+      }
+      admErr("settingsPwdErr", admMsg(e));
+    }
+  };
+  /* Mot de passe oublié : Firebase envoie son mail de réinitialisation. */
+  window.admOubli = function(){
+    (async function(){
+      var mail=(($("settingsMailInput")&&$("settingsMailInput").value)||"").trim().toLowerCase();
+      var et=$("admOubliEtat"); if(et){ et.style.color=""; et.textContent="Envoi…"; }
+      admErr("settingsPwdErr","");
+      if(!estAdmin(mail)){ if(et){ et.textContent="Entre d'abord ton adresse administrateur."; et.style.color="#e88"; } return; }
+      try{
+        await fbCall("sendOobCode", { requestType:"PASSWORD_RESET", email:mail });
+        if(et){ et.textContent="Lien envoyé à "+mail+". Regarde aussi les spams."; et.style.color="var(--green,#7ddc9a)"; }
+      }catch(e){
+        if(et){ et.textContent=admMsg(e); et.style.color="#e88"; }
+      }
+    })();
+    return false;
+  };
+  /* Changement de mot de passe depuis l'intérieur des Réglages. */
+  window.admChanger = async function(){
+    var et=$("admChangeEtat"); if(et){ et.textContent=""; et.style.color=""; }
+    function dire(msg, ok){ if(et){ et.textContent=msg; et.style.color= ok?"var(--green,#7ddc9a)":"#e88"; } }
+    if(!admTok) return dire("Reconnecte-toi d'abord (ou passe par « Mot de passe oublié »).", false);
+    var p=await uiPrompt("Nouveau mot de passe :\n(6 caractères minimum)","");
+    if(p===null || p===undefined) return;
+    p=String(p).trim();
+    if(p.length<6) return dire("Mot de passe d'au moins 6 caractères.", false);
+    try{
+      var d=await fbCall("update", { idToken:admTok, password:p, returnSecureToken:true });
+      if(d.idToken) admTok=d.idToken;
+      var lm=admLocal();
+      var h=await empreinte(lm.mail||"", p);
+      setAdmLocal({ mail:lm.mail, hash:h, okUntil: Date.now()+ADMIN_JOURS*86400000 });
+      dire("✅ Mot de passe changé.", true);
+    }catch(e){ dire(admMsg(e), false); }
+  };
   window.closeSettingsPwd=function(){ $("settingsPwdModal").classList.remove("on"); };
-  window.submitSettingsPwd=function(){
-    var p = $("settingsPwdInput").value;
-    if(p.trim()!==SETTINGS_PWD){ $("settingsPwdErr").textContent="Mot de passe incorrect."; $("settingsPwdErr").style.display="block"; return; }
+  /* Ouvre le panneau une fois l'identité vérifiée (voir submitSettingsPwd plus haut). */
+  function ouvrirReglages(){
     $("settingsPwdModal").classList.remove("on");
+    if($("admInfo")){
+      var lm=admLocal();
+      $("admInfo").textContent = "Connecté avec " + (lm.mail || "—") + ". Mot de passe géré par Firebase : il n'est écrit ni dans l'app, ni dans la base.";
+    }
+    if($("admChangeEtat")) $("admChangeEtat").textContent="";
     if(!$("gScannerEmail").value){ $("gScannerEmail").value="scan@qrentry.app"; }
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
@@ -3219,7 +3326,7 @@
     if($("evHeure")) $("evHeure").value = (eventMeta&&eventMeta.heure)||"";
     if($("evLieu")) $("evLieu").value = (eventMeta&&eventMeta.lieu)||"";
     $("settingsModal").classList.add("on");
-  };
+  }
   window.closeSettings=function(){ $("settingsModal").classList.remove("on"); };
   window.saveEventMeta = async function(){ return window.saveEventMetaFrom(""); };
   window.fillEventMetaInputs = function(){
