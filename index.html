@@ -731,7 +731,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v71</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v74</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -953,44 +953,77 @@
     var cases=document.querySelectorAll('[data-coorg="'+cid+'"]');
     for(var i=0;i<cases.length;i++){ if(cases[i].checked) o[cases[i].getAttribute("data-part")]=true; }
     var noms=PARTENAIRES.filter(function(p){ return !!o[p.id]; }).map(function(p){ return p.nom; });
-    var ok=false;
+    var ok=false, souci="";
     try{
-      if(await ensureAuth(cid)){
-        var a=loadAuth(cid);
-        if(a && a.idToken){
-          var r=await fsPatchFields(ticketDocPath(cid), { coorg: fsField(JSON.stringify(o)) }, a.idToken);
-          ok = !!(r && r.ok);
-        }
+      var tok=await jetonEcriture(cid);
+      if(!tok) souci="pas connecté à cette commission sur cet appareil";
+      else{
+        var r=await fsPatchFields(ticketDocPath(cid), { coorg: fsField(JSON.stringify(o)) }, tok);
+        ok = !!(r && r.ok);
+        if(!ok) souci = "refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
       }
-    }catch(e){}
+    }catch(e){ souci="pas de connexion"; }
     if(ok) setCoorgLocal(cid, o);
     else renderCoorg();                        // on remet les cases à leur état réel
     var fin=$("coorgEtat_"+cid);               // l'élément a pu être recréé par renderCoorg
     if(fin){
       fin.textContent = ok ? ("✅ "+(noms.length?("Enregistré : "+listeFr(noms)):"Aucun partenaire"))
-                           : "❌ Non enregistré — ouvre cette commission puis recommence.";
+                           : ("❌ Non enregistré — "+souci+".");
       fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
     }
   };
-  /* Relit les réglages publiés (co-organisateurs + commission active),
-     utile si tu les as changés depuis un autre appareil. */
+  /* Relit le réglage publié (utile si tu l'as changé depuis un autre appareil). */
   async function chargerCoorgCloud(cid){
     try{
-      if(!(await ensureAuth(cid))) return;
-      var a=loadAuth(cid); if(!a||!a.idToken) return;
-      var d=await fsGetDoc(ticketDocPath(cid), a.idToken, ["coorg","actif"]);
-      var va = d && d.fields && d.fields.actif && d.fields.actif.stringValue;
-      if(va==="0"||va==="1") setCommActifLocal(cid, va!=="0");
+      var tok=await jetonEcriture(cid); if(!tok) return;
+      var d=await fsGetDoc(ticketDocPath(cid), tok, ["coorg"]);
       if(d && d.fields && d.fields.coorg){ setCoorgLocal(cid, JSON.parse(d.fields.coorg.stringValue||"{}")); }
     }catch(e){}
   }
 
+  /* Les règles Firestore sont par commission : écrire dans le document d'une
+     commission exige le compte de CETTE commission (sinon PERMISSION_DENIED). */
+  async function jetonEcriture(cid){
+    try{ if(await ensureAuth(cid)){ var a=loadAuth(cid); if(a && a.idToken) return a.idToken; } }catch(e){}
+    return null;
+  }
+
   /* ---------- Commissions actives (affichage sur l'écran d'accueil) ----------
-     Champ `actif` du document de la commission. Absent = active : une commission
-     jamais réglée reste visible, donc rien ne change sur les appareils en service. */
-  function commActifKey(cid){ return "qrentry:commactif:"+(cid||""); }
-  function commActive(cid){ try{ return window.localStorage.getItem(commActifKey(cid))!=="0"; }catch(e){ return true; } }
-  function setCommActifLocal(cid, actif){ try{ window.localStorage.setItem(commActifKey(cid), actif?"1":"0"); }catch(e){} }
+     Les 9 réglages tiennent dans UN SEUL champ, `accueil`, du document du parrainage :
+     {"code":"0"} = commission retirée de l'accueil ; absente de la liste = affichée.
+     Un seul document, donc un seul compte : celui du parrainage, déjà en dur dans
+     l'app (FIXED_ACCOUNTS) — plus besoin d'être connecté à la commission qu'on masque.
+     Ce champ ne sert QU'À l'affichage de l'accueil : ni les mails, ni les billets,
+     ni le formulaire public, ni le scanner global ne le lisent. */
+  var REGL_CID = "parrainage";
+  var CLE_ACCUEIL = "qrentry:accueil";
+  /* Jeton du compte de réglages : celui de l'appareil s'il existe, sinon connexion en
+     arrière-plan au compte fixe du parrainage. Ce jeton reste EN MÉMOIRE, jamais
+     enregistré sur l'appareil : il ne change ni le compte ouvert, ni le rôle
+     (admin/scanner), ni quoi que ce soit d'autre dans l'app. */
+  var reglTok = null, reglTokAt = 0;
+  async function jetonReglages(){
+    var t = await jetonEcriture(REGL_CID);
+    if(t) return t;
+    if(reglTok && (Date.now()-reglTokAt) < 2400000) return reglTok;   // 40 min
+    var acc = (typeof FIXED_ACCOUNTS!=="undefined") ? FIXED_ACCOUNTS[REGL_CID] : null;
+    if(!acc) return null;
+    try{
+      var d = await fbCall("signInWithPassword", { email:acc.email, password:acc.pwd, returnSecureToken:true });
+      reglTok = d.idToken; reglTokAt = Date.now();
+      return reglTok;
+    }catch(e){ return null; }
+  }
+  function mapAccueil(){ try{ var v=window.localStorage.getItem(CLE_ACCUEIL); var m=v?JSON.parse(v):{}; return (m && typeof m==="object") ? m : {}; }catch(e){ return {}; } }
+  function setMapAccueil(m){ try{ window.localStorage.setItem(CLE_ACCUEIL, JSON.stringify(m||{})); }catch(e){} }
+  /* N'accepte que les identifiants connus et la valeur "0" : une donnée abîmée ne
+     peut pas vider l'accueil. */
+  function mapPropre(m){
+    var out={};
+    COMMISSIONS.forEach(function(c){ if(m && m[c.id]==="0") out[c.id]="0"; });
+    return out;
+  }
+  function commActive(cid){ return mapAccueil()[cid]!=="0"; }
   function renderCommActif(){
     var box=$("commActifList"); if(!box) return;
     box.innerHTML = COMMISSIONS.map(function(c){
@@ -1005,69 +1038,51 @@
         + '</div>';
     }).join("");
   }
-  /* Jeton utilisable pour ce réglage. On prend d'abord celui de la commission ;
-     sinon celui de n'importe quelle commission ouverte sur cet appareil — le compte
-     scanner partagé écrit déjà dans les 9 documents, donc un compte connecté suffit.
-     Sans ça, impossible de masquer une commission à laquelle on ne s'est jamais connecté. */
-  async function jetonPourReglage(cid){
-    try{ if(await ensureAuth(cid)){ var a=loadAuth(cid); if(a && a.idToken) return a.idToken; } }catch(e){}
-    for(var i=0;i<COMMISSIONS.length;i++){
-      var autre=COMMISSIONS[i].id;
-      if(autre===cid) continue;
-      try{ if(await ensureAuth(autre)){ var b=loadAuth(autre); if(b && b.idToken) return b.idToken; } }catch(e2){}
-    }
-    return null;
-  }
-  /* Enregistre UNE commission : les autres ne sont pas touchées. */
+  /* Enregistre UNE commission. Un seul champ est écrit (`accueil`) : le reste du
+     document du parrainage — billets, inscriptions, entrées — n'est pas touché. */
   window.publierCommActif = async function(cid){
     var etat=$("commActifEtat_"+cid);
     if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
     var cb=document.querySelector('[data-commactif="'+cid+'"]');
     var actif=!!(cb && cb.checked);
+    var m=mapPropre(mapAccueil());
+    if(actif) delete m[cid]; else m[cid]="0";
     var ok=false, souci="";
     try{
-      var tok=await jetonPourReglage(cid);
-      if(!tok) souci="aucun compte connecté sur cet appareil";
+      var tok=await jetonReglages();
+      if(!tok) souci="compte de réglages inaccessible";
       else{
-        var r=await fsPatchFields(ticketDocPath(cid), { actif: fsField(actif?"1":"0") }, tok);
+        var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
         ok = !!(r && r.ok);
         if(!ok) souci = "refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
       }
     }catch(e){ souci="pas de connexion"; }
-    if(ok){
-      setCommActifLocal(cid, actif);
-      renderCommActif();                       // encadré et case à jour
-      if(typeof renderHome==="function") renderHome();
-    }else{
-      renderCommActif();                       // on remet la case à son état réel
-    }
+    setMapAccueil(m);                          // réglage d'affichage : appliqué ici dans tous les cas
+    renderCommActif();
+    if(typeof renderHome==="function") renderHome();
     var fin=$("commActifEtat_"+cid);           // l'élément vient d'être recréé
     if(fin){
       fin.textContent = ok ? (actif ? "✅ Affichée sur l'accueil" : "✅ Retirée de l'accueil")
-                           : ("❌ Non enregistré — "+souci+".");
-      fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
+                           : ("⚠️ Appliqué sur cet appareil seulement — "+souci+".");
+      fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e0b45e";
     }
   };
-  /* Relit l'état publié des 9 commissions (autre appareil, autre délégué). */
+  /* Relit le réglage publié (changement fait depuis un autre appareil). */
   var actifsSyncAt = 0;
   async function syncCommActifs(force){
     if(!force && Date.now() - actifsSyncAt < 30000) return;
     actifsSyncAt = Date.now();
-    var tok=await jetonPourReglage("");
-    if(!tok) return;
-    var change=false;
-    for(var i=0;i<COMMISSIONS.length;i++){
-      var cid=COMMISSIONS[i].id;
-      try{
-        var d=await fsGetDoc(ticketDocPath(cid), tok, ["actif"]);
-        var v = d && d.fields && d.fields.actif && d.fields.actif.stringValue;
-        if(v==="0"||v==="1"){
-          var nouveau = (v!=="0");
-          if(nouveau !== commActive(cid)){ setCommActifLocal(cid, nouveau); change=true; }
-        }
-      }catch(e){}
-    }
-    if(change && typeof renderHome==="function") renderHome();
+    try{
+      var tok=await jetonReglages(); if(!tok) return;
+      var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);
+      var v = d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
+      if(!v) return;                           // champ absent : on ne touche à rien
+      var m=mapPropre(JSON.parse(v));
+      if(JSON.stringify(m)===JSON.stringify(mapAccueil())) return;
+      setMapAccueil(m);
+      renderCommActif();
+      if(typeof renderHome==="function") renderHome();
+    }catch(e){}
   }
   function signatureMail(cid){
     var c = cid || currentCommId();
