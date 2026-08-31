@@ -577,6 +577,7 @@
       <span class="cnt">sans connexion</span>
     </button>
     <button class="btn ghost xs" type="button" id="homeLogoutBtn" onclick="homeDeconnexion()" style="display:none;width:100%;margin-top:12px">Se déconnecter</button>
+    <p class="hint" style="margin-top:14px"><a href="#" onclick="openSettings();return false" style="color:var(--gold-soft);text-decoration:underline">⚙ Réglages</a></p>
   </div>
 </div>
 
@@ -763,7 +764,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v80</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v82</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1224,6 +1225,7 @@
     }
     if(err) err.style.display="none";
     if($("homePwd")) $("homePwd").value="";
+    if($("homeLogin")) $("homeLogin").style.display="none";   // referme le formulaire après succès
     renderHome();
     if(cids.length===1 && !estAdmin(mail)) commBtnClick(cids[0]);
   };
@@ -5218,22 +5220,35 @@
       if(s && (!s.cids || !s.cids.length)) permis=null;   // connecté mais adresse hors liste
       else permis = liste;
     }
-    var visibles = COMMISSIONS.filter(function(c){ return commActive(c.id); });
+    /* Le masquage sert à ranger l'accueil des autres : il ne doit jamais fermer
+       la porte au propriétaire, ni à la personne dont c'est la commission. */
+    var visibles = COMMISSIONS.filter(function(c){
+      if(proprietaire) return true;
+      if(permis && permis.indexOf(c.id)>=0) return true;
+      return commActive(c.id);
+    });
     if(permis) visibles = visibles.filter(function(c){ return permis.indexOf(c.id)>=0; });
+    /* La roue reste atteignable depuis l'accueil, quel que soit le rôle : sans elle,
+       on ne peut plus rien réparer. */
+    if($("gearBtn")) $("gearBtn").style.display="flex";
 
     var connecte = proprietaire || (permis && permis.length) || (s && (!s.cids || !s.cids.length));
-    if($("homeLoginBtn")) $("homeLoginBtn").style.display = connecte ? "none" : "block";
+    /* Le bouton de connexion reste TOUJOURS affiché : c'est la seule porte d'entrée,
+       et il doit permettre de se reconnecter avec une autre adresse à tout moment. */
+    var formOuvert = $("homeLogin") && $("homeLogin").style.display!=="none";
+    if($("homeLoginBtn")){
+      $("homeLoginBtn").style.display = formOuvert ? "none" : "block";
+      $("homeLoginBtn").textContent = connecte ? "Se connecter avec un autre compte" : "Se connecter à votre commission";
+    }
     if($("homeLogoutBtn")) $("homeLogoutBtn").style.display = (s ? "block" : "none");
     if($("homeSub")) $("homeSub").textContent = connecte ? "Choisis ta commission" : "Connecte-toi avec le compte de ta commission";
     if($("homeQui")){
       if(s){ $("homeQui").style.display="block"; $("homeQui").textContent = "Connecté : "+s.mail; }
       else $("homeQui").style.display="none";
     }
-    if(connecte && $("homeLogin")) $("homeLogin").style.display="none";
-
     if(!connecte) return;                        // pas connecté : bouton + scanner global seulement
     if(!visibles.length){
-      g.innerHTML = '<p class="hint" style="text-align:center;line-height:1.6;margin:6px 0">Aucune commission à afficher ici.<br>Vérifie l\'adresse utilisée, ou ouvre les Réglages (⚙).</p>';
+      g.innerHTML = '<p class="hint" style="text-align:center;line-height:1.6;margin:6px 0">Aucune commission pour cette adresse.<br>Utilise « Se déconnecter » puis reconnecte-toi, ou ouvre les Réglages (⚙ en haut à droite).</p>';
       return;
     }
     visibles.forEach(function(c){
@@ -5247,6 +5262,7 @@
   window.ouvrirConnexion=function(){
     if($("homeLogin")) $("homeLogin").style.display="block";
     if($("homeLoginBtn")) $("homeLoginBtn").style.display="none";
+    if($("homePwd")) $("homePwd").value="";
     if($("homeErr")) $("homeErr").style.display="none";
     if($("homeMail")) { try{ $("homeMail").focus(); }catch(e){} }
   };
