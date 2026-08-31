@@ -553,12 +553,30 @@
       <svg viewBox="0 0 24 24" fill="none" style="width:27px;height:27px"><path d="M3 8.5A2.5 2.5 0 0 1 5.5 6H10v12H5.5A2.5 2.5 0 0 1 3 15.5v-7Z" fill="currentColor" opacity=".55"/><path d="M14 6h4.5A2.5 2.5 0 0 1 21 8.5v7a2.5 2.5 0 0 1-2.5 2.5H14V6Z" fill="currentColor"/></svg>
     </div>
     <h2>Contrôle d'entrée</h2>
-    <p>Choisis ta commission</p>
+    <p id="homeSub">Connecte-toi avec le compte de ta commission</p>
+
+    <button class="btn gold" type="button" id="homeLoginBtn" onclick="ouvrirConnexion()" style="width:100%;padding:16px;font-size:16px;font-weight:800">Se connecter à votre commission</button>
+
+    <div id="homeLogin" style="display:none;text-align:left;margin-top:14px">
+      <label class="fld" for="homeMail">Adresse mail</label>
+      <input type="email" id="homeMail" placeholder="prenom@gmail.com" autocomplete="username" onkeydown="if(event.key==='Enter')homeConnexion();">
+      <label class="fld" for="homePwd" style="margin-top:10px">Mot de passe</label>
+      <input type="password" id="homePwd" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')homeConnexion();">
+      <p class="lock-err" id="homeErr" style="text-align:left"></p>
+      <div class="row" style="margin-top:12px">
+        <button class="btn gold" type="button" onclick="homeConnexion()" style="flex:1">Entrer</button>
+        <button class="btn ghost" type="button" onclick="fermerConnexion()" style="flex:1">Annuler</button>
+      </div>
+    </div>
+
+    <p class="hint" id="homeQui" style="display:none;margin:0 0 10px"></p>
+
     <div class="comm-grid" id="commGrid"></div>
     <button class="comm-btn" id="gscanOpenBtn" onclick="gscanOpen()" style="margin-top:14px;background:linear-gradient(160deg,#3a2d1a,#2a2110);border-color:var(--gold-dim)">
       <span>🎯 Scanner global — toutes les commissions</span>
-      <span class="cnt">tous les billets</span>
+      <span class="cnt">sans connexion</span>
     </button>
+    <button class="btn ghost xs" type="button" id="homeLogoutBtn" onclick="homeDeconnexion()" style="display:none;width:100%;margin-top:12px">Se déconnecter</button>
   </div>
 </div>
 
@@ -728,6 +746,13 @@
     <p class="hint" style="margin-top:8px">Le changement est enregistré tout de suite, pour tous les appareils. Reclique pour revenir en arrière.</p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Comptes des commissions</h2>
+    <p class="sub">L'adresse mail du compte de chaque commission. Elle sert à l'écran d'accueil : la personne se connecte, et ne voit que sa commission. Laisse vide si tu ne sais pas — cette commission restera visible par tout le monde comme avant.</p>
+    <div id="comptesList" class="coorg-grid" style="margin-top:10px"></div>
+    <button class="btn ghost xs" type="button" onclick="publierComptes()" style="width:100%;margin-top:10px">Enregistrer les comptes</button>
+    <p class="hint" id="comptesEtat" style="margin-top:6px;min-height:14px"></p>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Infos pratiques (dans les mails)</h2>
     <p class="sub">Date, heure et lieu de l'événement. Ces informations sont ajoutées automatiquement aux e-mails (billet et confirmation).</p>
     <div class="prow">
@@ -738,7 +763,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v79</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v80</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1086,6 +1111,123 @@
     }
     bascEnCours[cid] = false;
   };
+  /* ---------- Comptes des commissions (écran d'accueil) ----------
+     Publiés dans le champ `comptes` du même document de réglages :
+     {"festif":"festif@gmail.com"}. Sert uniquement à savoir quelle commission
+     afficher après la connexion. Si la liste est vide, illisible, ou si l'adresse
+     n'y figure pas, l'accueil réaffiche les 9 commissions comme avant : personne
+     ne peut se retrouver bloqué dehors. */
+  var CLE_COMPTES = "qrentry:comptes";
+  var CLE_SESSION = "qrentry:session";
+  function comptesMap(){ try{ var v=window.localStorage.getItem(CLE_COMPTES); var m=v?JSON.parse(v):{}; return (m && typeof m==="object")?m:{}; }catch(e){ return {}; } }
+  function setComptesMap(m){ try{ window.localStorage.setItem(CLE_COMPTES, JSON.stringify(m||{})); }catch(e){} }
+  function comptesPropres(m){
+    var out={};
+    COMMISSIONS.forEach(function(c){
+      var v=m && m[c.id];
+      if(typeof v!=="string") return;
+      v=v.trim().toLowerCase();
+      if(v && v.indexOf("@")>0) out[c.id]=v;
+    });
+    return out;
+  }
+  /* Commissions liées à une adresse (une adresse peut en couvrir plusieurs). */
+  function commissionsDe(mail){
+    mail=String(mail||"").trim().toLowerCase();
+    var m=comptesMap(), out=[];
+    COMMISSIONS.forEach(function(c){ if(m[c.id]===mail) out.push(c.id); });
+    return out;
+  }
+  function renderComptes(){
+    var box=$("comptesList"); if(!box) return;
+    var m=comptesMap();
+    box.innerHTML = COMMISSIONS.map(function(c){
+      return '<div style="border:1px solid var(--line);border-radius:10px;padding:9px 11px">'
+        + '<div style="font-size:13px;font-weight:700;margin-bottom:5px">'+escapeHtml(c.name)+'</div>'
+        + '<input type="email" data-compte="'+c.id+'" value="'+escapeHtml(m[c.id]||"")+'" placeholder="adresse du compte" autocomplete="off" style="width:100%">'
+        + '</div>';
+    }).join("");
+  }
+  window.publierComptes = async function(){
+    var et=$("comptesEtat"); if(et){ et.textContent="Enregistrement…"; et.style.color=""; }
+    var m={};
+    COMMISSIONS.forEach(function(c){
+      var inp=document.querySelector('[data-compte="'+c.id+'"]');
+      if(inp && inp.value.trim()) m[c.id]=inp.value.trim().toLowerCase();
+    });
+    m=comptesPropres(m);
+    var ok=false, souci="";
+    try{
+      var tok=await jetonReglages();
+      if(!tok) souci="compte de réglages inaccessible";
+      else{
+        var r=await fsPatchFields(ticketDocPath(REGL_CID), { comptes: fsField(JSON.stringify(m)) }, tok);
+        ok=!!(r && r.ok);
+        if(!ok) souci="refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
+      }
+    }catch(e){ souci="pas de connexion"; }
+    setComptesMap(m);
+    renderComptes();
+    var fin=$("comptesEtat");
+    if(fin){
+      fin.textContent = ok ? "✅ Comptes enregistrés." : ("⚠️ Enregistré sur cet appareil seulement — "+souci+".");
+      fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e0b45e";
+    }
+  };
+
+  /* ---------- Session de l'accueil ---------- */
+  function session(){ try{ var v=window.localStorage.getItem(CLE_SESSION); var m=v?JSON.parse(v):null; return (m && typeof m==="object" && m.mail) ? m : null; }catch(e){ return null; } }
+  function setSession(m){ try{ if(m) window.localStorage.setItem(CLE_SESSION, JSON.stringify(m)); else window.localStorage.removeItem(CLE_SESSION); }catch(e){} }
+  window.homeDeconnexion = async function(){
+    var ok = await uiConfirm("Se déconnecter ? Il faudra retaper l'adresse et le mot de passe pour revenir dans la commission.");
+    if(!ok) return;
+    setSession(null);
+    COMMISSIONS.forEach(function(c){ try{ clearAuthTok(c.id); }catch(e){} });
+    if($("homeMail")) $("homeMail").value="";
+    if($("homePwd")) $("homePwd").value="";
+    if(typeof renderHome==="function") renderHome();
+  };
+  window.homeConnexion = async function(){
+    var mail=(($("homeMail")&&$("homeMail").value)||"").trim().toLowerCase();
+    var pwd=($("homePwd")&&$("homePwd").value)||"";
+    var err=$("homeErr");
+    function stop(msg){ if(err){ err.textContent=msg; err.style.display="block"; } }
+    if(err) err.style.display="none";
+    if(!mail || mail.indexOf("@")<0) return stop("Adresse mail invalide.");
+    if(!pwd) return stop("Entre ton mot de passe.");
+    stop("Connexion…");
+    var d;
+    try{
+      d = await fbCall("signInWithPassword", { email:mail, password:pwd, returnSecureToken:true });
+    }catch(e){
+      var m1=String(e&&e.message||"");
+      if(m1.indexOf("EMAIL_NOT_FOUND")>=0) return stop("Aucun compte pour cette adresse.");
+      if(m1.indexOf("INVALID_PASSWORD")>=0 || m1.indexOf("INVALID_LOGIN_CREDENTIALS")>=0) return stop("Adresse ou mot de passe incorrect.");
+      if(m1.indexOf("TOO_MANY_ATTEMPTS")>=0) return stop("Trop de tentatives. Réessaie dans quelques minutes.");
+      return stop("Connexion impossible. Vérifie ta connexion internet.");
+    }
+    /* Liste des comptes relue au passage, pour être à jour sur cet appareil. */
+    try{
+      var doc=await fsGetDoc(ticketDocPath(REGL_CID), d.idToken, ["comptes"]);
+      var vc=doc && doc.fields && doc.fields.comptes && doc.fields.comptes.stringValue;
+      if(vc) setComptesMap(comptesPropres(JSON.parse(vc)));
+    }catch(e2){}
+    var cids = estAdmin(mail) ? COMMISSIONS.map(function(c){ return c.id; }) : commissionsDe(mail);
+    /* Adresse inconnue : on n'enferme personne, on réaffiche tout comme avant. */
+    setSession({ mail:mail, cids:cids, at:Date.now() });
+    /* Le jeton obtenu ouvre directement la ou les commissions de ce compte. */
+    if(!estAdmin(mail)){
+      for(var i=0;i<cids.length;i++){
+        saveAuthTok(cids[i], { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:mail });
+        saveEmailFor(cids[i], mail);
+      }
+    }
+    if(err) err.style.display="none";
+    if($("homePwd")) $("homePwd").value="";
+    renderHome();
+    if(cids.length===1 && !estAdmin(mail)) commBtnClick(cids[0]);
+  };
+
   /* Relit le réglage publié (changement fait depuis un autre appareil). */
   var actifsSyncAt = 0;
   async function syncCommActifs(force){
@@ -1093,13 +1235,22 @@
     actifsSyncAt = Date.now();
     try{
       var tok=await jetonReglages(); if(!tok) return;
-      var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);
-      var v = d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
-      if(!v) return;                           // champ absent : on ne touche à rien
-      var m=mapPropre(JSON.parse(v));
-      if(JSON.stringify(m)===JSON.stringify(mapAccueil())) return;
-      setMapAccueil(m);
+      var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil","comptes"]);
+      var f=d && d.fields; if(!f) return;
+      var change=false;
+      var v = f.accueil && f.accueil.stringValue;
+      if(v){                                   // champ absent : on ne touche à rien
+        var m=mapPropre(JSON.parse(v));
+        if(JSON.stringify(m)!==JSON.stringify(mapAccueil())){ setMapAccueil(m); change=true; }
+      }
+      var vc = f.comptes && f.comptes.stringValue;
+      if(vc){
+        var mc=comptesPropres(JSON.parse(vc));
+        if(JSON.stringify(mc)!==JSON.stringify(comptesMap())){ setComptesMap(mc); change=true; }
+      }
+      if(!change) return;
       renderCommActif();
+      try{ renderComptes(); }catch(e4){}
       if(typeof renderHome==="function") renderHome();
     }catch(e){}
   }
@@ -3302,6 +3453,15 @@
   /* Ouvre le panneau une fois l'identité vérifiée (voir submitSettingsPwd plus haut). */
   function ouvrirReglages(){
     $("settingsPwdModal").classList.remove("on");
+    /* Se connecter aux Réglages vaut connexion propriétaire sur l'accueil :
+       les 9 commissions s'affichent sans avoir à retaper l'adresse en bas. */
+    try{
+      var mp=admLocal().mail;
+      if(mp && estAdmin(mp)){
+        setSession({ mail:mp, cids:COMMISSIONS.map(function(c){ return c.id; }), at:Date.now() });
+        if(typeof renderHome==="function") renderHome();
+      }
+    }catch(e){}
     if($("admInfo")){
       var lm=admLocal();
       $("admInfo").textContent = "Connecté avec " + (lm.mail || "—") + ". Mot de passe géré par Firebase : il n'est écrit ni dans l'app, ni dans la base.";
@@ -3312,10 +3472,12 @@
     $("gScannerResult").innerHTML="";
     renderCoorg();                                   // co-organisateurs : cases à jour
     renderCommActif();                               // commissions actives : cases à jour
+    renderComptes();                                 // comptes des commissions
 
     (async function(){                               // rafraîchit depuis le cloud sans bloquer l'ouverture
       try{ await syncCommActifs(true); }catch(e){}
       renderCommActif();
+      renderComptes();
       for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
       renderCoorg();
     })();
@@ -5033,12 +5195,45 @@
       if(!v) return 0; var a=JSON.parse(v); return Array.isArray(a)?a.length:0;
     }catch(e){ return 0; }
   }
+  /* Commissions ouvertes sur CET appareil (connexion déjà faite auparavant) :
+     un téléphone déjà en service ne perd rien avec le nouvel accueil. */
+  function commissionsOuvertes(){
+    var out=[];
+    COMMISSIONS.forEach(function(c){ var a=loadAuth(c.id); if(a && a.idToken) out.push(c.id); });
+    return out;
+  }
   function renderHome(){
     if(SIGNUP_MODE) return;
     var g=$("commGrid"); if(!g) return; g.innerHTML="";
+    var s=session();
+    var proprietaire = !!(s && estAdmin(s.mail));
+    /* Ce que cet appareil a le droit de voir. null = tout (propriétaire, ou
+       adresse inconnue de la liste : on n'enferme personne dehors). */
+    var permis=null;
+    if(!proprietaire){
+      var liste=commissionsOuvertes();
+      if(s && s.cids && s.cids.length){
+        s.cids.forEach(function(id){ if(liste.indexOf(id)<0) liste.push(id); });
+      }
+      if(s && (!s.cids || !s.cids.length)) permis=null;   // connecté mais adresse hors liste
+      else permis = liste;
+    }
     var visibles = COMMISSIONS.filter(function(c){ return commActive(c.id); });
+    if(permis) visibles = visibles.filter(function(c){ return permis.indexOf(c.id)>=0; });
+
+    var connecte = proprietaire || (permis && permis.length) || (s && (!s.cids || !s.cids.length));
+    if($("homeLoginBtn")) $("homeLoginBtn").style.display = connecte ? "none" : "block";
+    if($("homeLogoutBtn")) $("homeLogoutBtn").style.display = (s ? "block" : "none");
+    if($("homeSub")) $("homeSub").textContent = connecte ? "Choisis ta commission" : "Connecte-toi avec le compte de ta commission";
+    if($("homeQui")){
+      if(s){ $("homeQui").style.display="block"; $("homeQui").textContent = "Connecté : "+s.mail; }
+      else $("homeQui").style.display="none";
+    }
+    if(connecte && $("homeLogin")) $("homeLogin").style.display="none";
+
+    if(!connecte) return;                        // pas connecté : bouton + scanner global seulement
     if(!visibles.length){
-      g.innerHTML = '<p class="hint" style="text-align:center;line-height:1.6;margin:6px 0">Toutes les commissions sont désactivées.<br>Ouvre les Réglages (⚙ en haut à droite) pour en réactiver une.</p>';
+      g.innerHTML = '<p class="hint" style="text-align:center;line-height:1.6;margin:6px 0">Aucune commission à afficher ici.<br>Vérifie l\'adresse utilisée, ou ouvre les Réglages (⚙).</p>';
       return;
     }
     visibles.forEach(function(c){
@@ -5049,6 +5244,17 @@
       g.appendChild(b);
     });
   }
+  window.ouvrirConnexion=function(){
+    if($("homeLogin")) $("homeLogin").style.display="block";
+    if($("homeLoginBtn")) $("homeLoginBtn").style.display="none";
+    if($("homeErr")) $("homeErr").style.display="none";
+    if($("homeMail")) { try{ $("homeMail").focus(); }catch(e){} }
+  };
+  window.fermerConnexion=function(){
+    if($("homeLogin")) $("homeLogin").style.display="none";
+    if($("homeErr")) $("homeErr").style.display="none";
+    renderHome();
+  };
   window.goHome=function(){
     stopCam();
     if(cloudPollTimer){ clearInterval(cloudPollTimer); cloudPollTimer=null; }
