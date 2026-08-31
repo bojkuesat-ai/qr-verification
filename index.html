@@ -714,7 +714,11 @@
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="createScannerAllCommissions()">Activer sur toutes les commissions</button></div>
     <div id="gScannerResult" style="margin-top:11px;font-size:13px;color:var(--muted);line-height:1.7"></div>
 
-
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Commissions actives</h2>
+    <p class="sub">Décoche une commission pour la retirer de l'écran d'accueil, sur cet appareil comme sur les autres. Rien d'autre n'est touché : les billets déjà émis, les mails et le scanner global continuent de fonctionner normalement.</p>
+    <div id="commActifList" class="coorg-grid" style="margin-top:10px"></div>
+    <p class="hint" style="margin-top:8px">Chaque commission a son propre bouton : les autres ne bougent pas. Pour la remettre, recoche-la et enregistre.</p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Infos pratiques (dans les mails)</h2>
@@ -727,7 +731,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v68</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v70</b></p>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -960,21 +964,97 @@
       }
     }catch(e){}
     if(ok) setCoorgLocal(cid, o);
-    if(etat){
-      etat.textContent = ok ? ("✅ "+(noms.length?("Enregistré : "+listeFr(noms)):"Aucun partenaire"))
-                            : "❌ Non enregistré — ouvre cette commission puis recommence.";
-      etat.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
+    else renderCoorg();                        // on remet les cases à leur état réel
+    var fin=$("coorgEtat_"+cid);               // l'élément a pu être recréé par renderCoorg
+    if(fin){
+      fin.textContent = ok ? ("✅ "+(noms.length?("Enregistré : "+listeFr(noms)):"Aucun partenaire"))
+                           : "❌ Non enregistré — ouvre cette commission puis recommence.";
+      fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
     }
-    if(!ok) renderCoorg();                     // on remet les cases à leur état réel
   };
-  /* Relit le réglage publié (utile si tu l'as changé depuis un autre appareil). */
+  /* Relit les réglages publiés (co-organisateurs + commission active),
+     utile si tu les as changés depuis un autre appareil. */
   async function chargerCoorgCloud(cid){
     try{
       if(!(await ensureAuth(cid))) return;
       var a=loadAuth(cid); if(!a||!a.idToken) return;
-      var d=await fsGetDoc(ticketDocPath(cid), a.idToken, ["coorg"]);
+      var d=await fsGetDoc(ticketDocPath(cid), a.idToken, ["coorg","actif"]);
+      var va = d && d.fields && d.fields.actif && d.fields.actif.stringValue;
+      if(va==="0"||va==="1") setCommActifLocal(cid, va!=="0");
       if(d && d.fields && d.fields.coorg){ setCoorgLocal(cid, JSON.parse(d.fields.coorg.stringValue||"{}")); }
     }catch(e){}
+  }
+
+  /* ---------- Commissions actives (affichage sur l'écran d'accueil) ----------
+     Champ `actif` du document de la commission. Absent = active : une commission
+     jamais réglée reste visible, donc rien ne change sur les appareils en service. */
+  function commActifKey(cid){ return "qrentry:commactif:"+(cid||""); }
+  function commActive(cid){ try{ return window.localStorage.getItem(commActifKey(cid))!=="0"; }catch(e){ return true; } }
+  function setCommActifLocal(cid, actif){ try{ window.localStorage.setItem(commActifKey(cid), actif?"1":"0"); }catch(e){} }
+  function renderCommActif(){
+    var box=$("commActifList"); if(!box) return;
+    box.innerHTML = COMMISSIONS.map(function(c){
+      var on=commActive(c.id);
+      return '<div style="border:1px solid '+(on?'var(--gold-dim,#7a641f)':'var(--line)')+';border-radius:10px;padding:9px 11px;'
+        + (on?'background:rgba(216,180,90,.06)':'opacity:.7')+'">'
+        + '<label style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:13.5px;font-weight:700;cursor:pointer">'
+        + '<input type="checkbox" data-commactif="'+c.id+'"'+(on?" checked":"")+' style="width:16px;height:16px;flex:none">'
+        + '<span>'+escapeHtml(c.name)+'</span></label>'
+        + '<button class="btn ghost xs" type="button" style="margin-top:6px;width:100%" onclick="publierCommActif(\''+c.id+'\')">Enregistrer</button>'
+        + '<div class="hint" style="margin-top:4px;font-size:11.5px;min-height:14px" id="commActifEtat_'+c.id+'"></div>'
+        + '</div>';
+    }).join("");
+  }
+  /* Enregistre UNE commission : les autres ne sont pas touchées. */
+  window.publierCommActif = async function(cid){
+    var etat=$("commActifEtat_"+cid);
+    if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
+    var cb=document.querySelector('[data-commactif="'+cid+'"]');
+    var actif=!!(cb && cb.checked);
+    var ok=false;
+    try{
+      if(await ensureAuth(cid)){
+        var a=loadAuth(cid);
+        if(a && a.idToken){
+          var r=await fsPatchFields(ticketDocPath(cid), { actif: fsField(actif?"1":"0") }, a.idToken);
+          ok = !!(r && r.ok);
+        }
+      }
+    }catch(e){}
+    if(ok){
+      setCommActifLocal(cid, actif);
+      renderCommActif();                       // encadré et case à jour
+      if(typeof renderHome==="function") renderHome();
+    }else{
+      renderCommActif();                       // on remet la case à son état réel
+    }
+    var fin=$("commActifEtat_"+cid);           // l'élément vient d'être recréé
+    if(fin){
+      fin.textContent = ok ? (actif ? "✅ Affichée sur l'accueil" : "✅ Retirée de l'accueil")
+                           : "❌ Non enregistré — ouvre cette commission puis recommence.";
+      fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
+    }
+  };
+  /* Relit l'état publié des 9 commissions (autre appareil, autre délégué). */
+  var actifsSyncAt = 0;
+  async function syncCommActifs(){
+    if(Date.now() - actifsSyncAt < 30000) return;
+    actifsSyncAt = Date.now();
+    var change=false;
+    for(var i=0;i<COMMISSIONS.length;i++){
+      var cid=COMMISSIONS[i].id;
+      try{
+        if(!(await ensureAuth(cid))) continue;
+        var a=loadAuth(cid); if(!a||!a.idToken) continue;
+        var d=await fsGetDoc(ticketDocPath(cid), a.idToken, ["actif"]);
+        var v = d && d.fields && d.fields.actif && d.fields.actif.stringValue;
+        if(v==="0"||v==="1"){
+          var nouveau = (v!=="0");
+          if(nouveau !== commActive(cid)){ setCommActifLocal(cid, nouveau); change=true; }
+        }
+      }catch(e){}
+    }
+    if(change && typeof renderHome==="function") renderHome();
   }
   function signatureMail(cid){
     var c = cid || currentCommId();
@@ -3090,10 +3170,12 @@
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
     renderCoorg();                                   // co-organisateurs : cases à jour
+    renderCommActif();                               // commissions actives : cases à jour
 
     (async function(){                               // rafraîchit depuis le cloud sans bloquer l'ouverture
       for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
       renderCoorg();
+      renderCommActif();
     })();
     if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
     if($("proclaToggle")) $("proclaToggle").checked = !proclaHidden();
@@ -4812,7 +4894,12 @@
   function renderHome(){
     if(SIGNUP_MODE) return;
     var g=$("commGrid"); if(!g) return; g.innerHTML="";
-    COMMISSIONS.forEach(function(c){
+    var visibles = COMMISSIONS.filter(function(c){ return commActive(c.id); });
+    if(!visibles.length){
+      g.innerHTML = '<p class="hint" style="text-align:center;line-height:1.6;margin:6px 0">Toutes les commissions sont désactivées.<br>Ouvre les Réglages (⚙ en haut à droite) pour en réactiver une.</p>';
+      return;
+    }
+    visibles.forEach(function(c){
       var b=document.createElement("button"); b.className="comm-btn";
       var n=commCount(c.id);
       b.innerHTML='<span>'+c.name+'</span><span class="cnt">'+(n? (n+" billet"+(n>1?"s":"")) : "vide")+'</span>';
@@ -4830,6 +4917,7 @@
     saveComm(null);
     document.body.classList.add("home-mode");
     renderHome();
+    try{ syncCommActifs(); }catch(e){}
   };
 
   /* ---------- Authentification par commission (Firebase Auth REST) ---------- */
@@ -5437,6 +5525,7 @@
     }
     else { document.body.classList.add("home-mode"); renderHome(); }
     try{ renderCats(); }catch(e){}
+    try{ syncCommActifs(); }catch(e){}
   })();
 })();
 </script>
