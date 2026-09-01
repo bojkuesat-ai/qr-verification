@@ -305,7 +305,21 @@
       <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M12 21s-7-4.5-9.5-9C1 9 2.5 5.5 6 5.5c2 0 3 1.2 3.5 2 .5-.8 1.5-2 3.5-2 3.5 0 5 3.5 3.5 6.5C19 16.5 12 21 12 21z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
       Parrainage
     </button>
+    <button class="tab" id="t-coopt" role="tab" aria-selected="false" onclick="showTab('coopt')" style="display:none">
+      <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 8a5 5 0 0 0-10 0m10-8h4m-2-2v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Cooptation <span class="pill" id="cooptCount">0</span>
+    </button>
   </div>
+
+  <!-- COOPTATION -->
+  <section id="tab-coopt">
+    <div class="card">
+      <h2>Demandes de cooptation</h2>
+      <p class="sub">Les personnes qui, en s'inscrivant, ont coché qu'elles souhaitent rejoindre une association. Les cases proposées dans le formulaire se règlent dans les Réglages (⚙), section « Cooptation ».</p>
+      <div class="row" id="cooptExports" style="flex-wrap:wrap;gap:8px;margin-top:12px"></div>
+      <div id="cooptListe" style="margin-top:14px"></div>
+    </div>
+  </section>
 
   <!-- INVITÉS -->
   <section id="tab-guests" class="on">
@@ -738,7 +752,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v83</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v86</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -751,16 +765,10 @@
     <p class="hint" style="margin-top:8px">Chaque commission a son propre bouton : tu n'actives que celle que tu veux, les autres ne bougent pas.</p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <h2 style="margin-top:18px">Recrutement de coopté·e·s (parrainage)</h2>
-    <p class="sub">Ajoute au formulaire de parrainage un encadré « Envie de rejoindre le Bureau étudiant (BE) ? » avec une case à cocher, et un paragraphe dans le mail du billet. Tu récupères la liste des intéressé·e·s dans l'onglet Inscriptions.</p>
-    <label style="display:flex;align-items:center;gap:9px;padding:4px 0;font-size:14px;cursor:pointer">
-      <input type="checkbox" id="cooptToggle" style="width:18px;height:18px;flex:none">
-      <span>Activer le recrutement de coopté·e·s</span>
-    </label>
-    <div class="row" style="margin-top:9px;align-items:center;gap:9px">
-      <button class="btn ghost sm" type="button" onclick="publierCoopt()">Enregistrer</button>
-      <span class="hint" id="cooptEtat"></span>
-    </div>
+    <h2 style="margin-top:18px">Cooptation (parrainage)</h2>
+    <p class="sub">Chaque association activée ajoute sa case au formulaire d'inscription du parrainage : « Je souhaite rejoindre… ». Les demandes arrivent dans l'onglet Cooptation de la commission Parrainage.</p>
+    <div id="cooptList" class="coorg-grid" style="margin-top:10px"></div>
+    <p class="hint" style="margin-top:8px">Un clic suffit, c'est enregistré tout de suite. Reclique pour retirer la case.</p>
 
   </div>
 </div>
@@ -831,12 +839,13 @@
     var mail=emailOf(g); if(!mail) return;
     var vous = !!(g.role && g.role!=="etudiant");
     var salut = vous ? (((g.prenom||"")+" "+(g.nom||"")).trim() || g.name || "") : (prenomDe(g) || g.name || "");
-    var ev = mailEsc(evName || (currentCommId()===cid ? eventName : "") || "la proclamation");
+    /* Ni le nom de l'événement ni le mot « proclamation » : ce n'est pas
+       toujours une cérémonie, et le nom apparaît déjà dans l'objet du mail. */
     var corps = vous
-      ? "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue à <b>"+ev+"</b>. Nous sommes ravis de vous compter parmi nous. Excellente cérémonie !</p>"
-      : "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue à <b>"+ev+"</b> ! Félicitations et profite bien de <b>ta</b> proclamation 🎓</p>";
+      ? "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue 🎓 Nous sommes ravis de vous compter parmi nous. Excellente soirée !</p>"
+      : "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue, et félicitations 🎓 Belle soirée à toi.</p>";
     var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
-      +'<h2 style="margin:0 0 12px">Bienvenue 🎓</h2>'+corps
+      +corps
       +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(cid)+'</p></div>';
     var sujetEv = evName || (currentCommId()===cid ? eventName : "") || "Proclamation";
     try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
@@ -870,72 +879,177 @@
     var noms=coorgNoms(cid);
     return noms.length ? ('<br>En collaboration avec '+listeFr(noms)) : "";
   }
-  /* ---------- Recrutement de coopté·e·s (parrainage uniquement) ---------- */
-  function cooptKey(){ return "qrentry:coopt:parrainage"; }
-  function getCoopt(){ try{ return window.localStorage.getItem(cooptKey())==="1"; }catch(e){ return false; } }
-  window.publierCoopt = async function(){
-    var el=$("cooptToggle"), etat=$("cooptEtat");
-    var actif = !!(el && el.checked);
-    if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
-    var ok=false;
+  /* ---------- Cooptation (parrainage) ----------
+     Trois associations : BE, ELSA-Brussels, Cercle de droit. Chacune s'active
+     séparément dans les Réglages et ajoute sa case au formulaire d'inscription.
+     Publié dans le champ `coopts` du document du parrainage : {"be":"1","elsa":"0"}.
+     L'ancien champ `coopt` ("1" = BE seul) est repris automatiquement. */
+  var ASSOS = [ {id:"be", nom:"Bureau étudiant (BE)"}, {id:"elsa", nom:"ELSA-Brussels"}, {id:"cercle", nom:"Cercle de droit de l'ULB"} ];
+  var CLE_COOPTS = "qrentry:coopts:parrainage";
+  function cooptsMap(){
     try{
-      if(await ensureAuth("parrainage")){
-        var a=loadAuth("parrainage");
-        if(a && a.idToken){
-          var r=await fsPatchFields(ticketDocPath("parrainage"), { coopt: fsField(actif?"1":"0") }, a.idToken);
-          ok = !!(r && r.ok);
-        }
-      }
+      var v=window.localStorage.getItem(CLE_COOPTS);
+      if(v){ var m=JSON.parse(v); if(m && typeof m==="object") return m; }
+      /* reprise de l'ancien réglage : une seule case, pour le BE */
+      if(window.localStorage.getItem("qrentry:coopt:parrainage")==="1") return {be:"1"};
     }catch(e){}
-    if(ok){ try{ window.localStorage.setItem(cooptKey(), actif?"1":"0"); }catch(e){} }
-    if(etat){
-      etat.textContent = ok ? (actif ? "✅ Activé — l'encadré apparaît sur le formulaire de parrainage."
-                                     : "✅ Désactivé — plus aucune mention.")
-                            : "❌ Non enregistré — ouvre la commission Parrainage puis recommence.";
-      etat.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
+    return {};
+  }
+  function setCooptsMap(m){ try{ window.localStorage.setItem(CLE_COOPTS, JSON.stringify(m||{})); }catch(e){} }
+  function cooptsPropres(m){
+    var out={};
+    ASSOS.forEach(function(a){ if(m && m[a.id]==="1") out[a.id]="1"; });
+    return out;
+  }
+  function cooptActive(id){ return cooptsMap()[id]==="1"; }
+  function assoNom(id){ for(var i=0;i<ASSOS.length;i++){ if(ASSOS[i].id===id) return ASSOS[i].nom; } return id; }
+  /* Un bouton par association, même présentation que les commissions. */
+  function renderCoopt(){
+    var box=$("cooptList"); if(!box) return;
+    box.innerHTML = ASSOS.map(function(a){
+      var on=cooptActive(a.id);
+      return '<div style="border:1px solid '+(on?'var(--gold-dim,#7a641f)':'var(--line)')+';border-radius:10px;padding:9px 11px;'
+        + (on?'background:rgba(216,180,90,.06)':'opacity:.6')+'">'
+        + '<div style="font-size:13.5px;font-weight:700">'+escapeHtml(a.nom)+'</div>'
+        + '<button class="btn '+(on?'gold':'ghost')+' xs" type="button" style="width:100%;margin-top:6px" id="cooptBtn_'+a.id+'"'
+        + ' onclick="basculerCoopt(\''+a.id+'\')">'+(on?'Activée':'Désactivée')+'</button>'
+        + '<div class="hint" style="margin-top:4px;font-size:11.5px;min-height:14px" id="cooptEtat_'+a.id+'"></div>'
+        + '</div>';
+    }).join("");
+  }
+  var bascCoopt={};
+  window.basculerCoopt = async function(id){
+    if(bascCoopt[id]) return;
+    bascCoopt[id]=true;
+    var btn=$("cooptBtn_"+id); if(btn) btn.disabled=true;
+    var etat=$("cooptEtat_"+id); if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
+    var actif = !cooptActive(id);
+    var m=cooptsPropres(cooptsMap());
+    if(actif) m[id]="1"; else delete m[id];
+    var ok=false, souci="";
+    try{
+      var tok=await jetonReglages();          // compte du parrainage, connexion automatique
+      if(!tok) souci="compte de réglages inaccessible";
+      else{
+        var r=await fsPatchFields(ticketDocPath("parrainage"), { coopts: fsField(JSON.stringify(m)) }, tok);
+        ok=!!(r && r.ok);
+        if(!ok) souci="refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
+      }
+    }catch(e){ souci="pas de connexion"; }
+    if(ok) setCooptsMap(m);
+    renderCoopt();
+    var fin=$("cooptEtat_"+id);
+    if(fin){
+      fin.textContent = ok ? (actif ? "✅ Case proposée sur le formulaire" : "✅ Case retirée du formulaire")
+                           : ("❌ Non enregistré — "+souci+".");
+      fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
     }
-    if(!ok && el) el.checked = getCoopt();
+    bascCoopt[id]=false;
   };
   async function chargerCooptCloud(){
     try{
-      if(!(await ensureAuth("parrainage"))) return;
-      var a=loadAuth("parrainage"); if(!a||!a.idToken) return;
-      var d=await fsGetDoc(ticketDocPath("parrainage"), a.idToken, ["coopt"]);
-      var v = d && d.fields && d.fields.coopt && d.fields.coopt.stringValue;
-      if(v!==undefined && v!==null) window.localStorage.setItem(cooptKey(), v==="1"?"1":"0");
+      var tok=await jetonReglages(); if(!tok) return;
+      var d=await fsGetDoc(ticketDocPath("parrainage"), tok, ["coopts","coopt"]);
+      var f=d && d.fields; if(!f) return;
+      if(f.coopts && f.coopts.stringValue){ setCooptsMap(cooptsPropres(JSON.parse(f.coopts.stringValue))); return; }
+      if(f.coopt && f.coopt.stringValue!==undefined){
+        setCooptsMap(f.coopt.stringValue==="1" ? {be:"1"} : {});
+      }
     }catch(e){}
   }
-  /* Paragraphe ajouté au mail du billet de parrainage. */
-  /* Un billet vient-il d'une inscription qui a coché « coopté·e » ? */
+  /* Associations demandées par une personne (inscription ou billet). */
+  function assosDe(x){
+    if(!x) return [];
+    var v=x.coopt;
+    if(Array.isArray(v)) return v.filter(function(id){ return assoNom(id)!==id || id==="be"; });
+    if(v===true || v==="1") return ["be"];        // ancienne case unique
+    return [];
+  }
   function estCoopt(g){
     if(!g) return false;
-    if(g.coopt) return true;
+    if(assosDe(g).length) return true;
     if(!g.sigKey) return false;
-    return (SIGNUPS||[]).some(function(x){ return x && x.coopt && signupKey(x)===g.sigKey; });
+    return (SIGNUPS||[]).some(function(x){ return x && assosDe(x).length && signupKey(x)===g.sigKey; });
   }
-  /* Toutes les personnes intéressées par une cooptation (inscriptions + billets). */
-  function listeCooptes(){
+  /* Toutes les demandes, éventuellement filtrées sur une association. */
+  function listeCooptes(asso){
     var vus={}, out=[];
-    (SIGNUPS||[]).forEach(function(x){
-      if(!x || !x.coopt) return;
-      var k=String(x.email||"").toLowerCase(); if(vus[k]) return; vus[k]=1;
-      out.push({ nom:x.nom||x.name||"", prenom:x.prenom||"", email:x.email||"", section:x.section||"", annee:x.annee||"", role:x.role||"" });
-    });
+    function ajoute(x){
+      var as=assosDe(x); if(!as.length) return;
+      if(asso && as.indexOf(asso)<0) return;
+      var k=String(x.email||x.extra||"").toLowerCase(); if(!k || vus[k]) return; vus[k]=1;
+      out.push({ nom:x.nom||x.name||"", prenom:x.prenom||"", email:x.email||x.extra||"",
+                 section:x.section||"", annee:x.annee||"", role:x.role||"", assos:as });
+    }
+    (SIGNUPS||[]).forEach(ajoute);
+    (roster||[]).forEach(ajoute);
     return out;
   }
-  window.exportCooptes = function(){
-    var l=listeCooptes();
-    if(!l.length){ flash("Personne n'a coché la case pour l'instant."); return; }
-    var rows=[["Nom","Prénom","E-mail","Rôle","Section","Année"]];
-    l.forEach(function(p){ rows.push([p.nom, p.prenom, p.email, p.role, p.section, p.annee]); });
-    telechargerCSV(rows, sanitize(eventName||"parrainage")+"_cooptes.csv");
-    flash(l.length+" personne(s) exportée(s).");
+  function majCooptCount(){
+    var el=$("cooptCount"); if(!el) return;
+    var n=0; try{ n=listeCooptes().length; }catch(e){}
+    el.textContent=n;
+  }
+  /* Onglet Cooptation : un bouton d'export par association + la liste. */
+  function renderCooptTab(){
+    var zone=$("cooptExports"), liste=$("cooptListe");
+    if(zone){
+      zone.innerHTML = ASSOS.map(function(a){
+        var n=listeCooptes(a.id).length;
+        return '<button class="btn '+(n?'gold':'ghost')+' sm" type="button" onclick="exportCooptes(\''+a.id+'\')">'
+          + '⬇ '+escapeHtml(a.nom)+' <span class="pill">'+n+'</span></button>';
+      }).join("");
+    }
+    if(liste){
+      var l=listeCooptes();
+      if(!l.length){
+        liste.innerHTML='<p class="hint" style="line-height:1.6">Aucune demande pour l\'instant.<br>Active les cases voulues dans les Réglages (⚙) → Cooptation : elles apparaîtront sur le formulaire d\'inscription.</p>';
+      }else{
+        liste.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:13px">'
+          + '<tr style="text-align:left;color:var(--muted)"><th style="padding:6px 4px">Nom</th><th>E-mail</th><th>Souhaite rejoindre</th></tr>'
+          + l.map(function(p){
+              return '<tr style="border-top:1px solid var(--line)"><td style="padding:6px 4px">'+escapeHtml((p.prenom?p.prenom+" ":"")+p.nom)+'</td>'
+                + '<td style="word-break:break-all">'+escapeHtml(p.email)+'</td>'
+                + '<td>'+p.assos.map(function(id){ return escapeHtml(assoNom(id)); }).join(", ")+'</td></tr>';
+            }).join("")
+          + '</table>';
+      }
+    }
+    majCooptCount();
+  }
+  window.exportCooptes = function(asso){
+    var l=listeCooptes(asso);
+    if(!l.length){ flash("Aucune demande pour "+(asso?assoNom(asso):"le moment")+"."); return; }
+    var rows=[["Nom","Prénom","E-mail","Rôle","Section","Année","Associations"]];
+    var lbl={parrain:"Parrain / Marraine", filleul:"Filleul·e", alumni:"Alumni"};
+    l.forEach(function(p){ rows.push([p.nom, p.prenom, p.email, lbl[p.role]||p.role||"", p.section, p.annee, p.assos.map(assoNom).join(" + ")]); });
+    telechargerCSV(rows, sanitize(eventName||"parrainage")+"_cooptation_"+(asso||"toutes")+".csv");
   };
+  /* Encadré affiché DANS le formulaire d'inscription du parrainage : une case
+     par association activée. La personne peut en cocher plusieurs, ou aucune. */
+  function blocCooptFormulaire(){
+    var actives=ASSOS.filter(function(a){ return cooptActive(a.id); });
+    if(!actives.length) return "";
+    return '<div style="margin-top:18px;background:rgba(216,180,90,.08);border:1px solid var(--gold-dim,#7a641f);border-radius:12px;padding:13px 15px">'
+      + '<p style="margin:0 0 4px;font-weight:700">Envie de nous rejoindre ?</p>'
+      + '<p class="hint" style="margin:0 0 8px">Coche si tu veux qu\'on te recontacte. Sans engagement.</p>'
+      + actives.map(function(a){
+          return '<label style="display:flex;align-items:center;gap:9px;padding:4px 0;font-size:14px;cursor:pointer">'
+            + '<input type="checkbox" id="su_coopt_'+a.id+'" style="width:18px;height:18px;flex:none">'
+            + '<span>Je souhaite rejoindre '+escapeHtml(a.nom)+'</span></label>';
+        }).join("")
+      + '</div>';
+  }
+
   function blocCooptation(cid){
-    if(cid!=="parrainage" || !getCoopt()) return "";
+    if(cid!=="parrainage") return "";
+    var actives=ASSOS.filter(function(a){ return cooptActive(a.id); });
+    if(!actives.length) return "";
     return '<div style="margin-top:18px;background:#fdf6e3;border:1px solid #e2cd8f;border-radius:10px;padding:13px 15px">'
-      + '<p style="margin:0 0 6px;font-weight:bold;color:#7a5c12">Envie de rejoindre le Bureau étudiant (BE) ?</p>'
-      + '<p style="margin:0;font-size:13px;color:#5b4a1e;line-height:1.55">Le BE recrute chaque année des coopté·e·s pour organiser les soirées, '
+      + '<p style="margin:0 0 6px;font-weight:bold;color:#7a5c12">Envie de nous rejoindre ?</p>'
+      + '<p style="margin:0;font-size:13px;color:#5b4a1e;line-height:1.55">'
+      + escapeHtml(listeFr(actives.map(function(a){ return a.nom; })))
+      + ' recrute'+(actives.length>1?'nt':'')+' chaque année de nouveaux membres pour organiser les soirées, '
       + 'les activités culturelles et académiques, les services aux étudiant·e·s… Aucune expérience requise, juste l\'envie de s\'investir. '
       + 'Réponds simplement à cet e-mail si ça t\'intéresse.</p></div>';
   }
@@ -949,22 +1063,25 @@
         + (actifs?'background:rgba(216,180,90,.06)':'')+'">'
         + '<div style="font-weight:700;font-size:13.5px;margin-bottom:5px">'+escapeHtml(c.name)+'</div>'
         + PARTENAIRES.map(function(pt){
-            return '<label style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:13px;cursor:pointer">'
-              + '<input type="checkbox" data-coorg="'+c.id+'" data-part="'+pt.id+'"'+(o[pt.id]?" checked":"")+' style="width:16px;height:16px;flex:none">'
-              + '<span>'+escapeHtml(pt.nom)+'</span></label>';
+            var on=!!o[pt.id];
+            return '<button class="btn '+(on?'gold':'ghost')+' xs" type="button" style="width:100%;margin-top:6px" id="coorgBtn_'+c.id+'_'+pt.id+'"'
+              + ' onclick="basculerCoorg(\''+c.id+'\',\''+pt.id+'\')">'+escapeHtml(pt.nom)+' · '+(on?'Activé':'Désactivé')+'</button>';
           }).join("")
-        + '<button class="btn ghost xs" type="button" style="margin-top:6px;width:100%" onclick="publierCoorgUn(\''+c.id+'\')">Enregistrer</button>'
         + '<div class="hint" style="margin-top:4px;font-size:11.5px;min-height:14px" id="coorgEtat_'+c.id+'"></div>'
         + '</div>';
     }).join("");
   }
   /* Enregistre UNE commission : les autres ne sont pas touchées. */
-  window.publierCoorgUn = async function(cid){
+  var bascCoorg={};
+  window.basculerCoorg = async function(cid, part){
+    var cle=cid+"_"+part;
+    if(bascCoorg[cle]) return;
+    bascCoorg[cle]=true;
+    var btn=$("coorgBtn_"+cle); if(btn) btn.disabled=true;
     var etat=$("coorgEtat_"+cid);
     if(etat){ etat.textContent="Enregistrement…"; etat.style.color=""; }
-    var o={};
-    var cases=document.querySelectorAll('[data-coorg="'+cid+'"]');
-    for(var i=0;i<cases.length;i++){ if(cases[i].checked) o[cases[i].getAttribute("data-part")]=true; }
+    var o=getCoorg(cid); var avant=!!o[part];
+    if(avant) delete o[part]; else o[part]=true;
     var noms=PARTENAIRES.filter(function(p){ return !!o[p.id]; }).map(function(p){ return p.nom; });
     var ok=false, souci="";
     try{
@@ -977,13 +1094,14 @@
       }
     }catch(e){ souci="pas de connexion"; }
     if(ok) setCoorgLocal(cid, o);
-    else renderCoorg();                        // on remet les cases à leur état réel
-    var fin=$("coorgEtat_"+cid);               // l'élément a pu être recréé par renderCoorg
+    renderCoorg();
+    var fin=$("coorgEtat_"+cid);
     if(fin){
-      fin.textContent = ok ? ("✅ "+(noms.length?("Enregistré : "+listeFr(noms)):"Aucun partenaire"))
+      fin.textContent = ok ? ("✅ "+(noms.length?("Partenaires : "+listeFr(noms)):"Aucun partenaire"))
                            : ("❌ Non enregistré — "+souci+".");
       fin.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
     }
+    bascCoorg[cle]=false;
   };
   /* Relit le réglage publié (utile si tu l'as changé depuis un autre appareil). */
   async function chargerCoorgCloud(cid){
@@ -2731,7 +2849,7 @@
     try{
       var r= await fetch(SEND_FN, { method:"POST",
         headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-        body: JSON.stringify({ to:to, subject:(vouvoyerG(guest)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(guest), eventName||"notre événement", ticketLinkFor(guest), guest.token, vouvoyerG(guest)), from: expediteurPour(guest), reply_to:MAIL_REPONSES }) });
+        body: JSON.stringify({ to:to, subject:(vouvoyerG(guest)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(guest), eventName||"notre événement", ticketLinkFor(guest), guest.token, vouvoyerG(guest))+blocCooptation(currentCommId()), from: expediteurPour(guest), reply_to:MAIL_REPONSES }) });
       flash(r.ok ? ("Billet renvoyé à "+guest.name+".") : "Envoi impossible.");
       guest.mailEnvoye = r.ok ? Date.now() : 0;
       try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
@@ -2755,7 +2873,7 @@
       try{
         var r= await fetch(SEND_FN, { method:"POST",
           headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-          body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g)), from: expediteurPour(g), reply_to:MAIL_REPONSES }) });
+          body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))+blocCooptation(currentCommId()), from: expediteurPour(g), reply_to:MAIL_REPONSES }) });
         if(r && r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
       }catch(e){ fail++; }
       await new Promise(function(res){ setTimeout(res,600); });
@@ -3310,14 +3428,16 @@
     if(!$("gScannerEmail").value){ $("gScannerEmail").value="scan@qrentry.app"; }
     $("gScannerPwd").value="123456";
     $("gScannerResult").innerHTML="";
-    renderCoorg();                                   // co-organisateurs : cases à jour
-    renderCommActif();                               // commissions actives : cases à jour
+    renderCoorg();                                   // co-organisateurs : boutons à jour
+    renderCommActif();                               // commissions actives : boutons à jour
+    renderCoopt();                                   // cooptation : boutons à jour
 
     (async function(){                               // rafraîchit depuis le cloud sans bloquer l'ouverture
       try{ await syncCommActifs(true); }catch(e){}
       renderCommActif();
       for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
       renderCoorg();
+      try{ await chargerCooptCloud(); renderCoopt(); }catch(e){}
     })();
     if($("parrainToggle")) $("parrainToggle").checked = !parrainageHidden();
     if($("proclaToggle")) $("proclaToggle").checked = !proclaHidden();
@@ -3391,7 +3511,7 @@
           body: JSON.stringify({
             to: emailOf(g),
             subject: (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+ev,
-            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+lienDesistement(g)+mentionPerso(g),
+            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+lienDesistement(g)+mentionPerso(g)+blocCooptation(currentCommId()),
             from: expediteurPour(g),
             reply_to: MAIL_REPONSES
           })
@@ -3995,7 +4115,7 @@
     if(roster.some(function(g){ return g.viaFormulaire && g.sigKey===key; })){ return; }
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
-    roster.push({ token:tok, name:x.name, prenom:x.prenom||"", nom:x.nom||"", extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", viaFormulaire:true, ajoutManuel:false, sigKey:key });
+    roster.push({ token:tok, name:x.name, prenom:x.prenom||"", nom:x.nom||"", extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", viaFormulaire:true, ajoutManuel:false, sigKey:key, coopt:(Array.isArray(x.coopt)?x.coopt:(x.coopt?["be"]:undefined)) });
     localRosterVersion=Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
@@ -4423,7 +4543,6 @@
           <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (CSV, ouvre dans Excel)</button>
           <button class="btn ghost sm" type="button" onclick="bilanFinEvenement()">📊 Bilan de fin (par e-mail)</button>
           <button class="btn ghost sm" type="button" onclick="ouvrirArchives()">🗂️ Archives des événements</button>
-          <button class="btn ghost sm" id="btnExportCooptes" type="button" style="display:none" onclick="exportCooptes()">🤝 Liste des coopté·e·s intéressé·e·s</button>
         </div>
       </div>
     </div>`;
@@ -4485,10 +4604,8 @@
   function renderSignups(){
     majPayBadge();
     try{ majJaugeUI(); }catch(e){}
-    try{
-      var bc=$("btnExportCooptes");
-      if(bc) bc.style.display = (currentCommId()==="parrainage" && listeCooptes().length) ? "" : "none";
-    }catch(e){}
+    /* Le décompte de l'onglet Cooptation suit les inscriptions. */
+    try{ majCooptCount(); if(currentTab==="coopt") renderCooptTab(); }catch(e){}
     if($("suExport")) $("suExport").style.display = "block";
     if($("btnExportDiplomes")) $("btnExportDiplomes").style.display = (currentCommId()==="proclamation") ? "inline-block" : "none";
     var box=$("suList"), st=$("suStats"); if(!box) return;
@@ -4697,6 +4814,7 @@
       + '<div id="su_anneeWrap"><label class="fld" for="su_annee">Ann\u00e9e d\'\u00e9tudes</label><select id="su_annee"></select></div>'
       + (isP ? '<label id="su_passWrap" style="display:none;align-items:center;gap:9px;margin-top:10px;font-size:14px;cursor:pointer"><input type="checkbox" id="su_pass"> J\'ai fait la passerelle</label>' : '')
       + (pay ? '<div style="height:12px"></div><label class="fld" for="su_proof">Preuve de paiement <span style="color:var(--red)">*</span></label><input type="file" id="su_proof" accept="image/*"><p class="hint" style="margin-top:6px">Photo ou capture de votre virement. Obligatoire.</p>' : '')
+      + (isP ? blocCooptFormulaire() : '')
       + '<div style="height:16px"></div>'
       + '<button class="btn gold block" id="su_btn">Je m\'inscris</button>'
       + '<p class="hint" style="margin-top:12px">Votre billet QR vous sera envoyé <b>automatiquement par e-mail</b>. Si vous ne le trouvez pas dans votre boîte de réception, <b>pensez à vérifier vos spams / courriers indésirables</b>. Si l\'événement est complet, vous serez placé·e en liste d\'attente.</p>'
@@ -4789,7 +4907,10 @@
       var _an=(_isP&&_role==="alumni")?"":document.getElementById("su_annee").value;
       var _xp = !!(document.getElementById("su_pass") && document.getElementById("su_pass").checked);
       var _rec = { name:nm, email:mail, section:_sec, annee:_an, ts:Date.now(), statut: pay?"apayer":"nouveau" };
-      if(_isP){ _rec.role=_role; _rec.exPasserelle=_xp; }
+      if(_isP){ _rec.role=_role; _rec.exPasserelle=_xp;
+        var _co=[]; ASSOS.forEach(function(a){ var el=document.getElementById("su_coopt_"+a.id); if(el && el.checked) _co.push(a.id); });
+        if(_co.length) _rec.coopt=_co;
+      }
       if(pay) _rec.preuve = PROOF_DATA;
       list.push(_rec);
       await fsPatchFields(path, { list: fsField(JSON.stringify(list)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
@@ -4948,7 +5069,7 @@
   /* ---------- UI ---------- */
   window.showTab = function(name){
     currentTab=name;
-    ["guests","scan","list","parrainage"].forEach(function(n){
+    ["guests","scan","list","parrainage","coopt"].forEach(function(n){
       $("tab-"+n).classList.toggle("on", n===name);
       $("t-"+n).setAttribute("aria-selected", n===name?"true":"false");
     });
@@ -4956,6 +5077,7 @@
     if(name==="list"){ refreshAll(); }
     if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); renderParrainageQR(); try{ fillEventMetaInputs(); }catch(e){} }
     if(name==="guests"){ try{ majGenRole(); }catch(e){} try{ fillEventMetaInputs(); }catch(e){} }
+    if(name==="coopt"){ try{ renderCooptTab(); }catch(e){} }
     if(name==="scan"){ if($("scanSearch")) $("scanSearch").value=""; if($("scanSearchRes")) $("scanSearchRes").innerHTML=""; setTimeout(function(){ var mc=$("manualCode"); }, 0); }
   };
 
@@ -5613,6 +5735,14 @@
     if($("t-guests")) $("t-guests").style.display = (isScanner || currentCommId()==="parrainage") ? "none" : "flex";
     if($("t-list")) $("t-list").style.display = isScanner ? "none" : "flex";
     if($("t-parrainage")) $("t-parrainage").style.display = (currentCommId()==="parrainage" && !isScanner) ? "flex" : "none";
+    if($("t-coopt")) $("t-coopt").style.display = (currentCommId()==="parrainage" && !isScanner) ? "flex" : "none";
+    /* Si l'onglet ouvert vient d'être masqué (changement de rôle), on revient aux Invités
+       pour ne jamais laisser un panneau visible sans son onglet. */
+    try{
+      if((currentTab==="coopt" && $("t-coopt") && $("t-coopt").style.display==="none")
+      || (currentTab==="parrainage" && $("t-parrainage") && $("t-parrainage").style.display==="none")) showTab("guests");
+    }catch(e){}
+    try{ majCooptCount(); }catch(e){}
     if($("gearBtn")) $("gearBtn").style.display = isScanner ? "none" : "flex";
     if($("btnChangeComm")) $("btnChangeComm").style.display = isScanner ? "none" : "";
     if($("btnMyAccount")) $("btnMyAccount").style.display = isScanner ? "none" : "";
@@ -5640,6 +5770,10 @@
     await loadAll();
     await determineRole(id);
     if(FIXED_ACCOUNTS[id] && CURRENT_ROLE==="admin"){ ensureFixedSetup(id); }
+    /* Le réglage de cooptation doit être connu de CET appareil : sans ça, le
+       paragraphe du mail et le décompte de l'onglet dépendraient d'un passage
+       préalable dans les Réglages. */
+    if(id==="parrainage"){ try{ chargerCooptCloud().then(function(){ try{ majCooptCount(); if(currentTab==="coopt") renderCooptTab(); }catch(e){} }); }catch(e){} }
     if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); setTimeout(function(){ try{ verifierRappelVeille(); }catch(e){} }, 1500); }
     cloudPull(id);
     startCloudPoll();
