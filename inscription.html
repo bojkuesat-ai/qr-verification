@@ -417,6 +417,9 @@
       popupMaison('<p class="big">✅</p><p><b>Carte renvoyée !</b></p><p class="hint">Merci. Ta nouvelle carte va être vérifiée par l\'équipe, puis tu recevras ton billet QR par e-mail.</p><p class="hint">📩 Pense à vérifier tes <b>spams</b>.</p>');
     }catch(e){ if(cm) cm.innerHTML='<p class="err">Envoi impossible. Réessaie plus tard.</p>'; if(btn){btn.disabled=false;btn.textContent="Renvoyer ma carte";} }
   }
+  // Appelées depuis le HTML (onclick / onchange) : elles doivent être visibles hors de ce script.
+  window.renvoyerCarte=renvoyerCarte;
+  window._corrOnFile=_corrOnFile;
   function popupMaison(html){
     var c=q("pmContent"), o=q("pmOverlay");
     if(!c || !o){ return; }

@@ -752,7 +752,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v86</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v87</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1303,6 +1303,7 @@
     usedSet = new Set(keys.map(function(k){ return k.slice(5); }));
   }
   async function refreshAll(){ await refreshUsed(); updateCounts(); renderList(); }
+  window.refreshAll=refreshAll;   // bouton « Rafraîchir » de l'onglet Suivi (onclick dans le HTML)
 
   /* ---------- Génération ---------- */
   function getCats(){ try{ return JSON.parse(window.localStorage.getItem("qrentry:cats")||"[]"); }catch(e){ return []; } }
