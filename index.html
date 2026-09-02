@@ -752,7 +752,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v87</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v88</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -2304,53 +2304,72 @@
   }
 
   var gCache={};    // cid -> {rv:"...", roster:[...]} : évite de retélécharger toutes les listes toutes les 25 s
+  var gDerniereMaj=0;   // horodatage du dernier chargement complet réussi
+  /* Sans réseau, la liste déjà chargée reste utilisable : on l'affiche tel quel, sans rien effacer. */
+  function gStatutHorsLigne(){
+    var att = gQueue.length ? " · ⏳ "+gQueue.length+" entrée(s) en attente" : "";
+    if(gTotal>0) gStatus("⚠️ Réseau indisponible — liste conservée"+(gDerniereMaj?" (mise à jour à "+fmtTime(gDerniereMaj)+")":"")+att, true);
+    else gStatus("Connexion au compte scanner impossible — vérifie ta connexion.", true);
+    try{ if($("gSync")) $("gSync").textContent = gDerniereMaj ? "🟠 Hors-ligne · dernière synchronisation à "+new Date(gDerniereMaj).toLocaleTimeString("fr-BE") : ""; }catch(e){}
+  }
   async function gLoadAll(silent){
-    if(!(await gEnsureAuth())){ gStatus("Connexion au compte scanner impossible — vérifie ta connexion.", true); return false; }
+    if(!(await gEnsureAuth())){ gStatutHorsLigne(); return false; }
     if(!silent) gStatus("Chargement des commissions…", false);
+    var ancien=gIndex;                                  // dernier index connu : réutilisé pour toute commission injoignable
+    var enAttente={}; gQueue.forEach(function(it){ enAttente[it.cid+"|"+it.token]=it.at; });   // validées ici, pas encore synchronisées
     var idx={}, total=0, used=0, okC=0, failC=0;
+    function reprendreAncien(cid){                       // réseau en échec : on garde ce qu'on savait de cette commission
+      Object.keys(ancien).forEach(function(k){
+        (ancien[k]||[]).forEach(function(e){ if(e.cid===cid){ (idx[k]=idx[k]||[]).push(e); total++; if(e.usedAt) used++; } });
+      });
+    }
     for(var i=0;i<COMMISSIONS.length;i++){
-      var c=COMMISSIONS[i];
+      var c=COMMISSIONS[i], chargee=false;
       try{
         // sondage léger : version + entrées ; la liste n'est retéléchargée que si elle a changé
         var data=await fsGetDoc(ticketDocPath(c.id), gAuth.idToken, ["rosterVersion","used"]);
-        if(!data){ failC++; continue; }
+        if(!data){ failC++; reprendreAncien(c.id); continue; }
         var f=data.fields||{};
         var rv=(f.rosterVersion&&f.rosterVersion.stringValue)||"";
         var roster;
         if(gCache[c.id] && gCache[c.id].rv===rv){ roster=gCache[c.id].roster; }
         else {
           var plein=await fsGetDoc(ticketDocPath(c.id), gAuth.idToken);
-          if(!plein){ failC++; continue; }
+          if(!plein){ failC++; reprendreAncien(c.id); continue; }
           var pf=plein.fields||{};
           roster=[]; try{ roster=JSON.parse((pf.roster&&pf.roster.stringValue)||"[]"); }catch(e){}
           gCache[c.id]={rv:rv, roster:roster};
         }
         var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
-        okC++;
+        okC++; chargee=true;
         for(var j=0;j<roster.length;j++){
           var g=roster[j]; if(!g||!g.token) continue;
           var key=normalize(g.token);
-          var at = usedMap[g.token]||usedMap[key]||null;
+          var at = usedMap[g.token]||usedMap[key]||enAttente[c.id+"|"+g.token]||null;
           (idx[key]=idx[key]||[]).push({ cid:c.id, cname:c.name, guest:g, usedAt:at });
           total++; if(at) used++;
         }
-      }catch(e){ failC++; }
+      }catch(e){ failC++; if(!chargee) reprendreAncien(c.id); }
     }
     gIndex=idx; gTotal=total; gUsed=used; gUpdateCounts();
-    // Purge : après un « nouvel événement », les anciens jetons n'existent plus — on les oublie
-    // pour ne pas les réécrire indéfiniment dans le cloud.
-    try{
-      var change=false;
-      Object.keys(gMiennes).forEach(function(c){
-        Object.keys(gMiennes[c]||{}).forEach(function(tk){
-          var liste=idx[normalize(tk)]||[];
-          if(!liste.some(function(e){ return e.cid===c; })){ delete gMiennes[c][tk]; change=true; }
+    if(failC && okC===0){ gStatutHorsLigne(); return false; }
+    if(!failC){
+      // Purge (seulement après un chargement complet) : après un « nouvel événement », les anciens jetons
+      // n'existent plus — on les oublie pour ne pas les réécrire indéfiniment dans le cloud.
+      try{
+        var change=false;
+        Object.keys(gMiennes).forEach(function(c){
+          Object.keys(gMiennes[c]||{}).forEach(function(tk){
+            var liste=idx[normalize(tk)]||[];
+            if(!liste.some(function(e){ return e.cid===c; })){ delete gMiennes[c][tk]; change=true; }
+          });
         });
-      });
-      if(change) await Store.set("gscanMiennes", JSON.stringify(gMiennes));
-    }catch(e){}
-    try{ if($("gSync")) $("gSync").textContent="🟢 Synchronisation en direct active · dernière mise à jour à "+new Date().toLocaleTimeString("fr-BE"); }catch(e){}
-    gStatus(okC+" commission(s) · "+total+" billets"+(failC?(" · "+failC+" non accessible(s) — active le compte scanner dessus"):""), failC>0 && okC===0);
+        if(change) await Store.set("gscanMiennes", JSON.stringify(gMiennes));
+      }catch(e){}
+      gDerniereMaj=Date.now();
+      try{ if($("gSync")) $("gSync").textContent="🟢 Synchronisation en direct active · dernière mise à jour à "+new Date(gDerniereMaj).toLocaleTimeString("fr-BE"); }catch(e){}
+    }
+    gStatus(okC+" commission(s) · "+total+" billets"+(failC?(" · "+failC+" non accessible(s) — active le compte scanner dessus"):""), false);
     return true;
   }
 
@@ -2417,8 +2436,15 @@
   async function _gLoadQueue(){ try{ var s=await Store.get("gscanQueue"); gQueue = s?JSON.parse(s):[]; }catch(e){ gQueue=[]; } await _gLoadMiennes(); }
   async function _gSaveQueue(){ try{ await Store.set("gscanQueue", JSON.stringify(gQueue)); }catch(e){} }
   function gShowPending(){ if(gQueue.length){ var e=$("gsStatus"); if(e){ e.innerHTML='⏳ '+gQueue.length+' entrée(s) en attente de synchronisation…'; e.style.color="var(--amber,#d8b45a)"; } } }
-  function _gQueueAdmit(m, token, at){
+  function _gQueueAdmit(m, token, at, cloudLibre){
     var cid=m.cid, guest=m.guest, tkStored=guest.token||token;
+    // Sans réseau on ne peut pas relire le cloud : un billet déjà connu comme entré (dernier chargement,
+    // ou validé hors-ligne sur ce téléphone) est refusé — sauf si le cloud vient de confirmer qu'il est libre.
+    if(!cloudLibre && m.usedAt){
+      var w0=""; try{ w0=fmtTime(m.usedAt); }catch(e){}
+      gStat("used","Déjà scanné", guest.name||"", (w0?("Entré à "+w0):"Déjà entré")+" · "+m.cname+gParrainInfo(cid, guest), guest, gFamille(cid, guest));
+      gFlash(false); alertUsed(); return;
+    }
     if(!m.usedAt){ gUsed++; } m.usedAt=at;
     gQueue.push({ cid:cid, token:tkStored, at:at, name:guest.name||"" });
     _gSaveQueue(); gUpdateCounts();
@@ -2430,8 +2456,13 @@
   async function gAdmit(token, m){
     hideGAmbig();
     var cid=m.cid, guest=m.guest, tkStored=guest.token||token, at=Date.now();
-    if(!(await gEnsureAuth())){ _gQueueAdmit(m, token, at); return; }   // pas de réseau -> file d'attente
+    // Déjà validé sur ce téléphone mais pas encore synchronisé : le cloud ne peut pas le savoir
+    for(var qi=0; qi<gQueue.length; qi++){
+      if(gQueue[qi].cid===cid && gQueue[qi].token===tkStored){ if(!m.usedAt) m.usedAt=gQueue[qi].at; _gQueueAdmit(m, token, at, false); return; }
+    }
+    if(!(await gEnsureAuth())){ _gQueueAdmit(m, token, at, false); return; }   // pas de réseau -> file d'attente
     var fam=gParrainInfo(cid, guest);
+    var cloudLibre=false;
     try{
       // Re-vérification EN DIRECT dans le cloud : empêche la double-entrée entre plusieurs téléphones
       var data=await fsGetDoc(ticketDocPath(cid), gAuth.idToken);
@@ -2443,11 +2474,12 @@
         m.usedAt=already; gStat("used","Déjà scanné", guest.name||"", (w?("Entré à "+w):"Déjà entré")+" · "+m.cname+fam, guest, gFamille(cid, guest));
         gFlash(false); alertUsed(); return;
       }
+      cloudLibre=true;                                                 // le cloud vient de confirmer : pas encore entré
       await _gNoterMienne(cid, tkStored, at);                          // mémoire locale d'abord
       usedMap = _gFusionMiennes(cid, usedMap);                         // + toutes mes entrées précédentes
       usedMap[tkStored]=at;
       var r=await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
-      if(!(r&&r.ok)){ _gQueueAdmit(m, token, at); return; }            // échec écriture -> file d'attente
+      if(!(r&&r.ok)){ _gQueueAdmit(m, token, at, true); return; }      // échec écriture -> file d'attente
       if(!m.usedAt){ gUsed++; } m.usedAt=at; gUpdateCounts();
       try{ envoyerBienvenue(guest, cid, (f.event&&f.event.stringValue)||""); }catch(e){}
       // Proclamation : vert pour les étudiant·e·s diplômé·e·s, bleu pour les autres (profs, doyen, PATGS…)
@@ -2460,7 +2492,7 @@
         var metaN={date:"",heure:"",lieu:""}; try{ if(f.eventMeta&&f.eventMeta.stringValue) metaN=JSON.parse(f.eventMeta.stringValue); }catch(e){}
         sendParrainageEntryMail(guest, fam.parrainName, evN, metaN, fam.filleulNames).then(function(ok){ if(ok) gStatus("✉︎ Mail (table) envoyé à "+(guest.name||""), false); });
       }
-    }catch(e){ _gQueueAdmit(m, token, at); }                          // erreur réseau -> file d'attente
+    }catch(e){ _gQueueAdmit(m, token, at, cloudLibre); }                // erreur réseau -> file d'attente
   }
   async function gFlushQueue(){
     if(!gQueue.length) return;
