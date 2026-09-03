@@ -263,7 +263,7 @@
   }
   @media print{
     body{background:#fff}
-    .head,.tabs,.banner,.gen-card,.foot-note,#tab-scan,#tab-list{display:none!important}
+    .head,.tabs,.banner,.gen-card,.foot-note,#tab-scan,#tab-list,#tab-traiteur{display:none!important}
     section#tab-guests{display:block!important}
     .wrap{padding:0}
     .tickets{grid-template-columns:repeat(3,1fr);gap:8px}
@@ -309,7 +309,26 @@
       <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm8 8a5 5 0 0 0-10 0m10-8h4m-2-2v4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       Cooptation <span class="pill" id="cooptCount">0</span>
     </button>
+    <button class="tab" id="t-traiteur" role="tab" aria-selected="false" onclick="showTab('traiteur')" style="display:none">
+      <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M4 5v6a2 2 0 0 0 2 2a2 2 0 0 0 2-2V5M6 13v6m12-14c-1.7 0-3 2-3 4.5S16.3 13 18 13v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      Traiteur
+    </button>
   </div>
+
+  <!-- TRAITEUR -->
+  <section id="tab-traiteur">
+    <div class="card">
+      <h2>Commande traiteur</h2>
+      <p class="sub">Comptage des choix indiqués à l'inscription. Le fichier destiné au traiteur ne contient <b>que des chiffres</b> : aucun nom, aucune adresse.</p>
+      <div id="traiteurChiffres" style="margin-top:14px"></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:16px">
+        <button class="btn ghost sm" type="button" onclick="renderTraiteurTab(true)">↻ Rafraîchir</button>
+        <button class="btn gold sm" type="button" onclick="commandeTraiteur()">⬇ Fichier pour le traiteur</button>
+        <button class="btn ghost sm" type="button" onclick="copierTexteTraiteur()">📋 Copier le texte du mail</button>
+      </div>
+      <div id="traiteurRelance" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"></div>
+    </div>
+  </section>
 
   <!-- COOPTATION -->
   <section id="tab-coopt">
@@ -752,7 +771,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v88</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v93</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -3256,6 +3275,23 @@
     return (g && g.name) || "";
   }
   function vouvoyerG(g){ return currentCommId()==="proclamation" && g && g.role && g.role!=="etudiant"; }
+  /* ---------- Choix pour le traiteur (proclamation) ---------- */
+  var REPAS_LBL = { tout:"Je mange de tout", sansporc:"Sans porc", sansviande:"Sans viande ni poisson" };
+  function lienRepas(g){
+    var cid=currentCommId()||""; if(!g || !g.token || !cid) return "";
+    var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
+    return base+"?c="+encodeURIComponent(cid)+"&choix="+encodeURIComponent(g.token);
+  }
+  function blocRepas(g){
+    if(currentCommId()!=="proclamation" || !g || !g.token) return "";
+    var url=lienRepas(g), vous=vouvoyerG(g), lbl=REPAS_LBL[g.repas||""]||"";
+    return '<div style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:14px;margin:16px 0">'
+      + (lbl
+          ? '<p style="margin:0;font-size:13.5px;color:#555">'+(vous?"Vous avez indiqué":"Tu as indiqué")+' : <b>'+mailEsc(lbl)+'</b>.</p>'
+          : '<p style="margin:0;font-size:13.5px;color:#555">'+(vous?"Vous n'avez pas encore indiqué votre choix alimentaire.":"Tu n'as pas encore indiqué ton choix alimentaire.")+'</p>')
+      + '<p style="margin:8px 0 0;font-size:13.5px"><a href="'+url+'" style="color:#4a3f7a">'
+      + (lbl ? "Modifier mon choix" : "Indiquer mon choix")+'</a></p></div>';
+  }
   function billetHtml(name, ev, link, code, vous){
     var titre    = vous ? "Votre billet pour " : "Ton billet pour ";
     var intro    = vous ? "Voici votre billet personnel. Présentez-le à l'entrée :" : "Voici ton billet personnel. Présente-le à l'entrée :";
@@ -3626,16 +3662,13 @@
     else if(t.id==="btnCopy1"){ e.preventDefault(); copySignupLink(false); }
     else if(t.id==="btnCopy2"){ e.preventDefault(); copySignupLink(true); }
   }, true);
-  /* Lien de désistement : la personne libère sa place elle-même. */
+  /* Désistement en ligne RETIRÉ (03/09/2026) : ingérable une fois la commande traiteur passée.
+     La fonction est conservée mais ne renvoie plus rien, pour que le lien disparaisse de tous
+     les mails sans toucher à leur composition. Un empêchement se règle avec l'équipe, qui
+     retire la personne à la main dans l'onglet Suivi. */
   function lienDesistement(g){
-    var cid=currentCommId()||""; if(!g || !g.token || !cid) return "";
-    var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
-    var url=base+"?c="+encodeURIComponent(cid)+"&annuler="+encodeURIComponent(g.token);
-    var vous=vouvoyerG(g);
-    return '<p style="color:#888;font-size:12.5px;margin-top:18px;text-align:center">'
-      + (vous ? 'Un empêchement ? ' : 'Un empêchement ? ')
-      + '<a href="'+url+'" style="color:#888">'+(vous?'Annulez votre inscription':'Annule ton inscription')+'</a>'
-      + (vous ? ' pour libérer votre place.' : ' pour libérer ta place.')+'</p>';
+    void g;
+    return "";
   }
   function mentionPerso(g){
     if(currentCommId()!=="proclamation") return "";
@@ -4023,6 +4056,116 @@
     XLSX.writeFile(wb, sanitize(eventName||"evenement")+"_inscriptions.xlsx");
     flash((rows.length-1)+" ligne(s) — Excel téléchargé.");
   };
+  /* Comptage pour le traiteur : billets émis + inscriptions encore en attente de validation. */
+  function comptageTraiteur(){
+    var att={tout:0,sansporc:0,sansviande:0,vide:0}, emis={tout:0,sansporc:0,sansviande:0,vide:0};
+    function add(o,v){ if(REPAS_LBL[v]) o[v]++; else o.vide++; }
+    roster.forEach(function(g){ add(emis, g.repas||""); });
+    (SIGNUPS||[]).forEach(function(x){
+      if(["accepte","nouveau","refuse","annule","repas"].indexOf(x.statut)>=0) return;
+      add(att, x.repas||"");
+    });
+    var tot={};
+    ["tout","sansporc","sansviande","vide"].forEach(function(k){ tot[k]=emis[k]+att[k]; });
+    tot.n = tot.tout+tot.sansporc+tot.sansviande+tot.vide;
+    emis.n = emis.tout+emis.sansporc+emis.sansviande+emis.vide;
+    att.n  = att.tout+att.sansporc+att.sansviande+att.vide;
+    return { emis:emis, attente:att, total:tot };
+  }
+  function texteTraiteur(){
+    var c=comptageTraiteur(), t=c.total;
+    if(!t.n) return "";
+    function pc(x){ return t.n ? Math.round(x/t.n*100)+" %" : "0 %"; }
+    return t.n+" personnes\n"
+      + "· "+t.tout+(t.tout>1?" mangent":" mange")+" de tout ("+pc(t.tout)+")\n"
+      + "· "+t.sansporc+" sans porc ("+pc(t.sansporc)+")\n"
+      + "· "+t.sansviande+" sans viande ni poisson ("+pc(t.sansviande)+")\n"
+      + (t.vide ? "· "+t.vide+" sans préférence indiquée ("+pc(t.vide)+")\n" : "");
+  }
+  window.copierTexteTraiteur = function(){
+    var txt=texteTraiteur();
+    if(!txt){ uiAlert("Aucune inscription pour l'instant."); return; }
+    promptCopy(txt);
+  };
+  /* Fichier destiné au traiteur : uniquement des totaux, jamais de nom ni d'adresse. */
+  window.commandeTraiteur = async function(){
+    if(currentCommId()!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
+    flash("Synchronisation…"); await syncAvantExport();
+    var c=comptageTraiteur(), t=c.total;
+    if(!t.n){ uiAlert("Aucune inscription pour l'instant."); return; }
+    function pc(x){ return t.n ? Math.round(x/t.n*100)+" %" : "0 %"; }
+    var rows=[["Commande traiteur — "+(eventName||"proclamation")],
+              ["Établi le "+new Date().toLocaleDateString("fr-BE")],[],
+              ["Choix","Nombre","Part"],
+              ["Je mange de tout", t.tout, pc(t.tout)],
+              ["Sans porc", t.sansporc, pc(t.sansporc)],
+              ["Sans viande ni poisson", t.sansviande, pc(t.sansviande)],
+              ["Sans préférence indiquée", t.vide, pc(t.vide)],
+              ["TOTAL", t.n, "100 %"]];
+    var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
+    if(!XLSX){ telechargerCSV(rows, sanitize(eventName||"proclamation")+"_traiteur.csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
+    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:28},{wch:10},{wch:8}];
+    var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Commande traiteur");
+    XLSX.writeFile(wb, sanitize(eventName||"proclamation")+"_traiteur.xlsx");
+    flash("Fichier téléchargé — chiffres uniquement.");
+  };
+  /* Onglet Traiteur : chiffres à l'écran + relance des personnes sans choix. */
+  window.renderTraiteurTab = async function(resync){
+    if($("t-traiteur")) $("t-traiteur").style.display = (currentCommId()==="proclamation" && CURRENT_ROLE!=="scanner") ? "flex" : "none";
+    var box=$("traiteurChiffres"); if(!box) return;
+    if(resync){ flash("Synchronisation…"); await syncAvantExport(); }
+    var c=comptageTraiteur(), t=c.total;
+    if(!t.n){ box.innerHTML='<p class="empty">Aucune inscription pour l\'instant.</p>'; if($("traiteurRelance")) $("traiteurRelance").innerHTML=""; return; }
+    function pc(x){ return t.n ? Math.round(x/t.n*100) : 0; }
+    function ligne(lbl, v, coul){
+      return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)">'
+        + '<span style="flex:1;min-width:0">'+escapeHtml(lbl)+'</span>'
+        + '<b style="font-size:19px;color:'+coul+'">'+v+'</b>'
+        + '<span class="hint" style="width:44px;text-align:right">'+pc(v)+' %</span></div>';
+    }
+    box.innerHTML =
+        '<div class="counter" style="margin-bottom:10px"><b>'+t.n+'</b><span>personnes inscrites</span></div>'
+      + ligne("Je mange de tout", t.tout, "var(--text)")
+      + ligne("Sans porc", t.sansporc, "var(--gold)")
+      + ligne("Sans viande ni poisson", t.sansviande, "var(--gold)")
+      + (t.vide ? ligne("Sans préférence indiquée", t.vide, "var(--red,#c0392b)") : "")
+      + '<p class="hint" style="margin-top:10px">'+c.emis.n+' billet(s) émis · '+c.attente.n+' inscription(s) en attente de validation.</p>'
+      + '<p class="hint">Dans un drink, les pièces sont partagées : ces chiffres sont un minimum, prévois large avec le traiteur.</p>';
+    var sans = roster.filter(function(g){ return emailOf(g) && !REPAS_LBL[g.repas||""]; });
+    var z=$("traiteurRelance"); if(!z) return;
+    z.innerHTML = sans.length
+      ? '<p class="fld" style="margin:0 0 8px">Sans préférence indiquée</p>'
+        + '<p class="hint">'+sans.length+' personne(s) avec un billet n\'ont pas répondu. Un e-mail leur propose de le faire en un clic.</p>'
+        + '<div style="margin-top:10px"><button class="btn gold sm" type="button" onclick="relanceTraiteur()">✉ Relancer ces '+sans.length+' personne(s)</button></div>'
+      : '<p class="hint">✓ Toutes les personnes ayant un billet ont indiqué leur choix.</p>';
+  };
+  /* Relance : uniquement les billets émis dont le choix n'est pas renseigné. */
+  window.relanceTraiteur = async function(){
+    if(currentCommId()!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
+    flash("Synchronisation…"); await syncAvantExport();
+    var cibles = roster.filter(function(g){ return emailOf(g) && !REPAS_LBL[g.repas||""]; });
+    if(!cibles.length){ uiAlert("Tout le monde a indiqué son choix."); return; }
+    if(!(await uiConfirm("Envoyer la demande à "+cibles.length+" personne(s) sans choix indiqué ?"))) return;
+    flash("Envoi…");
+    var ok=0;
+    for(var i=0;i<cibles.length;i++){
+      var g=cibles[i], vous=vouvoyerG(g), url=lienRepas(g);
+      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+        + '<h2 style="margin:0 0 12px">Une petite précision pour '+mailEsc(eventName||"notre événement")+'</h2>'
+        + '<p>Bonjour '+mailEsc(salutNom(g))+',</p>'
+        + '<p>'+(vous?"Merci d'indiquer votre choix alimentaire en un clic :"
+                     :"Merci d'indiquer ton choix alimentaire en un clic :")+'</p>'
+        + '<p style="text-align:center;margin:26px 0"><a href="'+url+'" style="background:#e0b64d;color:#181233;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block">Indiquer mon choix</a></p>'
+        + '<p style="color:#666;font-size:13px">Trois possibilités : je mange de tout · sans porc · sans viande ni poisson.</p>'
+        + '<p style="color:#666;font-size:13px">'+(vous?"Votre billet reste valable, rien d'autre à faire.":"Ton billet reste valable, rien d'autre à faire.")+'</p>'
+        + mentionPerso(g)+'</div>';
+      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:emailOf(g),subject:(vous?"Votre choix alimentaire — ":"Ton choix alimentaire — ")+(eventName||"notre événement"),html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
+      await new Promise(function(res){ setTimeout(res,120); });
+    }
+    uiAlert("Demande envoyée à "+ok+" personne(s).");
+    try{ renderTraiteurTab(); }catch(e){}
+  };
   window.exportPresents = async function(){
     flash("Synchronisation des entrées…"); await syncAvantExport();
     var present = roster.filter(function(g){ return usedSet.has(g.token); });
@@ -4059,8 +4202,7 @@
       if(d&&d.fields&&d.fields.signups){ try{ SIGNUPS=JSON.parse(d.fields.signups.stringValue||"[]"); }catch(e){} }
       if(d&&d.fields&&d.fields.notifMail && $("suNotif") && !$("suNotif").value){ var _cm=d.fields.notifMail.stringValue||""; if(_cm){ $("suNotif").value=_cm; try{ window.localStorage.setItem(notifKey(), _cm); }catch(e){} } }
       await processSignups();
-      var libere = await traiterDesistements();       // annulations reçues depuis le formulaire
-      if(libere) await repechageAuto();               // les places libérées profitent à la liste d'attente
+      await traiterChoixRepas();                      // choix traiteur reçus depuis le formulaire
       await relancerNonConfirmes();                   // relance 48 h après une inscription jamais confirmée
       majPayBadge();
       await alerterNouvellesPreuves();
@@ -4071,6 +4213,9 @@
   /* Identifiant stable d'une inscription (survit à un rechargement du tableau). */
   function sigId(x){
     if(!x) return "";
+    // Marqueur « choix traiteur » : un seul par billet, sinon deux clics à la même milliseconde
+    // partageraient la même clé et l'un écraserait l'autre à l'enregistrement.
+    if(x.statut==="repas") return "repas|"+String(x.repasToken||"");
     return [String(x.confToken||""), String(x.email||"").toLowerCase(),
             String(x.matricule||""), String(x.ts||"")].join("|");
   }
@@ -4132,7 +4277,7 @@
     var to = emailOf(g); if(!to){ return false; }
     try{
       var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})});
+        body:JSON.stringify({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+blocRepas(g)+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})});
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
       return rm && rm.ok;
     }catch(e){ g.mailEnvoye = 0; return false; }
@@ -4148,7 +4293,7 @@
     if(roster.some(function(g){ return g.viaFormulaire && g.sigKey===key; })){ return; }
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
-    roster.push({ token:tok, name:x.name, prenom:x.prenom||"", nom:x.nom||"", extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", viaFormulaire:true, ajoutManuel:false, sigKey:key, coopt:(Array.isArray(x.coopt)?x.coopt:(x.coopt?["be"]:undefined)) });
+    roster.push({ token:tok, name:x.name, prenom:x.prenom||"", nom:x.nom||"", extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", repas:x.repas||"", viaFormulaire:true, ajoutManuel:false, sigKey:key, coopt:(Array.isArray(x.coopt)?x.coopt:(x.coopt?["be"]:undefined)) });
     localRosterVersion=Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
@@ -4428,58 +4573,33 @@
       flash("🔔 Relance automatique envoyée à "+faits.length+" personne(s) qui n'avaient pas confirmé.");
     }
   }
-  /* Repêchage : la personne quitte la liste d'attente et reçoit son billet. */
-  /* ---------- Désistements ----------
-     La page publique ne peut écrire que dans « signups » : elle y dépose un marqueur
-     {statut:"annule", annuleToken}. L'app retire le billet correspondant et repêche. */
-  async function traiterDesistements(){
+  /* ---------- Annulation en ligne : dispositif entièrement retiré le 03/09/2026 ----------
+     Plus de lien dans les mails, plus de page publique, plus de traitement. Un empêchement
+     passe par l'équipe, qui retire la personne à la main dans l'onglet Suivi : la commande
+     traiteur étant passée à l'avance, une place libérée seule était ingérable. */
+  /* Choix traiteur déposés par le formulaire : on les applique au billet correspondant. */
+  async function traiterChoixRepas(){
     var cid=currentCommId(); if(!cid) return false;
-    var marques = SIGNUPS.filter(function(x){ return x && x.statut==="annule" && x.annuleToken && !x.traite; });
+    var marques = SIGNUPS.filter(function(x){ return x && x.statut==="repas" && x.repasToken && !x.traite; });
     if(!marques.length) return false;
-    var retires=[], noms=[];
-    for(var i=0;i<marques.length;i++){
-      var m=marques[i];
-      var g = roster.filter(function(x){ return x.token===m.annuleToken; })[0];
-      if(g){
-        noms.push(g.name||m.name||"?");
-        retires.push(g.token);
-        // libérer aussi l'inscription d'origine (la personne pourra se réinscrire)
-        SIGNUPS.forEach(function(x){ if(x && x.statut==="accepte" && g.sigKey && signupKey(x)===g.sigKey){ x.statut="annule"; x.annuleTs=Date.now(); } });
-        roster = roster.filter(function(x){ return x.token!==m.annuleToken; });
-      }
+    var change=false;
+    marques.forEach(function(m){
+      var g = roster.filter(function(x){ return x.token===m.repasToken; })[0];
+      if(g && REPAS_LBL[m.repas] && g.repas!==m.repas){ g.repas=m.repas; change=true; }
       m.traite=true; m.traiteTs=Date.now();
-    }
-    if(retires.length){
-      await marquerSupprimes(retires);
+    });
+    if(change){
       localRosterVersion=Date.now();
       await Store.set("roster", JSON.stringify(roster));
       await Store.set("rosterVersion", String(localRosterVersion));
       await cloudPushRoster(cid);
-      try{ renderTickets(); renderList(); updateCounts(); }catch(e){}
+      try{ renderList(); }catch(e){}
     }
-    await saveSignups(marques.concat(SIGNUPS.filter(function(x){ return x && x.statut==="annule" && x.annuleTs; })));
-    if(noms.length) flash("❌ Désistement : "+noms.join(", ")+" — place(s) libérée(s).");
-    return retires.length>0;
+    await saveSignups(marques);
+    return change;
   }
-  /* Repêchage automatique de la liste d'attente quand des places se libèrent. */
-  async function repechageAuto(){
-    if(!jaugeActive()) return;
-    var max=getPlaces(); if(!max) return;
-    var attente=SIGNUPS.filter(function(x){ return x && x.statut==="attente"; })
-                       .sort(function(a,b){ return (a.ts||0)-(b.ts||0); });
-    if(!attente.length) return;
-    var repeches=[];
-    while(attente.length && placesPrises() < max){
-      var x=attente.shift();
-      await creerBilletDepuisInscription(x);          // crée le billet ET envoie le mail
-      x.statut="accepte"; repeches.push(x);
-    }
-    if(repeches.length){
-      await saveSignups(repeches);
-      renderSignups();
-      flash("🎟️ "+repeches.length+" personne(s) repêchée(s) automatiquement de la liste d'attente.");
-    }
-  }
+  /* Le repêchage de la liste d'attente se fait à la main, bouton « Repêcher » ci-dessous :
+     les places ne se libèrent plus toutes seules depuis le retrait de l'annulation en ligne. */
   window.repecherInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
     var max=getPlaces(), reste = max ? (max-placesPrises()) : 1;
@@ -4641,6 +4761,7 @@
     try{ majCooptCount(); if(currentTab==="coopt") renderCooptTab(); }catch(e){}
     if($("suExport")) $("suExport").style.display = "block";
     if($("btnExportDiplomes")) $("btnExportDiplomes").style.display = (currentCommId()==="proclamation") ? "inline-block" : "none";
+    try{ if(currentTab==="traiteur") renderTraiteurTab(); }catch(e){}
     var box=$("suList"), st=$("suStats"); if(!box) return;
     var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
     var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";});
@@ -5102,12 +5223,13 @@
   /* ---------- UI ---------- */
   window.showTab = function(name){
     currentTab=name;
-    ["guests","scan","list","parrainage","coopt"].forEach(function(n){
+    ["guests","scan","list","parrainage","coopt","traiteur"].forEach(function(n){
       $("tab-"+n).classList.toggle("on", n===name);
       $("t-"+n).setAttribute("aria-selected", n===name?"true":"false");
     });
     if(name!=="scan"){ stopCam(); }
     if(name==="list"){ refreshAll(); }
+    if(name==="traiteur"){ try{ renderTraiteurTab(true); }catch(e){} }
     if(name==="parrainage"){ if($("pAnnee") && !$("pAnnee").options.length) parrainRoleChange(); renderParrainageSummary(); renderMatching(); renderParrainageQR(); try{ fillEventMetaInputs(); }catch(e){} }
     if(name==="guests"){ try{ majGenRole(); }catch(e){} try{ fillEventMetaInputs(); }catch(e){} }
     if(name==="coopt"){ try{ renderCooptTab(); }catch(e){} }
@@ -5769,10 +5891,12 @@
     if($("t-list")) $("t-list").style.display = isScanner ? "none" : "flex";
     if($("t-parrainage")) $("t-parrainage").style.display = (currentCommId()==="parrainage" && !isScanner) ? "flex" : "none";
     if($("t-coopt")) $("t-coopt").style.display = (currentCommId()==="parrainage" && !isScanner) ? "flex" : "none";
+    if($("t-traiteur")) $("t-traiteur").style.display = (currentCommId()==="proclamation" && !isScanner) ? "flex" : "none";
     /* Si l'onglet ouvert vient d'être masqué (changement de rôle), on revient aux Invités
        pour ne jamais laisser un panneau visible sans son onglet. */
     try{
       if((currentTab==="coopt" && $("t-coopt") && $("t-coopt").style.display==="none")
+      || (currentTab==="traiteur" && $("t-traiteur") && $("t-traiteur").style.display==="none")
       || (currentTab==="parrainage" && $("t-parrainage") && $("t-parrainage").style.display==="none")) showTab("guests");
     }catch(e){}
     try{ majCooptCount(); }catch(e){}
@@ -5807,8 +5931,11 @@
        paragraphe du mail et le décompte de l'onglet dépendraient d'un passage
        préalable dans les Réglages. */
     if(id==="parrainage"){ try{ chargerCooptCloud().then(function(){ try{ majCooptCount(); if(currentTab==="coopt") renderCooptTab(); }catch(e){} }); }catch(e){} }
+    /* Le nom de l'événement et les infos pratiques doivent être connus AVANT de traiter les
+       inscriptions : sinon, sur un appareil neuf, les premiers billets partaient avec
+       « notre événement » et sans date ni lieu. */
+    await cloudPull(id);
     if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); setTimeout(function(){ try{ verifierRappelVeille(); }catch(e){} }, 1500); }
-    cloudPull(id);
     startCloudPoll();
   }
   function startApp(){

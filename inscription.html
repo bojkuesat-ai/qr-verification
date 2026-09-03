@@ -113,6 +113,12 @@
       <p class="hint">Photo ou capture de votre virement. Obligatoire.</p>
     </div>
 
+    <div id="wrapRepas" style="display:none;margin-top:18px">
+      <label class="chk"><input type="radio" name="repas" value="tout" checked> Je mange de tout</label>
+      <label class="chk"><input type="radio" name="repas" value="sansporc"> Sans porc</label>
+      <label class="chk"><input type="radio" name="repas" value="sansviande"> Sans viande ni poisson</label>
+    </div>
+
     <div id="notePerso" style="display:none;background:rgba(216,180,90,.10);border:1px solid rgba(216,180,90,.35);border-radius:12px;padding:14px;margin-top:18px">
       <b style="color:var(--gold)">Invitation strictement personnelle</b>
       <p class="hint" style="margin-top:6px">Proclamation de la Faculté de Droit et de Criminologie de l'Université libre de Bruxelles, organisée par la Délégation étudiante de la Faculté de Droit et de Criminologie.</p>
@@ -474,6 +480,7 @@
     q("wrapRole").style.display="";
     q("f_role").innerHTML = ROLES_PROCLA.map(function(r){ return '<option value="'+r[0]+'">'+r[1]+'</option>'; }).join("");
     q("wrapAnnee").style.display="none";
+    q("wrapRepas").style.display="";          // même question pour tous les rôles
   }
   if(PAY) q("wrapPreuve").style.display="";
 
@@ -485,7 +492,7 @@
     else resp="le <b>Bureau étudiant de la Faculté de Droit et de Criminologie</b> (ULB)";
     var partenaires = (typeof coorgNoms==="function") ? coorgNoms() : [];
     if(partenaires.length) resp += ", en collaboration avec <b>"+listeFr(partenaires)+"</b>";
-    var donnees="nom, prénom, e-mail" + (CID==="proclamation" ? ", matricule et carte étudiante" : (PAY ? " et preuve de paiement" : ""));
+    var donnees="nom, prénom, e-mail" + (CID==="proclamation" ? ", matricule, carte étudiante et choix alimentaire" : (PAY ? " et preuve de paiement" : ""));
     var el=q("rgpdText");
     if(el) el.innerHTML="J'accepte que mes données ("+donnees+") soient collectées et traitées par "+resp+", <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href=\"mailto:proclamation@bureauetuidant.xyz\">proclamation@bureauetuidant.xyz</a>.";
   }
@@ -501,36 +508,46 @@
   if(CORR_TOK){
     chargerCorrection(CORR_TOK);
   }
+  /* Annulation en ligne RETIRÉE (03/09/2026) : une place libérée après la commande traiteur
+     ne peut plus être gérée. Les liens déjà envoyés continuent d'ouvrir cette page, qui
+     renvoie désormais vers l'équipe au lieu de libérer la place toute seule. */
   var ANNUL_TOK = par("annuler");
   if(ANNUL_TOK){
+    var MAIL_CONTACT = (CID==="proclamation") ? "proclamation@bureauetuidant.xyz" : "esat.bojku@ulb.be";
     if(q("form")) q("form").style.display="none";
-    q("msg").innerHTML='<div class="card"><p class="big">🤔</p><p><b>Annuler ton inscription ?</b></p>'
-      + '<p class="hint">Ta place sera <b>libérée</b> et proposée à quelqu\'un d\'autre. Ton billet QR ne sera plus valable.</p>'
-      + '<p class="hint">Si tu changes d\'avis ensuite, il faudra te réinscrire — sans garantie qu\'il reste de la place.</p>'
-      + '<label class="fld" for="annulMail" style="margin-top:14px;display:block">Confirme ton adresse e-mail</label>'
-      + '<input type="email" id="annulMail" placeholder="prenom.nom@ulb.be" autocomplete="off" style="width:100%">'
-      + '<p class="hint" style="margin-top:6px">Celle avec laquelle tu t\'es inscrit·e. Elle nous sert à vérifier que c\'est bien toi.</p>'
-      + '<div style="display:flex;gap:10px;margin-top:18px">'
-      + '<button id="btnAnnulOui" style="flex:1;background:#8a2b2b;color:#fff">Oui, j\'annule</button>'
-      + '<button id="btnAnnulNon" style="flex:1">Non, je viens</button></div></div>';
-    q("btnAnnulNon").onclick=function(){
-      q("msg").innerHTML='<div class="card"><p class="big">🎉</p><p><b>Parfait, à bientôt !</b></p><p class="hint">Ton inscription est inchangée, garde bien ton billet QR.</p></div>';
-    };
-    q("btnAnnulOui").onclick=function(){
-      var saisi=((q("annulMail")&&q("annulMail").value)||"").trim();
-      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(saisi)){
-        q("annulMail").focus();
-        q("annulMail").style.borderColor="#8a2b2b";
-        return;
-      }
-      annulerInscription(ANNUL_TOK, saisi);
-    };
+    q("msg").innerHTML='<div class="card"><p class="big">✉️</p><p><b>Un empêchement ?</b></p>'
+      + '<p class="hint">L\'annulation en ligne n\'est plus possible. Écris-nous à '
+      + '<a href="mailto:'+esc(MAIL_CONTACT)+'">'+esc(MAIL_CONTACT)+'</a> et nous libérerons ta place.</p>'
+      + '<p class="hint">Merci de prévenir le plus tôt possible : l\'organisation se prépare à l\'avance.</p></div>';
   }
 
-  /* Désistement : on ne peut écrire que dans « signups », on y dépose donc un marqueur
-     que l'app traitera (retrait du billet + repêchage de la liste d'attente). */
-  async function annulerInscription(token, mailSaisi){
-    q("msg").innerHTML='<div class="card"><p class="hint">Annulation en cours…</p></div>';
+  /* Choix pour le traiteur : lecture des boutons radio du formulaire. */
+  function lireChoixRepas(){
+    var el=document.querySelector('input[name="repas"]:checked');
+    return el ? el.value : "tout";
+  }
+  var REPAS_LBL = { tout:"Je mange de tout", sansporc:"Sans porc", sansviande:"Sans viande ni poisson" };
+
+  /* Lien « indiquer / modifier mon choix » envoyé avec le billet ou en relance.
+     Comme pour le désistement, on ne peut écrire que dans « signups » : on y dépose
+     un marqueur que l'app appliquera au billet. */
+  var REPAS_TOK = par("choix") || par("repas");   // « repas » : ancien nom du paramètre
+  if(REPAS_TOK){
+    if(q("form")) q("form").style.display="none";
+    q("msg").innerHTML='<div class="card"><p><b>Indique ton choix</b></p>'
+      + '<div style="margin-top:14px;text-align:left">'
+      + '<label class="chk"><input type="radio" name="repas2" value="tout" checked> Je mange de tout</label>'
+      + '<label class="chk"><input type="radio" name="repas2" value="sansporc"> Sans porc</label>'
+      + '<label class="chk"><input type="radio" name="repas2" value="sansviande"> Sans viande ni poisson</label>'
+      + '</div>'
+      + '<button id="btnRepas" style="margin-top:18px">Enregistrer mon choix</button></div>';
+    q("btnRepas").onclick=function(){
+      var el=document.querySelector('input[name="repas2"]:checked');
+      enregistrerChoixRepas(REPAS_TOK, el?el.value:"tout");
+    };
+  }
+  async function enregistrerChoixRepas(token, choix){
+    var btn=q("btnRepas"); if(btn){ btn.disabled=true; btn.textContent="Enregistrement…"; }
     try{
       var tok = await assurerTokenEcriture();
       var path = "commission_tickets/"+CID;
@@ -538,41 +555,33 @@
       var cur = rc.ok ? await rc.json() : null;
       var list=[]; try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
 
-      if(list.some(function(x){ return x && x.statut==="annule" && x.annuleToken===token; })){
-        q("msg").innerHTML='<div class="card"><p class="big">✅</p><p><b>Déjà annulé</b></p><p class="hint">Ton inscription a bien été annulée, ta place est libérée.</p></div>';
-        return;
-      }
-      /* Le code du billet figure sur le QR : il ne suffit pas à prouver l'identité.
-         On exige l'adresse e-mail de l'inscription, et on refuse tout code inconnu
-         (sinon un balayage automatisé libérerait des places au hasard). */
-      var nom="", mail="", trouve=null;
+      // Le code doit correspondre à un billet existant (sinon un balayage écrirait n'importe quoi)
+      var trouve=null;
       try{
-        var roster=JSON.parse((cur&&cur.fields&&cur.fields.roster&&cur.fields.roster.stringValue)||"[]");
-        trouve = roster.filter(function(x){ return x && x.token===token; })[0] || null;
-        if(trouve){ nom=trouve.name||""; mail=trouve.extra||trouve.email||""; }
+        var ros=JSON.parse((cur&&cur.fields&&cur.fields.roster&&cur.fields.roster.stringValue)||"[]");
+        trouve = ros.filter(function(x){ return x && x.token===token; })[0] || null;
       }catch(e){}
-
-      var attendu=String(mail||"").trim().toLowerCase();
-      var fourni=String(mailSaisi||"").trim().toLowerCase();
-      if(!trouve || !attendu || attendu!==fourni){
-        q("msg").innerHTML='<div class="card"><p class="big">🚫</p><p><b>Annulation impossible</b></p>'
-          + '<p class="hint">Le lien ou l\'adresse e-mail ne correspond pas à une inscription. '
-          + 'Vérifie que tu utilises bien le lien reçu dans ton mail de billet, et l\'adresse avec laquelle tu t\'es inscrit·e.</p>'
-          + '<p class="hint">Si le problème persiste, écris à l\'équipe organisatrice.</p></div>';
+      if(!trouve){
+        q("msg").innerHTML='<div class="card"><p class="big">🚫</p><p><b>Lien non reconnu</b></p>'
+          + '<p class="hint">Utilise le lien reçu dans ton e-mail, ou préviens l\'équipe.</p></div>';
         return;
       }
-      list.push({ statut:"annule", annuleToken:token, name:nom, email:mail, ts:Date.now(), viaFormulaire:true });
+      // Un seul marqueur par billet : on remplace le précédent s'il n'a pas encore été appliqué
+      list = list.filter(function(x){ return !(x && x.statut==="repas" && x.repasToken===token && !x.traite); });
+      list.push({ statut:"repas", repasToken:token, repas:choix, name:trouve.name||"", ts:Date.now() });
 
-      var fields={ signups:{ stringValue: JSON.stringify(list) }, updatedAt:{ stringValue: new Date().toISOString() } };
-      var qs=Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
-      var rp=await fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
-        headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" }, body:JSON.stringify({fields:fields}) });
-      if(!rp.ok) throw new Error("write");
-      q("msg").innerHTML='<div class="card"><p class="big">👋</p><p><b>Inscription annulée</b></p>'
-        + '<p class="hint">Merci de nous avoir prévenus — ta place est libérée pour quelqu\'un d\'autre.</p>'
-        + '<p class="hint">Ton billet QR n\'est plus valable.</p></div>';
+      var fields = { signups:{ stringValue: JSON.stringify(list) }, updatedAt:{ stringValue:new Date().toISOString() } };
+      var qs = Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
+      var rp = await fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
+        headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" },
+        body: JSON.stringify({ fields:fields }) });
+      if(!rp.ok) throw new Error("HTTP "+rp.status);
+      q("msg").innerHTML='<div class="card"><p class="big">✅</p><p><b>C\'est noté</b></p>'
+        + '<p class="hint">Ton choix : <b>'+esc(REPAS_LBL[choix]||choix)+'</b>.</p>'
+        + '<p class="hint">Tu peux revenir sur ce lien si tu changes d\'avis. Ton billet QR reste valable.</p></div>';
     }catch(e){
-      q("msg").innerHTML='<div class="card"><p class="err"><b>Annulation impossible</b></p><p class="hint">Réessaie plus tard, ou préviens directement l\'équipe organisatrice.</p></div>';
+      q("msg").innerHTML='<div class="card"><p class="big">⚠️</p><p><b>Enregistrement impossible</b></p>'
+        + '<p class="hint">Réessaie dans un instant.</p></div>';
     }
   }
 
@@ -822,6 +831,7 @@
       if(isPro){
         var rl=q("f_role").value;
         rec.role=rl;
+        rec.repas=lireChoixRepas();
         rec.section=(AVEC_SECTION.indexOf(rl)>=0) ? q("f_sec").value : "";
         rec.annee="";
         if(rl==="etudiant"){ rec.matricule=matricule; rec.carteId=nouveauToken(); rec.statut="apreconfirmer"; rec.confToken=(_ancienConfToken||nouveauToken()); rec.emailConfirme=false; await ecrireCarteDoc(rec.carteId, carte); _imagesEcrites.push(carteDocPath(rec.carteId)); }
