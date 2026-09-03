@@ -539,6 +539,7 @@
     q("repasConfNote").textContent  = etu ? "Ce choix ne pourra plus être modifié ensuite."
                                           : "Ce choix ne pourra plus être modifié ensuite.";
     q("repasConfBtn").textContent   = etu ? "Confirmer et m'inscrire" : "Confirmer et m'inscrire";
+    brancherBoutonsRepas();
     ov.classList.add("on");
   }
   var REPAS_LBL = { tout:"Je mange de tout", sansporc:"Sans porc", sansviande:"Sans viande ni poisson" };
@@ -749,19 +750,28 @@
     });
   }
 
-  /* Boutons de la fenêtre de confirmation du repas. */
-  if(q("repasConfBtn")) q("repasConfBtn").onclick=function(){
-    var el=document.querySelector('input[name="repas3"]:checked');
-    if(!el){ return; }                                   // rien de coché : on n'envoie pas
-    REPAS_CONFIRME = el.value;
-    var f=document.querySelector('input[name="repas"][value="'+el.value+'"]');
-    if(f) f.checked=true;                                // le formulaire reflète le choix confirmé
-    q("repasOverlay").classList.remove("on");
-    q("btn").click();                                    // reprend l'envoi là où il s'était arrêté
-  };
-  if(q("repasAnnBtn")) q("repasAnnBtn").onclick=function(){
-    q("repasOverlay").classList.remove("on");
-  };
+  /* Boutons de la fenêtre de confirmation du repas.
+     Attention : cette fenêtre est déclarée APRÈS ce script dans la page, donc
+     elle n'existe pas encore au chargement. On branche à l'ouverture, une fois. */
+  function brancherBoutonsRepas(){
+    var ok=q("repasConfBtn"), ann=q("repasAnnBtn");
+    if(ok && !ok.__branche){
+      ok.__branche=1;
+      ok.onclick=function(){
+        var el=document.querySelector('input[name="repas3"]:checked');
+        if(!el){ return; }                                   // rien de coché : on n'envoie pas
+        REPAS_CONFIRME = el.value;
+        var f=document.querySelector('input[name="repas"][value="'+el.value+'"]');
+        if(f) f.checked=true;                                // le formulaire reflète le choix confirmé
+        q("repasOverlay").classList.remove("on");
+        q("btn").click();                                    // reprend l'envoi là où il s'était arrêté
+      };
+    }
+    if(ann && !ann.__branche){
+      ann.__branche=1;
+      ann.onclick=function(){ q("repasOverlay").classList.remove("on"); };
+    }
+  }
   /* Si la personne change son choix dans le formulaire après avoir déjà confirmé
      (envoi échoué, puis nouvelle tentative), la confirmation précédente ne vaut
      plus : sinon l'ancienne valeur partirait à la place de la nouvelle. */
