@@ -392,6 +392,14 @@
         <div style="height:9px"></div>
         <label class="fld" for="genRole">Type d'invité·e</label>
         <select id="genRole"></select>
+        <div style="height:9px"></div>
+        <label class="fld" for="genRepas">Repas <span style="color:var(--red)">*</span></label>
+        <select id="genRepas">
+          <option value="">— à choisir —</option>
+          <option value="tout">Je mange de tout</option>
+          <option value="sansporc">Sans porc</option>
+          <option value="sansviande">Sans viande ni poisson</option>
+        </select>
       </div>
       <div style="height:9px"></div>
       <button class="btn gold sm" onclick="addOnePerson()">Ajouter cette personne</button>
@@ -797,7 +805,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v97</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v100</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -889,8 +897,14 @@
     var corps = vous
       ? "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue 🎓 Nous sommes ravis de vous compter parmi nous. Excellente soirée !</p>"
       : "<p>Bonjour "+mailEsc(salut)+",</p><p>Bienvenue, et félicitations 🎓 Belle soirée à toi.</p>";
+    var lblRepas = REPAS_LBL[(g.repas||"")]||"";
+    var rappelRepas = lblRepas
+      ? '<p style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:12px;margin:16px 0;font-size:13.5px;color:#555">'
+        + 'Choix de repas enregistré : <b>'+mailEsc(lblRepas)+'</b>.</p>'
+      : "";
     var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
       +corps
+      +rappelRepas
       +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(cid)+'</p></div>';
     var sujetEv = evName || (currentCommId()===cid ? eventName : "") || "Proclamation";
     try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
@@ -1383,6 +1397,8 @@
     var mail=($("g1Mail")&&$("g1Mail").value||"").trim();
     if(!nom && !prenom){ flash("Indique au moins un nom."); return; }
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ flash("L'e-mail est obligatoire (le billet est envoyé par mail)."); if($("g1Mail")) $("g1Mail").focus(); return; }
+    if(currentCommId()==="proclamation" && $("genRepas") && !$("genRepas").value){
+      flash("Choisis le repas de cette personne."); $("genRepas").focus(); return; }
     ADDING_ONE=true;
     try{
       var name=(nom+" "+prenom).trim(); if(!name && mail) name=mail;
@@ -1391,6 +1407,7 @@
       var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
       var g={ token:tok, name:name, prenom:prenom, nom:nom, extra:mail, cat:_gc, cc:_cc, ajoutManuel:true };
       if(currentCommId()==="proclamation" && $("genRole") && $("genRole").value){ g.role=$("genRole").value; }
+      if(currentCommId()==="proclamation"){ g.repas=($("genRepas")&&$("genRepas").value)||""; }
       roster.push(g);
       var evn=($("evName")&&$("evName").value||"").trim(); if(evn) eventName=evn;
       localRosterVersion=Date.now();
@@ -3308,15 +3325,21 @@
     var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
     return base+"?c="+encodeURIComponent(cid)+"&choix="+encodeURIComponent(g.token);
   }
+  /* Le choix fait sur le formulaire en ligne est définitif : on le rappelle sans lien.
+     Les personnes ajoutées à la main n'ont pas eu de formulaire à remplir — elles gardent
+     donc la possibilité de renseigner ou de corriger leur choix depuis leur billet. */
   function blocRepas(g){
-    if(currentCommId()!=="proclamation" || !g || !g.token) return "";
-    var url=lienRepas(g), vous=vouvoyerG(g), lbl=REPAS_LBL[g.repas||""]||"";
+    if(currentCommId()!=="proclamation" || !g) return "";
+    var vous=vouvoyerG(g), lbl=REPAS_LBL[g.repas||""]||"", manuel=!!g.ajoutManuel, url=manuel?lienRepas(g):"";
+    if(!lbl && !manuel) return "";
+    var ligne = lbl
+      ? 'Choix de repas enregistré : <b>'+mailEsc(lbl)+'</b>.'
+      : (vous?"Vous n'avez pas encore indiqué votre choix alimentaire.":"Tu n'as pas encore indiqué ton choix alimentaire.");
     return '<div style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:14px;margin:16px 0">'
-      + (lbl
-          ? '<p style="margin:0;font-size:13.5px;color:#555">'+(vous?"Vous avez indiqué":"Tu as indiqué")+' : <b>'+mailEsc(lbl)+'</b>.</p>'
-          : '<p style="margin:0;font-size:13.5px;color:#555">'+(vous?"Vous n'avez pas encore indiqué votre choix alimentaire.":"Tu n'as pas encore indiqué ton choix alimentaire.")+'</p>')
-      + '<p style="margin:8px 0 0;font-size:13.5px"><a href="'+url+'" style="color:#4a3f7a">'
-      + (lbl ? "Modifier mon choix" : "Indiquer mon choix")+'</a></p></div>';
+      + '<p style="margin:0;font-size:13.5px;color:#555">'+ligne+'</p>'
+      + (url ? '<p style="margin:8px 0 0;font-size:13.5px"><a href="'+url+'" style="color:#4a3f7a">'
+               + (lbl ? (vous?"Modifier mon choix":"Modifier mon choix") : "Indiquer mon choix")+'</a></p>' : "")
+      + '</div>';
   }
   function billetHtml(name, ev, link, code, vous){
     var titre    = vous ? "Votre billet pour " : "Ton billet pour ";
@@ -4167,40 +4190,11 @@
       + (t.vide ? ligne("Sans préférence indiquée", t.vide, "var(--red,#c0392b)") : "")
       + '<p class="hint" style="margin-top:10px">'+c.emis.n+' billet(s) émis · '+c.attente.n+' inscription(s) en attente de validation.</p>'
       + '<p class="hint">Dans un drink, les pièces sont partagées : ces chiffres sont un minimum, prévois large avec le traiteur.</p>';
-    var sans = roster.filter(function(g){ return emailOf(g) && !REPAS_LBL[g.repas||""]; });
+    var sans = roster.filter(function(g){ return !REPAS_LBL[g.repas||""]; });
     var z=$("traiteurRelance"); if(!z) return;
     z.innerHTML = sans.length
-      ? '<p class="fld" style="margin:0 0 8px">Sans préférence indiquée</p>'
-        + '<p class="hint">'+sans.length+' personne(s) avec un billet n\'ont pas répondu. Un e-mail leur propose de le faire en un clic.</p>'
-        + '<div style="margin-top:10px"><button class="btn gold sm" type="button" onclick="relanceTraiteur()">✉ Relancer ces '+sans.length+' personne(s)</button></div>'
-      : '<p class="hint">✓ Toutes les personnes ayant un billet ont indiqué leur choix.</p>';
-  };
-  /* Relance : uniquement les billets émis dont le choix n'est pas renseigné. */
-  window.relanceTraiteur = async function(){
-    if(currentCommId()!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
-    flash("Synchronisation…"); await syncAvantExport();
-    var cibles = roster.filter(function(g){ return emailOf(g) && !REPAS_LBL[g.repas||""]; });
-    if(!cibles.length){ uiAlert("Tout le monde a indiqué son choix."); return; }
-    if(!(await uiConfirm("Envoyer la demande à "+cibles.length+" personne(s) sans choix indiqué ?"))) return;
-    flash("Envoi…");
-    var ok=0;
-    for(var i=0;i<cibles.length;i++){
-      var g=cibles[i], vous=vouvoyerG(g), url=lienRepas(g);
-      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
-        + '<h2 style="margin:0 0 12px">Une petite précision pour '+mailEsc(eventName||"notre événement")+'</h2>'
-        + '<p>Bonjour '+mailEsc(salutNom(g))+',</p>'
-        + '<p>'+(vous?"Merci d'indiquer votre choix alimentaire en un clic :"
-                     :"Merci d'indiquer ton choix alimentaire en un clic :")+'</p>'
-        + '<p style="text-align:center;margin:26px 0"><a href="'+url+'" style="background:#e0b64d;color:#181233;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block">Indiquer mon choix</a></p>'
-        + '<p style="color:#666;font-size:13px">Trois possibilités : je mange de tout · sans porc · sans viande ni poisson.</p>'
-        + '<p style="color:#666;font-size:13px">'+(vous?"Votre billet reste valable, rien d'autre à faire.":"Ton billet reste valable, rien d'autre à faire.")+'</p>'
-        + mentionPerso(g)+'</div>';
-      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:(vous?"Votre choix alimentaire — ":"Ton choix alimentaire — ")+(eventName||"notre événement"),html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
-      await new Promise(function(res){ setTimeout(res,120); });
-    }
-    uiAlert("Demande envoyée à "+ok+" personne(s).");
-    try{ renderTraiteurTab(); }catch(e){}
+      ? '<p class="hint">'+sans.length+' personne(s) sans choix de repas — inscriptions faites avant que le choix ne devienne obligatoire, ou collées depuis une liste.</p>'
+      : '<p class="hint">✓ Toutes les personnes ayant un billet ont un choix de repas.</p>';
   };
   window.exportPresents = async function(){
     flash("Synchronisation des entrées…"); await syncAvantExport();

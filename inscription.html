@@ -114,7 +114,8 @@
     </div>
 
     <div id="wrapRepas" style="display:none;margin-top:18px">
-      <label class="chk"><input type="radio" name="repas" value="tout" checked> Je mange de tout</label>
+      <label id="lblRepas">Fais ton choix <span class="req">*</span></label>
+      <label class="chk"><input type="radio" name="repas" value="tout"> Je mange de tout</label>
       <label class="chk"><input type="radio" name="repas" value="sansporc"> Sans porc</label>
       <label class="chk"><input type="radio" name="repas" value="sansviande"> Sans viande ni poisson</label>
     </div>
@@ -523,8 +524,22 @@
 
   /* Choix pour le traiteur : lecture des boutons radio du formulaire. */
   function lireChoixRepas(){
+    if(REPAS_CONFIRME) return REPAS_CONFIRME;      // la fenêtre de confirmation fait foi
     var el=document.querySelector('input[name="repas"]:checked');
-    return el ? el.value : "tout";
+    return el ? el.value : "";
+  }
+  /* Le choix de repas est définitif : on le fait relire dans une fenêtre, où il
+     reste modifiable une dernière fois, avant que le formulaire ne parte. */
+  var REPAS_CONFIRME = "";
+  function demanderConfirmationRepas(etu){
+    var ov=q("repasOverlay"); if(!ov) return;
+    var actuel=(document.querySelector('input[name="repas"]:checked')||{}).value||"";
+    var r=document.querySelector('input[name="repas3"][value="'+actuel+'"]'); if(r) r.checked=true;
+    q("repasConfTitre").textContent = etu ? "Confirme ton choix de repas" : "Confirmez votre choix de repas";
+    q("repasConfNote").textContent  = etu ? "Ce choix ne pourra plus être modifié ensuite."
+                                          : "Ce choix ne pourra plus être modifié ensuite.";
+    q("repasConfBtn").textContent   = etu ? "Confirmer et m'inscrire" : "Confirmer et m'inscrire";
+    ov.classList.add("on");
   }
   var REPAS_LBL = { tout:"Je mange de tout", sansporc:"Sans porc", sansviande:"Sans viande ni poisson" };
 
@@ -536,14 +551,15 @@
     if(q("form")) q("form").style.display="none";
     q("msg").innerHTML='<div class="card"><p><b>Indique ton choix</b></p>'
       + '<div style="margin-top:14px;text-align:left">'
-      + '<label class="chk"><input type="radio" name="repas2" value="tout" checked> Je mange de tout</label>'
+      + '<label class="chk"><input type="radio" name="repas2" value="tout"> Je mange de tout</label>'
       + '<label class="chk"><input type="radio" name="repas2" value="sansporc"> Sans porc</label>'
       + '<label class="chk"><input type="radio" name="repas2" value="sansviande"> Sans viande ni poisson</label>'
       + '</div>'
       + '<button id="btnRepas" style="margin-top:18px">Enregistrer mon choix</button></div>';
     q("btnRepas").onclick=function(){
       var el=document.querySelector('input[name="repas2"]:checked');
-      enregistrerChoixRepas(REPAS_TOK, el?el.value:"tout");
+      if(!el){ alert("Choisis d'abord une option."); return; }
+      enregistrerChoixRepas(REPAS_TOK, el.value);
     };
   }
   async function enregistrerChoixRepas(token, choix){
@@ -590,6 +606,11 @@
     q("wrapSec").style.display = (AVEC_SECTION.indexOf(role)>=0) ? "" : "none";
     q("wrapCarte").style.display = (role==="etudiant") ? "" : "none";
     q("notePerso").style.display = (role==="etudiant") ? "block" : "none";
+    // Étudiant·e·s tutoyé·e·s, invité·e·s vouvoyé·e·s — comme dans les mails.
+    if(q("lblRepas")){
+      q("lblRepas").innerHTML = (role==="etudiant" ? "Fais ton choix" : "Faites votre choix")
+        + ' <span class="req">*</span>';
+    }
     if(role!=="etudiant"){ q("f_matricule").value=""; }
   }
   function majAnnees(){
@@ -728,6 +749,26 @@
     });
   }
 
+  /* Boutons de la fenêtre de confirmation du repas. */
+  if(q("repasConfBtn")) q("repasConfBtn").onclick=function(){
+    var el=document.querySelector('input[name="repas3"]:checked');
+    if(!el){ return; }                                   // rien de coché : on n'envoie pas
+    REPAS_CONFIRME = el.value;
+    var f=document.querySelector('input[name="repas"][value="'+el.value+'"]');
+    if(f) f.checked=true;                                // le formulaire reflète le choix confirmé
+    q("repasOverlay").classList.remove("on");
+    q("btn").click();                                    // reprend l'envoi là où il s'était arrêté
+  };
+  if(q("repasAnnBtn")) q("repasAnnBtn").onclick=function(){
+    q("repasOverlay").classList.remove("on");
+  };
+  /* Si la personne change son choix dans le formulaire après avoir déjà confirmé
+     (envoi échoué, puis nouvelle tentative), la confirmation précédente ne vaut
+     plus : sinon l'ancienne valeur partirait à la place de la nouvelle. */
+  Array.prototype.forEach.call(document.querySelectorAll('input[name="repas"]'), function(r){
+    r.addEventListener("change", function(){ REPAS_CONFIRME=""; });
+  });
+
   q("btn").onclick = async function(){
     var msg=q("msg"); msg.innerHTML="";
     var nom=(q("f_nom").value||"").trim();
@@ -756,6 +797,15 @@
         var raison = (e && e.message==="taille") ? "Le fichier est trop lourd. Prends plutôt une <b>photo</b> de ta carte (plus légère qu'un PDF)." : "Format non reconnu. Envoyez une photo (JPG/PNG) ou un PDF.";
         msg.innerHTML='<p class="err">'+raison+'</p>'; return;
       }
+    }
+    if(isPro && q("wrapRepas") && q("wrapRepas").style.display!=="none"){
+      var etu = (q("f_role").value==="etudiant");
+      if(!document.querySelector('input[name="repas"]:checked')){
+        msg.innerHTML='<p class="err"><b>'+(etu ? "Fais ton choix de repas." : "Faites votre choix de repas.")+'</b></p>';
+        try{ q("wrapRepas").scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
+        return;
+      }
+      if(!REPAS_CONFIRME){ demanderConfirmationRepas(etu); return; }   // relance l'envoi après confirmation
     }
     var preuve="";
     if(PAY && !completJauge()){                 // complet : on ne fait pas payer quelqu'un qui n'a pas de place
@@ -894,6 +944,18 @@
   };
 })();
 </script>
+<div class="pm-overlay" id="repasOverlay" role="dialog" aria-modal="true">
+  <div class="pm-box" style="text-align:left">
+    <p class="big" style="text-align:center">🍽️</p>
+    <p id="repasConfTitre" style="text-align:center;font-weight:700;margin:0 0 4px">Confirme ton choix de repas</p>
+    <p class="hint" id="repasConfNote" style="text-align:center;margin:0 0 16px">Ce choix ne pourra plus être modifié ensuite.</p>
+    <label class="chk"><input type="radio" name="repas3" value="tout"> Je mange de tout</label>
+    <label class="chk"><input type="radio" name="repas3" value="sansporc"> Sans porc</label>
+    <label class="chk"><input type="radio" name="repas3" value="sansviande"> Sans viande ni poisson</label>
+    <button type="button" id="repasConfBtn" style="margin-top:20px">Confirmer et m'inscrire</button>
+    <button type="button" id="repasAnnBtn" style="margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--text)">Annuler</button>
+  </div>
+</div>
 <div class="pm-overlay" id="pmOverlay" role="dialog" aria-modal="true">
   <div class="pm-box">
     <div id="pmContent"></div>
