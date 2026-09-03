@@ -346,6 +346,7 @@
         <button class="btn ghost sm" type="button" onclick="copierTexteTraiteur()">📋 Copier le texte du mail</button>
       </div>
       <div id="traiteurRelance" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"></div>
+      <div id="traiteurFige" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px"></div>
     </div>
   </section>
 
@@ -475,6 +476,7 @@
     <div class="card" style="padding:14px">
       <div class="counter" style="margin:0 0 4px"><b id="listEntered">0</b><span>entrés sur <b id="listTotal" style="font-size:15px">0</b><span id="listStats" style="font-size:13px;color:#9b93bd"></span></span></div>
       <div class="parrcount" id="listParr" style="display:none;margin-top:4px"></div>
+      <div id="suiviDirect" style="display:none"></div>
       <input class="search" type="text" id="search" placeholder="Rechercher un nom ou un code…" autocomplete="off" oninput="renderList()">
       <div class="row" style="margin-top:12px">
         <button class="btn ghost sm" onclick="refreshAll()">Rafraîchir</button>
@@ -805,7 +807,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v100</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v102</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -2687,6 +2689,38 @@
   };
 
   /* ---------- Compteurs & liste ---------- */
+  /* Suivi en direct pendant l'événement. Aucun minuteur ajouté : le sondage cloud
+     existant rappelle updateCounts toutes les 6 secondes quand l'onglet Suivi est
+     ouvert. Les horaires viennent de usedAt, rempli depuis le cloud à chaque
+     synchronisation — donc les entrées de TOUS les téléphones y figurent. */
+  function renderSuiviDirect(entres, total){
+    var z=$("suiviDirect"); if(!z) return;
+    if(!total){ z.style.display="none"; z.innerHTML=""; return; }
+    var maintenant=Date.now();
+    var heures=[];
+    roster.forEach(function(g){ if(usedSet.has(g.token) && usedAt[g.token]) heures.push(usedAt[g.token]); });
+    function depuis(min){ var lim=maintenant-min*60000; return heures.filter(function(h){ return h>=lim; }).length; }
+    var q15=depuis(15), q60=depuis(60);
+    var dernier = heures.length ? Math.max.apply(null, heures) : 0;
+    var hDernier=""; if(dernier){ try{ hDernier=new Date(dernier).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){} }
+    var pct = total ? Math.round(entres/total*100) : 0;
+    var sansHeure = entres - heures.length;
+    z.style.display="block";
+    z.innerHTML =
+        '<div style="background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'
+        + '<span class="fld" style="margin:0">Suivi en direct</span>'
+        + '<span class="hint">'+(hDernier?("dernière entrée à "+hDernier):"aucune entrée")+'</span></div>'
+      + '<div style="height:9px;background:var(--line);border-radius:999px;overflow:hidden;margin:9px 0 8px">'
+        + '<div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,var(--gold),var(--gold-dim,var(--gold)))"></div></div>'
+      + '<div style="display:flex;gap:8px;flex-wrap:wrap;font-size:13px">'
+        + '<span><b style="font-size:17px">'+entres+'</b> entré·e·s</span>'
+        + '<span style="opacity:.75">· <b>'+(total-entres)+'</b> attendu·e·s</span>'
+        + '<span style="opacity:.75">· <b>'+q15+'</b> sur 15 min</span>'
+        + '<span style="opacity:.75">· <b>'+q60+'</b> sur 1 h</span></div>'
+      + (sansHeure>0 ? '<p class="hint" style="margin-top:7px">'+sansHeure+' entrée(s) sans horaire connu sur cet appareil — les cadences ci-dessus les excluent.</p>' : '')
+      + '</div>';
+  }
   function updateCounts(){
     var entered=0; roster.forEach(function(g){ if(usedSet.has(g.token)) entered++; });
     $("scanEntered").textContent=entered; $("scanTotal").textContent=roster.length;
@@ -2694,6 +2728,7 @@
     $("tabCount").textContent=roster.length;
     var __tot=roster.length, __pct=__tot?Math.round(entered/__tot*100):0;
     if($("listStats")) $("listStats").textContent = __tot ? ("  ·  "+(__tot-entered)+" restant(s)  ·  "+__pct+"%") : "";
+    try{ renderSuiviDirect(entered, __tot); }catch(e){}
 
     var pg = roster.filter(function(g){ return g.role; });
     if(pg.length){
@@ -2802,12 +2837,35 @@
         }
       }
     }
+    /* Proclamation : le type d'invité·e et le choix de repas sont corrigeables ici.
+       C'est le seul endroit qui le permette, le choix étant définitif côté formulaire. */
+    if(currentCommId()==="proclamation"){
+      var choixRole = ROLES_PROCLA.map(function(r,i){ return (i+1)+". "+r[1]; }).join("\n");
+      var actuelRole = ROLES_PROCLA.map(function(r){ return r[0]; }).indexOf(g.role||"");
+      var rr = await uiPrompt("Type d'invité·e (numéro, vide pour ne rien changer) :\n"+choixRole,
+                              actuelRole>=0 ? String(actuelRole+1) : "");
+      if(rr!==null && rr.trim()!==""){
+        var ir=parseInt(rr.trim(),10);
+        if(ir>=1 && ROLES_PROCLA[ir-1]) g.role=ROLES_PROCLA[ir-1][0];
+      }
+      var CLES_REPAS=["tout","sansporc","sansviande"];
+      var actuelRepas = CLES_REPAS.indexOf(g.repas||"");
+      var rp = await uiPrompt("Repas (numéro, 0 pour aucun, vide pour ne rien changer) :\n0. Aucun\n"
+                 + CLES_REPAS.map(function(k,i){ return (i+1)+". "+REPAS_LBL[k]; }).join("\n"),
+                 actuelRepas>=0 ? String(actuelRepas+1) : "");
+      if(rp!==null && rp.trim()!==""){
+        var ip=parseInt(rp.trim(),10);
+        if(rp.trim()==="0") g.repas="";
+        else if(ip>=1 && CLES_REPAS[ip-1]) g.repas=CLES_REPAS[ip-1];
+      }
+    }
     localRosterVersion = Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
     if(syncCode){ try{ syncPushFull(); }catch(e){} }
     cloudPushRoster(currentCommId());
     renderList(); try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
+    try{ if(currentTab==="traiteur") renderTraiteurTab(); }catch(e){}
     flash("« "+g.name+" » modifié·e.");
   };
   window.enterManual = async function(token){
@@ -4174,7 +4232,7 @@
     var box=$("traiteurChiffres"); if(!box) return;
     if(resync){ flash("Synchronisation…"); await syncAvantExport(); }
     var c=comptageTraiteur(), t=c.total;
-    if(!t.n){ box.innerHTML='<p class="empty">Aucune inscription pour l\'instant.</p>'; if($("traiteurRelance")) $("traiteurRelance").innerHTML=""; return; }
+    if(!t.n){ box.innerHTML='<p class="empty">Aucune inscription pour l\'instant.</p>'; if($("traiteurRelance")) $("traiteurRelance").innerHTML=""; renderTraiteurFige(t); return; }
     function pc(x){ return t.n ? Math.round(x/t.n*100) : 0; }
     function ligne(lbl, v, coul){
       return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)">'
@@ -4191,10 +4249,60 @@
       + '<p class="hint" style="margin-top:10px">'+c.emis.n+' billet(s) émis · '+c.attente.n+' inscription(s) en attente de validation.</p>'
       + '<p class="hint">Dans un drink, les pièces sont partagées : ces chiffres sont un minimum, prévois large avec le traiteur.</p>';
     var sans = roster.filter(function(g){ return !REPAS_LBL[g.repas||""]; });
-    var z=$("traiteurRelance"); if(!z) return;
-    z.innerHTML = sans.length
+    var z=$("traiteurRelance");
+    if(z) z.innerHTML = sans.length
       ? '<p class="hint">'+sans.length+' personne(s) sans choix de repas — inscriptions faites avant que le choix ne devienne obligatoire, ou collées depuis une liste.</p>'
       : '<p class="hint">✓ Toutes les personnes ayant un billet ont un choix de repas.</p>';
+    renderTraiteurFige(t);
+  };
+  /* Chiffres figés : une photo datée des totaux, pour commander sur un nombre qui
+     ne bouge plus. Gardée sur CET appareil — c'est une note de travail, pas une
+     donnée partagée, et l'écrire dans le cloud demanderait des droits en écriture. */
+  var CLE_FIGE = "traiteurFige";
+  function renderTraiteurFige(t){
+    var z=$("traiteurFige"); if(!z) return;
+    Store.get(CLE_FIGE).then(function(brut){
+      var f=null; try{ f=brut?JSON.parse(brut):null; }catch(e){ f=null; }
+      var boutons = '<div class="row" style="margin-top:10px">'
+        + '<button class="btn ghost sm" type="button" onclick="figerTraiteur()">📌 '+(f?"Refiger sur les chiffres actuels":"Figer ces chiffres")+'</button>'
+        + (f?'<button class="btn ghost sm" type="button" onclick="oublierFigeTraiteur()">Oublier</button>':'')
+        + '</div>';
+      if(!f){
+        z.innerHTML = '<p class="fld" style="margin:0 0 6px">Chiffres figés</p>'
+          + '<p class="hint">Rien de figé. Une fois la commande passée chez le traiteur, fige les chiffres : tu garderas le nombre exact sur lequel tu as commandé, même si des inscriptions arrivent après.</p>'
+          + boutons;
+        return;
+      }
+      var quand=""; try{ quand=new Date(f.ts).toLocaleString("fr-BE"); }catch(e){}
+      function l(lbl,v,now){
+        var d=(now||0)-(v||0);
+        return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line)">'
+          + '<span style="flex:1;min-width:0">'+escapeHtml(lbl)+'</span><b>'+v+'</b>'
+          + '<span class="hint" style="width:64px;text-align:right">'+(d>0?"+"+d+" depuis":(d<0?d+" depuis":"inchangé"))+'</span></div>';
+      }
+      z.innerHTML = '<p class="fld" style="margin:0 0 6px">Chiffres figés — '+escapeHtml(quand)+'</p>'
+        + '<div class="counter" style="margin:0 0 8px"><b>'+f.n+'</b><span>personnes au moment du figeage</span></div>'
+        + l("Je mange de tout", f.tout, t.tout)
+        + l("Sans porc", f.sansporc, t.sansporc)
+        + l("Sans viande ni poisson", f.sansviande, t.sansviande)
+        + l("Sans préférence", f.vide, t.vide)
+        + '<p class="hint" style="margin-top:8px">Écart total : '+((t.n||0)-(f.n||0)>=0?"+":"")+((t.n||0)-(f.n||0))+' personne(s) depuis le figeage. Gardé sur cet appareil uniquement.</p>'
+        + boutons;
+    });
+  }
+  window.figerTraiteur = async function(){
+    if(currentCommId()!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
+    var t=comptageTraiteur().total;
+    if(!t.n){ uiAlert("Aucune inscription à figer."); return; }
+    if(!(await uiConfirm("Figer les chiffres actuels ("+t.n+" personnes) ?"))) return;
+    await Store.set(CLE_FIGE, JSON.stringify({ts:Date.now(), n:t.n, tout:t.tout, sansporc:t.sansporc, sansviande:t.sansviande, vide:t.vide}));
+    flash("Chiffres figés.");
+    renderTraiteurFige(t);
+  };
+  window.oublierFigeTraiteur = async function(){
+    if(!(await uiConfirm("Oublier les chiffres figés ?"))) return;
+    await Store.del(CLE_FIGE);
+    renderTraiteurFige(comptageTraiteur().total);
   };
   window.exportPresents = async function(){
     flash("Synchronisation des entrées…"); await syncAvantExport();
@@ -4722,6 +4830,7 @@
         <button class="btn ghost sm" onclick="saveNotifMail()">Enregistrer</button>
       </div>
       <div id="suStats" class="hint" style="margin-top:10px"></div>
+      <input class="f" type="text" id="suSearch" placeholder="Rechercher un nom, un e-mail, un matricule…" autocomplete="off" oninput="rechercheInscriptions()" style="margin-top:8px">
       <div style="margin-top:8px"><button class="btn ghost sm" id="btnRefreshSu2" type="button" onclick="refreshSignups()">🔄 Rafraîchir les inscriptions</button></div>
       <div id="suList" style="margin-top:8px"></div>
       <div id="suExport" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
@@ -4794,6 +4903,11 @@
     }
     try{ fillEventMetaInputs(); }catch(e){}
   }
+  var _tSuSearch=null;
+  window.rechercheInscriptions = function(){
+    if(_tSuSearch) clearTimeout(_tSuSearch);
+    _tSuSearch = setTimeout(function(){ try{ renderSignups(); }catch(e){} }, 180);
+  };
   function renderSignups(){
     majPayBadge();
     try{ majJaugeUI(); }catch(e){}
@@ -4803,23 +4917,35 @@
     if($("btnExportParticipants")) $("btnExportParticipants").style.display = (currentCommId()==="proclamation") ? "" : "none";
     try{ if(currentTab==="traiteur") renderTraiteurTab(); }catch(e){}
     var box=$("suList"), st=$("suStats"); if(!box) return;
-    var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
-    var acc=SIGNUPS.filter(function(x){return x.statut==="accepte";});
-    var acarte=SIGNUPS.filter(function(x){return x.statut==="acarte";});
-    var acorriger=SIGNUPS.filter(function(x){return x.statut==="acorriger";});
-    var att=SIGNUPS.filter(function(x){return x.statut==="attente";});
-    var ref=SIGNUPS.filter(function(x){return x.statut==="refuse";});
-    var aconf=SIGNUPS.filter(function(x){return x.statut==="apreconfirmer";});   // n'ont jamais cliqué le lien
+    /* Recherche : elle ne filtre QUE l'affichage. Les compteurs du résumé, le bouton
+       de revue des cartes et tout le reste continuent de porter sur la liste entière. */
+    var _q = (($("suSearch")&&$("suSearch").value)||"").trim().toLowerCase();
+    function _corr(x){
+      if(!_q) return true;
+      return [x.name, x.nom, x.prenom, x.email, emailOf(x), x.matricule, x.section]
+        .some(function(v){ return String(v||"").toLowerCase().indexOf(_q)>=0; });
+    }
+    function parStatut(st0){ return SIGNUPS.filter(function(x){ return x.statut===st0; }); }
+    var apayTous=parStatut("apayer"), accTous=parStatut("accepte"), acarteTous=parStatut("acarte"),
+        acorrigerTous=parStatut("acorriger"), attTous=parStatut("attente"),
+        refTous=parStatut("refuse"), aconfTous=parStatut("apreconfirmer");
+    var apay=apayTous.filter(_corr);
+    var acc=accTous.filter(_corr);
+    var acarte=acarteTous.filter(_corr);
+    var acorriger=acorrigerTous.filter(_corr);
+    var att=attTous.filter(_corr);
+    var ref=refTous.filter(_corr);
+    var aconf=aconfTous.filter(_corr);   // n'ont jamais cliqué le lien
     var manuels = roster.filter(function(g){ return !g.viaFormulaire; }).length;
     var totalInscrits = SIGNUPS.length + manuels;
-    var resume = totalInscrits+" inscription(s)"+(manuels?" (dont "+manuels+" manuelle·s)":"")+" · "+acc.length+" billet(s) envoyé(s)"
-      +(apay.length?" · "+apay.length+" paiement(s) à vérifier":"")
-      +(acarte.length?" · "+acarte.length+" carte(s) à vérifier":"")
-      +(acorriger.length?" · "+acorriger.length+" en attente de nouvelle carte":"")
-      +(aconf.length?" · "+aconf.length+" en attente de confirmation":"")
+    var resume = totalInscrits+" inscription(s)"+(manuels?" (dont "+manuels+" manuelle·s)":"")+" · "+accTous.length+" billet(s) envoyé(s)"
+      +(apayTous.length?" · "+apayTous.length+" paiement(s) à vérifier":"")
+      +(acarteTous.length?" · "+acarteTous.length+" carte(s) à vérifier":"")
+      +(acorrigerTous.length?" · "+acorrigerTous.length+" en attente de nouvelle carte":"")
+      +(aconfTous.length?" · "+aconfTous.length+" en attente de confirmation":"")
       +(SIGNUPS.filter(function(x){return x.statut==="attente";}).length?" · "+SIGNUPS.filter(function(x){return x.statut==="attente";}).length+" en liste d'attente":"")
       +(currentCommId()==="parrainage" && listeCooptes().length ? " · <b style=\"color:var(--gold)\">"+listeCooptes().length+" intéressé·e·s par une cooptation</b>" : "")
-      +(ref.length?" · "+ref.length+" refusé(s)":"");
+      +(refTous.length?" · "+refTous.length+" refusé(s)":"");
     if(st){
       if(currentCommId()==="proclamation"){
         var LBL={ doyen:"Doyen·ne", academique:"Corps académique", scientifique:"Corps scientifique",
@@ -4844,9 +4970,9 @@
           lignes += '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--line)">'
             +'<span>Ajouté·e·s manuellement</span><span><b>'+sansRole+'</b></span></div>';
         }
-        var totalV=valides.length, totalA=apay.length+acarte.length+acorriger.length;
+        var totalV=valides.length, totalA=apayTous.length+acarteTous.length+acorrigerTous.length;
         var totalMax = totalV + totalA;
-        var refuses = ref.length;
+        var refuses = refTous.length;
         st.innerHTML = '<div style="margin:6px 0 10px">'
           +'<div style="background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;text-align:center">'
             +'<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.75">Total à prévoir</div>'
@@ -4855,7 +4981,7 @@
             +'<div style="font-size:12.5px;margin-top:8px;opacity:.9">'
               +'<b>'+totalV+'</b> confirmée(s)'
               +(totalA?' · <span style="color:var(--amber,#d8b45a)"><b>'+totalA+'</b> en attente de validation</span>':'')
-              +(aconf.length?' · <span style="opacity:.6">'+aconf.length+' non confirmée(s), non comptée(s)</span>':'')
+              +(aconfTous.length?' · <span style="opacity:.6">'+aconfTous.length+' non confirmée(s), non comptée(s)</span>':'')
               +(refuses?' · <span style="opacity:.6">'+refuses+' refusée(s), non comptée(s)</span>':'')
             +'</div>'
           +'</div>'
@@ -4884,7 +5010,7 @@
         + '<p class="hint" style="margin:0 0 6px">'+(restant>0
               ? ('<b>'+restant+' place(s) se sont libérée(s)</b> — repêche les premières de la liste.')
               : 'Complet. Dès qu\'une place se libère (refus ou suppression), repêche la première personne.')+'</p>'
-        + attente.map(function(x,rang){ var i=SIGNUPS.indexOf(x);
+        + attente.map(function(x,rang){ return {x:x,rang:rang}; }).filter(function(o){ return _corr(o.x); }).map(function(o){ var x=o.x, rang=o.rang; var i=SIGNUPS.indexOf(x);
             return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
               +'<span style="flex:1;min-width:0"><b>'+(rang+1)+'. '+escapeHtml(x.name||"?")+'</b><br>'
               +'<span class="hint">'+escapeHtml(x.email||"")+'</span></span>'
@@ -4908,8 +5034,10 @@
               +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("")
         + '</div>';
     }
+    if(acarteTous.length+acorrigerTous.length){
+      html += '<div style="margin-top:12px"><button class="btn gold sm" type="button" onclick="ouvrirRevueCartes()" style="width:100%;padding:12px">⚡ Revue rapide des cartes ('+(acarteTous.length+acorrigerTous.length)+')</button></div>';
+    }
     if(acarte.length){
-      html += '<div style="margin-top:12px"><button class="btn gold sm" type="button" onclick="ouvrirRevueCartes()" style="width:100%;padding:12px">⚡ Revue rapide des cartes ('+(acarte.length+acorriger.length)+')</button></div>';
       html += '<p class="fld" style="margin-top:12px">Cartes étudiantes à vérifier ('+acarte.length+')</p>'
         + acarte.map(function(x){ var i=SIGNUPS.indexOf(x);
             var _mat=String(x.matricule||"").trim();
@@ -4953,6 +5081,12 @@
         + ref.map(function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Valider quand même</button>'); }).join("");
     }
     if(!SIGNUPS.length) html = '<p class="hint" style="margin-top:12px">Aucune inscription pour l\'instant. Partage le lien ci-dessus.</p>';
+    if(_q){
+      var _nb = apay.length+acc.length+acarte.length+acorriger.length+att.length+ref.length+aconf.length;
+      html = '<p class="hint" style="margin:0 0 8px;color:var(--gold)">Recherche « '+escapeHtml(_q)+' » — '
+           + _nb + ' résultat(s). Les compteurs ci-dessus portent sur la liste entière.</p>' + html;
+      if(!_nb) html += '<p class="empty">Personne ne correspond à cette recherche.</p>';
+    }
     box.innerHTML = html;
   }
 
