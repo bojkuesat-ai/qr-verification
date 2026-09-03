@@ -138,6 +138,25 @@
   .row{display:flex;gap:9px;flex-wrap:wrap}
   .row .btn{flex:1;min-width:130px}
 
+  /* Menu repliable : un seul bouton visible, la liste s'ouvre au clic.
+     Sert aux exports (onglet Suivi et carte Inscriptions) et au bloc des
+     actions irreversibles, fermé par défaut pour ne pas être cliqué par erreur.
+     Le style est porté par un <span> interne et jamais par <summary> lui-même :
+     changer le display d'un summary casse le dépliage sur les anciens Safari iOS. */
+  .menu{margin-top:9px}
+  .menu>summary{list-style:none;cursor:pointer}
+  .menu>summary::-webkit-details-marker{display:none}
+  .menu>summary::marker{content:""}
+  .menu-tit{width:100%}
+  .menu-tit::after{content:"▾";margin-left:auto;font-size:12px;opacity:.75}
+  .menu[open] .menu-tit::after{content:"▴"}
+  .menu-liste{display:flex;flex-direction:column;gap:7px;margin-top:8px;padding:10px;
+    background:var(--surface2);border:1px solid var(--line);border-radius:11px}
+  .menu-liste .btn{width:100%;justify-content:flex-start;text-align:left}
+  .menu.zone .menu-tit{color:var(--red);border-color:#5c2530}
+  .menu.zone .menu-liste{border-color:#5c2530}
+  .menu-note{font-size:11.5px;color:var(--muted2);margin:0 0 2px}
+
   /* Scanner */
   .stat{border-radius:var(--r);padding:30px 16px;text-align:center;border:1px solid var(--line);
     background:var(--surface);transition:.2s;margin-bottom:12px}
@@ -452,25 +471,32 @@
       <div class="row" style="margin-top:12px">
         <button class="btn ghost sm" onclick="refreshAll()">Rafraîchir</button>
         <button class="btn ghost sm" id="noShowBtn" onclick="toggleNoShow()">Non entrés</button>
-        <button class="btn ghost sm" onclick="exportCSV()">Liste en CSV</button>
-        <button class="btn ghost sm" onclick="exportXLSX()">Liste en Excel</button>
-        <button class="btn ghost sm" onclick="exportNoShow()">Non-entrés (CSV)</button>
         <button class="btn ghost sm" onclick="mailNoShow()">Relancer les non-venus</button>
       </div>
+      <details class="menu">
+        <summary><span class="btn ghost sm menu-tit">Exporter</span></summary>
+        <div class="menu-liste">
+          <button class="btn ghost sm" onclick="exportCSV()">Liste en CSV</button>
+          <button class="btn ghost sm" onclick="exportXLSX()">Liste en Excel</button>
+          <button class="btn ghost sm" onclick="exportNoShow()">Non-entrés (CSV)</button>
+        </div>
+      </details>
       <div id="suiviAdminActions">
         <div class="row" style="margin-top:9px">
           <button class="btn ghost sm" onclick="exportData()">Exporter (transfert)</button>
           <button class="btn ghost sm" onclick="document.getElementById('importFile').click()">Importer</button>
           <input type="file" id="importFile" accept=".json,application/json" style="display:none" onchange="importData(event)">
         </div>
-        <div class="row" style="margin-top:9px">
-          <button class="btn danger sm" onclick="resetEntries()">Réinitialiser les entrées</button>
-          <button class="btn danger sm" onclick="clearAll()">Effacer la liste</button>
-        </div>
-        <div class="row" style="margin-top:9px">
-          <button class="btn ghost sm" onclick="deleteNonEntres()">Supprimer les non-entrés</button>
-          <button class="btn ghost sm" onclick="deleteDoublons()">Supprimer les doublons</button>
-        </div>
+        <details class="menu zone">
+          <summary><span class="btn ghost sm menu-tit">Actions irréversibles</span></summary>
+          <div class="menu-liste">
+            <p class="menu-note">Ces actions ne peuvent pas être annulées.</p>
+            <button class="btn danger sm" onclick="deleteDoublons()">Supprimer les doublons</button>
+            <button class="btn danger sm" onclick="deleteNonEntres()">Supprimer les non-entrés</button>
+            <button class="btn danger sm" onclick="resetEntries()">Réinitialiser les entrées</button>
+            <button class="btn danger sm" onclick="clearAll()">Effacer la liste</button>
+          </div>
+        </details>
       </div>
     </div>
     <div id="listWrap"></div>
@@ -771,7 +797,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v93</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v97</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -3995,14 +4021,24 @@
     var cid=currentCommId(); if(!cid) return;
     try{ await cloudPull(cid); await refreshUsed(); updateCounts(); }catch(e){}
   }
-  window.exportDiplomes = function(){
-    var etu = roster.filter(function(g){ return g.role==="etudiant"; });
-    if(!etu.length){ flash("Aucun·e étudiant·e validé·e pour l'instant."); return; }
-    etu.sort(function(a,b){ return (a.section||"").localeCompare(b.section||"") || (a.nom||a.name||"").localeCompare(b.nom||b.name||"") || (a.prenom||"").localeCompare(b.prenom||""); });
-    var rows=[["#","Nom","Prénom","Section","Matricule","E-mail"]];
-    etu.forEach(function(g,i){ rows.push([String(i+1), g.nom||g.name||"", g.prenom||"", g.section||"", g.matricule||"", emailOf(g)||""]); });
-    telechargerCSV(rows, sanitize(eventName||"proclamation")+"_diplomes.csv");
-    flash(etu.length+" diplômé·e·s exporté·e·s (triés par section puis nom).");
+  /* Liste des participants valablement inscrits : tout le monde à qui un billet
+     a été émis — les étudiant·e·s après validation, les autres automatiquement.
+     Les statuts en attente, à vérifier ou refusés n'entrent jamais dans roster. */
+  window.exportParticipants = function(){
+    if(!roster.length){ flash("Aucun participant validé pour l'instant."); return; }
+    var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
+    var tous = roster.slice().sort(function(a,b){
+      return (a.nom||a.name||"").localeCompare(b.nom||b.name||"") || (a.prenom||"").localeCompare(b.prenom||"");
+    });
+    var rows=[["#","Nom","Prénom","Type","Section","Repas"]];
+    tous.forEach(function(g,i){
+      rows.push([String(i+1), g.nom||g.name||"", g.prenom||"", roleLbl[g.role]||g.role||"", g.section||"", REPAS_LBL[g.repas||""]||""]);
+    });
+    rows.push([]);
+    rows.push(["Total", String(tous.length)+" participants"]);
+    telechargerCSV(rows, sanitize(eventName||"proclamation")+"_participants.csv");
+    var nbEtu=roster.filter(function(g){ return g.role==="etudiant"; }).length;
+    flash(tous.length+" participants exportés — "+nbEtu+" étudiant·e·s et "+(tous.length-nbEtu)+" autre(s).");
   };
   window.bilanFinEvenement = async function(){
     var dest = "";
@@ -4664,7 +4700,13 @@
         <div id="jaugeInfo" class="hint" style="margin-top:6px"></div>
       </div>
       <div style="height:12px"></div>
-      <button class="btn ghost sm" id="btnResetInsc" type="button" style="width:100%;border-color:#c0392b;color:#e88">Réinitialiser cet événement</button>
+      <details class="menu zone">
+        <summary><span class="btn ghost sm menu-tit">Actions irréversibles</span></summary>
+        <div class="menu-liste">
+          <p class="menu-note">Cette action ne peut pas être annulée.</p>
+          <button class="btn danger sm" id="btnResetInsc" type="button">Réinitialiser cet événement</button>
+        </div>
+      </details>
       <div style="height:12px"></div>
       <label class="fld">Lien inscription (gratuit)</label>
       <div class="row" style="gap:8px;align-items:center">
@@ -4686,17 +4728,21 @@
         <button class="btn ghost sm" onclick="saveNotifMail()">Enregistrer</button>
       </div>
       <div id="suStats" class="hint" style="margin-top:10px"></div>
-      <div style="margin-top:8px"><button class="btn gold sm" id="btnRefreshSu2" type="button" onclick="refreshSignups()">🔄 Rafraîchir les inscriptions</button></div>
+      <div style="margin-top:8px"><button class="btn ghost sm" id="btnRefreshSu2" type="button" onclick="refreshSignups()">🔄 Rafraîchir les inscriptions</button></div>
       <div id="suList" style="margin-top:8px"></div>
       <div id="suExport" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
-        <p class="fld" style="margin:0 0 8px">Exports</p>
         <div class="row" style="gap:8px;flex-wrap:wrap">
-          <button class="btn gold sm" type="button" onclick="exportInscriptionsXLSX()">Toutes les inscriptions (Excel)</button>
-          <button class="btn gold sm" id="btnExportDiplomes" type="button" onclick="exportDiplomes()">Liste des diplômé·e·s (lecture des noms)</button>
-          <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (CSV, ouvre dans Excel)</button>
-          <button class="btn ghost sm" type="button" onclick="bilanFinEvenement()">📊 Bilan de fin (par e-mail)</button>
           <button class="btn ghost sm" type="button" onclick="ouvrirArchives()">🗂️ Archives des événements</button>
         </div>
+        <details class="menu">
+          <summary><span class="btn ghost sm menu-tit">Exporter</span></summary>
+          <div class="menu-liste">
+            <button class="btn ghost sm" type="button" onclick="exportInscriptionsXLSX()">Toutes les inscriptions (Excel)</button>
+            <button class="btn ghost sm" id="btnExportParticipants" type="button" onclick="exportParticipants()">Liste des participants (CSV)</button>
+            <button class="btn ghost sm" type="button" onclick="exportPresents()">Présent·e·s (CSV, ouvre dans Excel)</button>
+            <button class="btn ghost sm" type="button" onclick="bilanFinEvenement()">📊 Bilan de fin (par e-mail)</button>
+          </div>
+        </details>
       </div>
     </div>`;
   function monterSignupCard(){
@@ -4760,7 +4806,7 @@
     /* Le décompte de l'onglet Cooptation suit les inscriptions. */
     try{ majCooptCount(); if(currentTab==="coopt") renderCooptTab(); }catch(e){}
     if($("suExport")) $("suExport").style.display = "block";
-    if($("btnExportDiplomes")) $("btnExportDiplomes").style.display = (currentCommId()==="proclamation") ? "inline-block" : "none";
+    if($("btnExportParticipants")) $("btnExportParticipants").style.display = (currentCommId()==="proclamation") ? "" : "none";
     try{ if(currentTab==="traiteur") renderTraiteurTab(); }catch(e){}
     var box=$("suList"), st=$("suStats"); if(!box) return;
     var apay=SIGNUPS.filter(function(x){return x.statut==="apayer";});
