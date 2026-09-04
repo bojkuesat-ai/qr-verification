@@ -394,12 +394,12 @@
         <label class="fld" for="genRole">Type d'invité·e</label>
         <select id="genRole"></select>
         <div style="height:9px"></div>
-        <label class="fld" for="genRepas">Repas <span style="color:var(--red)">*</span></label>
+        <label class="fld" for="genRepas">Régime alimentaire <span style="color:var(--red)">*</span></label>
         <select id="genRepas">
           <option value="">— à choisir —</option>
-          <option value="tout">Je mange de tout</option>
+          <option value="tout">Omnivore</option>
           <option value="sansporc">Sans porc</option>
-          <option value="sansviande">Sans viande ni poisson</option>
+          <option value="sansviande">Végétarien</option>
         </select>
       </div>
       <div style="height:9px"></div>
@@ -807,7 +807,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v102</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v107</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -902,7 +902,7 @@
     var lblRepas = REPAS_LBL[(g.repas||"")]||"";
     var rappelRepas = lblRepas
       ? '<p style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:12px;margin:16px 0;font-size:13.5px;color:#555">'
-        + 'Choix de repas enregistré : <b>'+mailEsc(lblRepas)+'</b>.</p>'
+        + 'Régime alimentaire enregistré : <b>'+mailEsc(lblRepas)+'</b>.</p>'
       : "";
     var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
       +corps
@@ -1400,7 +1400,7 @@
     if(!nom && !prenom){ flash("Indique au moins un nom."); return; }
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ flash("L'e-mail est obligatoire (le billet est envoyé par mail)."); if($("g1Mail")) $("g1Mail").focus(); return; }
     if(currentCommId()==="proclamation" && $("genRepas") && !$("genRepas").value){
-      flash("Choisis le repas de cette personne."); $("genRepas").focus(); return; }
+      flash("Choisis le régime alimentaire de cette personne."); $("genRepas").focus(); return; }
     ADDING_ONE=true;
     try{
       var name=(nom+" "+prenom).trim(); if(!name && mail) name=mail;
@@ -2837,7 +2837,7 @@
         }
       }
     }
-    /* Proclamation : le type d'invité·e et le choix de repas sont corrigeables ici.
+    /* Proclamation : le type d'invité·e et le régime alimentaire sont corrigeables ici.
        C'est le seul endroit qui le permette, le choix étant définitif côté formulaire. */
     if(currentCommId()==="proclamation"){
       var choixRole = ROLES_PROCLA.map(function(r,i){ return (i+1)+". "+r[1]; }).join("\n");
@@ -2850,7 +2850,7 @@
       }
       var CLES_REPAS=["tout","sansporc","sansviande"];
       var actuelRepas = CLES_REPAS.indexOf(g.repas||"");
-      var rp = await uiPrompt("Repas (numéro, 0 pour aucun, vide pour ne rien changer) :\n0. Aucun\n"
+      var rp = await uiPrompt("Régime alimentaire (numéro, 0 pour aucun, vide pour ne rien changer) :\n0. Aucun\n"
                  + CLES_REPAS.map(function(k,i){ return (i+1)+". "+REPAS_LBL[k]; }).join("\n"),
                  actuelRepas>=0 ? String(actuelRepas+1) : "");
       if(rp!==null && rp.trim()!==""){
@@ -3377,7 +3377,7 @@
   }
   function vouvoyerG(g){ return currentCommId()==="proclamation" && g && g.role && g.role!=="etudiant"; }
   /* ---------- Choix pour le traiteur (proclamation) ---------- */
-  var REPAS_LBL = { tout:"Je mange de tout", sansporc:"Sans porc", sansviande:"Sans viande ni poisson" };
+  var REPAS_LBL = { tout:"Omnivore", sansporc:"Sans porc", sansviande:"Végétarien" };
   function lienRepas(g){
     var cid=currentCommId()||""; if(!g || !g.token || !cid) return "";
     var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
@@ -3391,7 +3391,7 @@
     var vous=vouvoyerG(g), lbl=REPAS_LBL[g.repas||""]||"", manuel=!!g.ajoutManuel, url=manuel?lienRepas(g):"";
     if(!lbl && !manuel) return "";
     var ligne = lbl
-      ? 'Choix de repas enregistré : <b>'+mailEsc(lbl)+'</b>.'
+      ? 'Régime alimentaire enregistré : <b>'+mailEsc(lbl)+'</b>.'
       : (vous?"Vous n'avez pas encore indiqué votre choix alimentaire.":"Tu n'as pas encore indiqué ton choix alimentaire.");
     return '<div style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:14px;margin:16px 0">'
       + '<p style="margin:0;font-size:13.5px;color:#555">'+ligne+'</p>'
@@ -4111,7 +4111,7 @@
     var tous = roster.slice().sort(function(a,b){
       return (a.nom||a.name||"").localeCompare(b.nom||b.name||"") || (a.prenom||"").localeCompare(b.prenom||"");
     });
-    var rows=[["#","Nom","Prénom","Type","Section","Repas"]];
+    var rows=[["#","Nom","Prénom","Type","Section","Régime alimentaire"]];
     tous.forEach(function(g,i){
       rows.push([String(i+1), g.nom||g.name||"", g.prenom||"", roleLbl[g.role]||g.role||"", g.section||"", REPAS_LBL[g.repas||""]||""]);
     });
@@ -4194,10 +4194,10 @@
     if(!t.n) return "";
     function pc(x){ return t.n ? Math.round(x/t.n*100)+" %" : "0 %"; }
     return t.n+" personnes\n"
-      + "· "+t.tout+(t.tout>1?" mangent":" mange")+" de tout ("+pc(t.tout)+")\n"
-      + "· "+t.sansporc+" sans porc ("+pc(t.sansporc)+")\n"
-      + "· "+t.sansviande+" sans viande ni poisson ("+pc(t.sansviande)+")\n"
-      + (t.vide ? "· "+t.vide+" sans préférence indiquée ("+pc(t.vide)+")\n" : "");
+      + "· Omnivore : "+t.tout+" ("+pc(t.tout)+")\n"
+      + "· Sans porc : "+t.sansporc+" ("+pc(t.sansporc)+")\n"
+      + "· Végétarien : "+t.sansviande+" ("+pc(t.sansviande)+")\n"
+      + (t.vide ? "· Sans préférence indiquée : "+t.vide+" ("+pc(t.vide)+")\n" : "");
   }
   window.copierTexteTraiteur = function(){
     var txt=texteTraiteur();
@@ -4214,9 +4214,9 @@
     var rows=[["Commande traiteur — "+(eventName||"proclamation")],
               ["Établi le "+new Date().toLocaleDateString("fr-BE")],[],
               ["Choix","Nombre","Part"],
-              ["Je mange de tout", t.tout, pc(t.tout)],
+              ["Omnivore", t.tout, pc(t.tout)],
               ["Sans porc", t.sansporc, pc(t.sansporc)],
-              ["Sans viande ni poisson", t.sansviande, pc(t.sansviande)],
+              ["Végétarien", t.sansviande, pc(t.sansviande)],
               ["Sans préférence indiquée", t.vide, pc(t.vide)],
               ["TOTAL", t.n, "100 %"]];
     var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
@@ -4242,17 +4242,17 @@
     }
     box.innerHTML =
         '<div class="counter" style="margin-bottom:10px"><b>'+t.n+'</b><span>personnes inscrites</span></div>'
-      + ligne("Je mange de tout", t.tout, "var(--text)")
+      + ligne("Omnivore", t.tout, "var(--text)")
       + ligne("Sans porc", t.sansporc, "var(--gold)")
-      + ligne("Sans viande ni poisson", t.sansviande, "var(--gold)")
+      + ligne("Végétarien", t.sansviande, "var(--gold)")
       + (t.vide ? ligne("Sans préférence indiquée", t.vide, "var(--red,#c0392b)") : "")
       + '<p class="hint" style="margin-top:10px">'+c.emis.n+' billet(s) émis · '+c.attente.n+' inscription(s) en attente de validation.</p>'
       + '<p class="hint">Dans un drink, les pièces sont partagées : ces chiffres sont un minimum, prévois large avec le traiteur.</p>';
     var sans = roster.filter(function(g){ return !REPAS_LBL[g.repas||""]; });
     var z=$("traiteurRelance");
     if(z) z.innerHTML = sans.length
-      ? '<p class="hint">'+sans.length+' personne(s) sans choix de repas — inscriptions faites avant que le choix ne devienne obligatoire, ou collées depuis une liste.</p>'
-      : '<p class="hint">✓ Toutes les personnes ayant un billet ont un choix de repas.</p>';
+      ? '<p class="hint">'+sans.length+' personne(s) sans régime alimentaire — inscriptions faites avant que le choix ne devienne obligatoire, ou collées depuis une liste.</p>'
+      : '<p class="hint">✓ Toutes les personnes ayant un billet ont un régime alimentaire.</p>';
     renderTraiteurFige(t);
   };
   /* Chiffres figés : une photo datée des totaux, pour commander sur un nombre qui
@@ -4282,9 +4282,9 @@
       }
       z.innerHTML = '<p class="fld" style="margin:0 0 6px">Chiffres figés — '+escapeHtml(quand)+'</p>'
         + '<div class="counter" style="margin:0 0 8px"><b>'+f.n+'</b><span>personnes au moment du figeage</span></div>'
-        + l("Je mange de tout", f.tout, t.tout)
+        + l("Omnivore", f.tout, t.tout)
         + l("Sans porc", f.sansporc, t.sansporc)
-        + l("Sans viande ni poisson", f.sansviande, t.sansviande)
+        + l("Végétarien", f.sansviande, t.sansviande)
         + l("Sans préférence", f.vide, t.vide)
         + '<p class="hint" style="margin-top:8px">Écart total : '+((t.n||0)-(f.n||0)>=0?"+":"")+((t.n||0)-(f.n||0))+' personne(s) depuis le figeage. Gardé sur cet appareil uniquement.</p>'
         + boutons;
