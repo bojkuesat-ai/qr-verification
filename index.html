@@ -857,7 +857,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v110</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v111</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -966,6 +966,27 @@
     var sujetEv = evName || (currentCommId()===cid ? eventName : "") || "Proclamation";
     try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
       body:JSON.stringify({to:mail,subject:"Bienvenue — "+sujetEv,html:html,from:FROM_PROCLA,reply_to:MAIL_REPONSES})}); }catch(e){}
+  }
+  /* Mot d'accompagnement envoyé au moment où la personne retire son repas.
+     Le régime y est rappelé : au stand, ça sert de preuve à qui a un doute. */
+  async function envoyerBonAppetit(g){
+    if(!g) return;
+    var mail=emailOf(g); if(!mail) return;
+    var vous = !!(g.role && g.role!=="etudiant");
+    var salut = vous ? (((g.prenom||"")+" "+(g.nom||"")).trim() || g.name || "") : (prenomDe(g) || g.name || "");
+    var corps = vous
+      ? "<p>Bonjour "+mailEsc(salut)+",</p><p>Votre repas vous a été remis. Bon appétit 🍽️</p>"
+      : "<p>Bonjour "+mailEsc(salut)+",</p><p>Ton repas t'a été remis. Bon appétit 🍽️</p>";
+    var lbl = REPAS_LBL[(g.repas||"")]||"";
+    var rappel = lbl
+      ? '<p style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:12px;margin:16px 0;font-size:13.5px;color:#555">'
+        + 'Régime alimentaire : <b>'+mailEsc(lbl)+'</b>.</p>'
+      : "";
+    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      +corps+rappel
+      +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(LCID)+'</p></div>';
+    try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+      body:JSON.stringify({to:mail,subject:"Bon appétit 🍽️",html:html,from:FROM_PROCLA,reply_to:MAIL_REPONSES})}); }catch(e){}
   }
   var ROLES_PROCLA = [
     ["etudiant","Étudiant·e diplômé·e"],
@@ -2809,6 +2830,8 @@
     var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
     lStat("ok","Repas accordé", g.name+" · "+reg);
     try{ beep(true); }catch(e){}
+    try{ envoyerBonAppetit(g); }catch(e){}      // en arrière-plan : n'attend pas le mail
+
     if(!(await gEnsureAuth())){ lStatus("⏳ Hors ligne : "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); return; }
     try{
       var data=await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]);

@@ -115,9 +115,9 @@
 
     <div id="wrapRepas" style="display:none;margin-top:18px">
       <label id="lblRepas">Fais ton choix <span class="req">*</span></label>
-      <label class="chk"><input type="radio" name="repas" value="tout"> Je mange de tout</label>
+      <label class="chk"><input type="radio" name="repas" value="tout"> Omnivore</label>
       <label class="chk"><input type="radio" name="repas" value="sansporc"> Sans porc</label>
-      <label class="chk"><input type="radio" name="repas" value="sansviande"> Sans viande ni poisson</label>
+      <label class="chk"><input type="radio" name="repas" value="sansviande"> Végétarien</label>
     </div>
 
     <div id="notePerso" style="display:none;background:rgba(216,180,90,.10);border:1px solid rgba(216,180,90,.35);border-radius:12px;padding:14px;margin-top:18px">
@@ -528,21 +528,21 @@
     var el=document.querySelector('input[name="repas"]:checked');
     return el ? el.value : "";
   }
-  /* Le choix de repas est définitif : on le fait relire dans une fenêtre, où il
+  /* Le régime alimentaire est définitif : on le fait relire dans une fenêtre, où il
      reste modifiable une dernière fois, avant que le formulaire ne parte. */
   var REPAS_CONFIRME = "";
   function demanderConfirmationRepas(etu){
     var ov=q("repasOverlay"); if(!ov) return;
     var actuel=(document.querySelector('input[name="repas"]:checked')||{}).value||"";
     var r=document.querySelector('input[name="repas3"][value="'+actuel+'"]'); if(r) r.checked=true;
-    q("repasConfTitre").textContent = etu ? "Confirme ton choix de repas" : "Confirmez votre choix de repas";
+    q("repasConfTitre").textContent = etu ? "Confirme ton régime alimentaire" : "Confirmez votre régime alimentaire";
     q("repasConfNote").textContent  = etu ? "Ce choix ne pourra plus être modifié ensuite."
                                           : "Ce choix ne pourra plus être modifié ensuite.";
     q("repasConfBtn").textContent   = etu ? "Confirmer et m'inscrire" : "Confirmer et m'inscrire";
     brancherBoutonsRepas();
     ov.classList.add("on");
   }
-  var REPAS_LBL = { tout:"Je mange de tout", sansporc:"Sans porc", sansviande:"Sans viande ni poisson" };
+  var REPAS_LBL = { tout:"Omnivore", sansporc:"Sans porc", sansviande:"Végétarien" };
 
   /* Lien « indiquer / modifier mon choix » envoyé avec le billet ou en relance.
      Comme pour le désistement, on ne peut écrire que dans « signups » : on y dépose
@@ -552,9 +552,9 @@
     if(q("form")) q("form").style.display="none";
     q("msg").innerHTML='<div class="card"><p><b>Indique ton choix</b></p>'
       + '<div style="margin-top:14px;text-align:left">'
-      + '<label class="chk"><input type="radio" name="repas2" value="tout"> Je mange de tout</label>'
+      + '<label class="chk"><input type="radio" name="repas2" value="tout"> Omnivore</label>'
       + '<label class="chk"><input type="radio" name="repas2" value="sansporc"> Sans porc</label>'
-      + '<label class="chk"><input type="radio" name="repas2" value="sansviande"> Sans viande ni poisson</label>'
+      + '<label class="chk"><input type="radio" name="repas2" value="sansviande"> Végétarien</label>'
       + '</div>'
       + '<button id="btnRepas" style="margin-top:18px">Enregistrer mon choix</button></div>';
     q("btnRepas").onclick=function(){
@@ -811,7 +811,7 @@
     if(isPro && q("wrapRepas") && q("wrapRepas").style.display!=="none"){
       var etu = (q("f_role").value==="etudiant");
       if(!document.querySelector('input[name="repas"]:checked')){
-        msg.innerHTML='<p class="err"><b>'+(etu ? "Fais ton choix de repas." : "Faites votre choix de repas.")+'</b></p>';
+        msg.innerHTML='<p class="err"><b>'+(etu ? "Fais ton choix de régime alimentaire." : "Faites votre choix de régime alimentaire.")+'</b></p>';
         try{ q("wrapRepas").scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
         return;
       }
@@ -957,11 +957,11 @@
 <div class="pm-overlay" id="repasOverlay" role="dialog" aria-modal="true">
   <div class="pm-box" style="text-align:left">
     <p class="big" style="text-align:center">🍽️</p>
-    <p id="repasConfTitre" style="text-align:center;font-weight:700;margin:0 0 4px">Confirme ton choix de repas</p>
+    <p id="repasConfTitre" style="text-align:center;font-weight:700;margin:0 0 4px">Confirme ton régime alimentaire</p>
     <p class="hint" id="repasConfNote" style="text-align:center;margin:0 0 16px">Ce choix ne pourra plus être modifié ensuite.</p>
-    <label class="chk"><input type="radio" name="repas3" value="tout"> Je mange de tout</label>
+    <label class="chk"><input type="radio" name="repas3" value="tout"> Omnivore</label>
     <label class="chk"><input type="radio" name="repas3" value="sansporc"> Sans porc</label>
-    <label class="chk"><input type="radio" name="repas3" value="sansviande"> Sans viande ni poisson</label>
+    <label class="chk"><input type="radio" name="repas3" value="sansviande"> Végétarien</label>
     <button type="button" id="repasConfBtn" style="margin-top:20px">Confirmer et m'inscrire</button>
     <button type="button" id="repasAnnBtn" style="margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--text)">Annuler</button>
   </div>
