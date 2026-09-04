@@ -157,6 +157,24 @@
   .menu.zone .menu-liste{border-color:#5c2530}
   .menu-note{font-size:11.5px;color:var(--muted2);margin:0 0 2px}
 
+  /* Interrupteur à bascule. La position affichée vient TOUJOURS de ce qui est
+     enregistré : on ne bascule jamais le rail avant la confirmation. */
+  .bascule{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+  .bascule:first-of-type{border-top:none}
+  .bascule .txt{flex:1;min-width:0}
+  .bascule .txt b{display:block;font-size:13.5px;font-weight:600;color:var(--text)}
+  .bascule .txt span{display:block;font-size:11.5px;color:var(--muted2);margin-top:2px}
+  .rail{flex:none;width:50px;height:29px;border-radius:999px;background:var(--surface2);
+    border:1px solid var(--line);position:relative;cursor:pointer;transition:.18s}
+  .rail:after{content:"";position:absolute;top:3px;left:3px;width:21px;height:21px;border-radius:50%;
+    background:var(--muted2);transition:.18s}
+  .rail.on{background:linear-gradient(150deg,var(--gold),var(--gold-dim));border-color:var(--gold-dim)}
+  .rail.on:after{left:26px;background:#241100}
+  .rail.busy{opacity:.5;pointer-events:none}
+  .bascule-etat{font-size:11.5px;margin:0 0 10px}
+  .bascule-etat.ok{color:var(--gold)}
+  .bascule-etat.off{color:var(--muted2)}
+
   /* Scanner */
   .stat{border-radius:var(--r);padding:30px 16px;text-align:center;border:1px solid var(--line);
     background:var(--surface);transition:.2s;margin-bottom:12px}
@@ -406,11 +424,13 @@
       <button class="btn gold sm" onclick="addOnePerson()">Ajouter cette personne</button>
 
       <div style="height:14px;border-top:1px solid var(--line);margin-top:16px"></div>
+      <div id="collageWrap">
       <label class="fld" for="names">…ou colle une liste — une ligne par personne : Nom, Prénom, e-mail. Tu peux coller directement depuis Excel ou Google Sheets.</label>
       <textarea id="names" placeholder="Belkacem, Amina, amina.belkacem@gmail.com&#10;Dupont, Thomas, thomas.dupont@gmail.com"></textarea>
       <p class="hint">Séparateur virgule, point-virgule ou tabulation (collage Excel/Sheets) — peu importe. L'adresse mail est détectée automatiquement. Sans e-mail, le billet est créé mais ne pourra pas être envoyé par mail. Un simple nom par ligne fonctionne aussi.</p>
       <div style="height:13px"></div>
       <button class="btn gold block" onclick="generate()">Générer les billets</button>
+      </div>
     </div>
 
 
@@ -629,9 +649,39 @@
       <span>🎯 Scanner global — toutes les commissions</span>
       <span class="cnt">tous les billets</span>
     </button>
+    <button class="comm-btn" id="lscanOpenBtn" onclick="lscanOpen()" style="display:none;margin-top:10px;background:linear-gradient(160deg,#2d3a1a,#212a10);border-color:var(--gold-dim)">
+      <span>🍽️ Scanner lunch — proclamation</span>
+    </button>
   </div>
 </div>
 
+<div class="gscan" id="lscanScreen" aria-hidden="true">
+  <div class="gs-wrap">
+    <div class="gs-head">
+      <h2 style="font-family:'Fraunces',serif;font-weight:600;font-size:20px;margin:0">🍽️ Scanner lunch</h2>
+      <button class="btn ghost sm" onclick="lscanClose()">✕ Fermer</button>
+    </div>
+    <div id="lsStatus" style="font-size:12.5px;color:var(--muted);margin-bottom:10px">Chargement…</div>
+    <div class="counter"><b id="lServed">0</b><span>repas retirés sur <b id="lTotal" style="font-size:15px">0</b></span></div>
+    <div class="stat idle" id="lstat"><p class="word">Prêt à scanner</p><p class="note">Démarre la caméra ou saisis un code</p></div>
+    <div class="card" style="padding:13px">
+      <div class="row" style="margin-bottom:11px;flex-wrap:wrap">
+        <button class="btn gold sm" id="lcamStart" onclick="lStartCam()">Démarrer la caméra</button>
+        <button class="btn ghost sm" id="lcamStop" onclick="lStopCam()" style="display:none">Arrêter</button>
+        <button class="btn ghost sm" onclick="lReload()">↻ Recharger</button>
+      </div>
+      <div id="lreader"></div>
+      <div class="cam-msg" id="lcamMsg"></div>
+      <div class="manual">
+        <label class="fld" for="lmanual">Saisie manuelle / lecteur externe</label>
+        <div class="row">
+          <input type="text" id="lmanual" placeholder="Code du billet lunch" autocomplete="off" autocapitalize="characters" onkeydown="if(event.key==='Enter')lCheckManual()">
+          <button class="btn gold sm" onclick="lCheckManual()">Vérifier</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="gscan" id="gscanScreen" aria-hidden="true">
   <div class="gs-wrap">
     <div class="gs-head">
@@ -807,7 +857,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v107</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v110</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -845,6 +895,11 @@
     <div class="g-body">
       <div class="g-qr" id="gQr"></div>
       <div class="g-name" id="gName"></div>
+      <div id="gLunchWrap" style="display:none;margin-top:22px;padding-top:18px;border-top:1px dashed rgba(0,0,0,.18)">
+        <div style="font-size:13px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6b5a2a;margin-bottom:8px">🍽️ Lunch</div>
+        <div class="g-qr" id="gQrLunch"></div>
+        <div style="font-size:12px;color:#666;margin-top:6px">À présenter au stand repas. Différent du QR d'entrée.</div>
+      </div>
       <div class="g-code" id="gCode"></div>
       <div class="g-cat" id="gCat" style="display:none"></div>
     </div>
@@ -2673,6 +2728,133 @@
     gScanner=null; gScanning=false; if($("gcamStart")) $("gcamStart").style.display="inline-flex"; if($("gcamStop")) $("gcamStop").style.display="none";
   };
 
+  /* ---------- Écran de scan Lunch ----------
+     Écran séparé : il ne partage aucune ligne avec gAdmit. Il réutilise le
+     compte scanner déjà ouvert (gEnsureAuth) et n'écrit que « used » et
+     « updatedAt », comme le scanner d'entrée. */
+  var lRoster=[], lUsed={}, lScanner=null, lScanning=false, lTimer=null, lDernier=0, lMiennes={};
+  var LCID="proclamation";
+  function lStatus(txt){ var e=$("lsStatus"); if(e) e.textContent=txt; }
+  function lStat(cls, mot, note){
+    var b=$("lstat"); if(!b) return;
+    b.className="stat "+cls;
+    b.innerHTML='<p class="word">'+escapeHtml(mot)+'</p><p class="note">'+escapeHtml(note||"")+'</p>';
+  }
+  function lCompte(){
+    var servis=0;
+    lRoster.forEach(function(g){ if(lUsed[codeLunch(g.token)]) servis++; });
+    if($("lServed")) $("lServed").textContent=servis;
+    if($("lTotal")) $("lTotal").textContent=lRoster.length;
+  }
+  async function _lChargerMiennes(){ try{ var s0=await Store.get("lscanMiennes"); lMiennes=s0?JSON.parse(s0):{}; }catch(e){ lMiennes={}; } }
+  async function _lSauverMiennes(){ try{ await Store.set("lscanMiennes", JSON.stringify(lMiennes)); }catch(e){} }
+  /* Deux téléphones écrivent le même champ : on réinjecte toujours nos propres
+     marquages avant d'écrire, sinon le dernier écrivain effacerait ceux de l'autre. */
+  function _lFusion(map){ Object.keys(lMiennes).forEach(function(k){ if(!map[k]) map[k]=lMiennes[k]; }); return map; }
+
+  async function lLoad(silent){
+    if(!(await gEnsureAuth())){ lStatus("Hors ligne — la liste chargée reste utilisable."); return false; }
+    if(!silent) lStatus("Chargement…");
+    try{
+      var data=await fsGetDoc(ticketDocPath(LCID), gAuth.idToken);
+      if(!data){ lStatus("Liste injoignable — on garde la dernière connue."); return false; }
+      var f=data.fields||{};
+      try{ lRoster=JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e){}
+      try{ lUsed=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){ lUsed={}; }
+      /* Repas marqués ici mais absents du serveur : scannés pendant une coupure.
+         Sans ce rattrapage, le dernier repas d'une soirée hors ligne ne
+         remonterait jamais, personne ne scannant plus après lui. */
+      var enRetard = Object.keys(lMiennes).filter(function(k){ return !lUsed[k]; });
+      lUsed=_lFusion(lUsed);
+      if(enRetard.length){
+        try{
+          var r=await fsPatchFields(ticketDocPath(LCID), { used: fsField(JSON.stringify(lUsed)),
+                  updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
+          if(!(r&&r.ok)){
+            lStatus("⏳ "+enRetard.length+" repas en attente de synchronisation.");
+            lCompte(); return false;
+          }
+        }catch(e){ lStatus("⏳ "+enRetard.length+" repas en attente de synchronisation."); lCompte(); return false; }
+      }
+      lDernier=Date.now();
+      lStatus(lRoster.length+" participant(s) · liste à jour"+(enRetard.length?(" · "+enRetard.length+" repas rattrapé(s)"):""));
+      lCompte();
+      return true;
+    }catch(e){ lStatus("Liste injoignable — on garde la dernière connue."); return false; }
+  }
+  window.lReload=function(){ lLoad(false); };
+
+  async function lServir(code){
+    var brut=String(code||"").trim();
+    if(!brut) return;
+    if(!estCodeLunch(brut)){
+      var t0=brut.toUpperCase();
+      var connu=lRoster.filter(function(g){ return String(g.token||"").toUpperCase()===t0; })[0];
+      lStat("bad","Ce n'est pas un QR lunch", connu ? (connu.name+" — c'est son billet d'entrée. Le QR lunch est plus bas sur la même page.") : "Code inconnu.");
+      try{ beep(false); }catch(e){}
+      return;
+    }
+    var jeton=jetonDeLunch(brut);
+    var g=lRoster.filter(function(x){ return String(x.token||"")===jeton; })[0];
+    if(!g){ lStat("bad","Billet inconnu","Ce code ne correspond à aucun participant."); try{ beep(false); }catch(e){} return; }
+    var cle=codeLunch(jeton);
+    if(lUsed[cle]){
+      var q=""; try{ q=new Date(lUsed[cle]).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){}
+      lStat("bad","Repas déjà retiré", g.name+(q?(" — à "+q):""));
+      try{ beep(false); }catch(e){}
+      return;
+    }
+    var at=Date.now();
+    lUsed[cle]=at; lMiennes[cle]=at; await _lSauverMiennes(); lCompte();
+    var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
+    lStat("ok","Repas accordé", g.name+" · "+reg);
+    try{ beep(true); }catch(e){}
+    if(!(await gEnsureAuth())){ lStatus("⏳ Hors ligne : "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); return; }
+    try{
+      var data=await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]);
+      var map={}; try{ map=JSON.parse(((data&&data.fields&&data.fields.used)||{}).stringValue||"{}"); }catch(e){}
+      map=_lFusion(map); map[cle]=at;
+      var r=await fsPatchFields(ticketDocPath(LCID), { used: fsField(JSON.stringify(map)),
+              updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
+      if(r&&r.ok){ lUsed=map; lCompte(); lStatus(lRoster.length+" participant(s) · à jour"); }
+      else { lStatus("⏳ "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); }
+    }catch(e){ lStatus("⏳ "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); }
+  }
+  window.lCheckManual=function(){
+    var i=$("lmanual"); if(!i) return;
+    var v=(i.value||"").trim(); i.value="";
+    if(v) lServir(v);
+  };
+  window.lStartCam=async function(){
+    ensureAudio(); var msg=$("lcamMsg");
+    if(typeof Html5Qrcode==="undefined"){ msg.className="cam-msg on"; msg.textContent="La librairie caméra n'a pas pu se charger. Utilise la saisie manuelle."; return; }
+    msg.className="cam-msg";
+    try{
+      lScanner=new Html5Qrcode("lreader", { verbose:false });
+      await lScanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:230,height:230}}, function(txt){ lServir(txt); }, function(){});
+      lScanning=true; $("lcamStart").style.display="none"; $("lcamStop").style.display="inline-flex";
+    }catch(e){ lScanner=null; msg.className="cam-msg on"; msg.textContent="Caméra inaccessible ici. Autorise la caméra ou utilise la saisie manuelle."; }
+  };
+  window.lStopCam=async function(){
+    if(lScanner && lScanning){ try{ await lScanner.stop(); await lScanner.clear(); }catch(e){} }
+    lScanner=null; lScanning=false;
+    if($("lcamStart")) $("lcamStart").style.display="inline-flex";
+    if($("lcamStop")) $("lcamStop").style.display="none";
+  };
+  window.lscanOpen=function(){
+    ensureAudio();
+    $("lscanScreen").classList.add("on"); $("lscanScreen").setAttribute("aria-hidden","false");
+    lStat("idle","Prêt à scanner","Démarre la caméra ou saisis un code");
+    _lChargerMiennes().then(function(){ lLoad(false); });
+    if(lTimer) clearInterval(lTimer);
+    lTimer=setInterval(function(){ if($("lscanScreen").classList.contains("on")) lLoad(true); }, 25000);
+  };
+  window.lscanClose=function(){
+    lStopCam();
+    if(lTimer){ clearInterval(lTimer); lTimer=null; }
+    $("lscanScreen").classList.remove("on"); $("lscanScreen").setAttribute("aria-hidden","true");
+  };
+
   window.gscanOpen=function(){
     ensureAudio();
     if($("gscanSearch")) $("gscanSearch").value=""; if($("gscanSearchRes")) $("gscanSearchRes").innerHTML="";
@@ -3050,11 +3232,26 @@
   };
 
   window.resetEntries = async function(){
-    if(!(await uiConfirm("Remettre tout le monde « en attente » ? (les billets restent valides)"))) return;
+    if(!(await uiConfirm("Remettre tout le monde « en attente » ?\n\nLes billets restent valides. Les repas déjà retirés sont effacés eux aussi."))) return;
     var keys=await Store.list("used:");
     for(var i=0;i<keys.length;i++){ await Store.del(keys[i]); }
     usedSet.clear(); usedAt={}; updateCounts(); renderList();
-    flash("Entrées réinitialisées.");
+    try{ await Store.del("lscanMiennes"); }catch(e){}
+    /* Effacement explicite en ligne : la poussée de la liste fusionne désormais
+       au lieu d'écraser, elle ne suffirait donc plus à propager la remise à zéro. */
+    var cid=currentCommId(), efface=false;
+    if(cid){
+      try{
+        var ok=await ensureAuth(cid);
+        var a=ok?loadAuth(cid):null;
+        if(a && a.idToken){
+          var r=await fsPatchFields(ticketDocPath(cid), { used: fsField("{}"),
+                  updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+          efface = !!(r && r.ok);
+        }
+      }catch(e){}
+    }
+    flash(efface ? "Entrées réinitialisées." : "Réinitialisé ici, mais PAS en ligne — les autres téléphones les voient encore.");
   };
   async function wipeAll(){
     var keys=await Store.list("used:");
@@ -3376,6 +3573,92 @@
     return (g && g.name) || "";
   }
   function vouvoyerG(g){ return currentCommId()==="proclamation" && g && g.role && g.role!=="etudiant"; }
+  /* ==========================================================================
+     LUNCH — second QR et écran de scan dédié.
+     Le code lunch dérive du billet : même jeton + suffixe. Il atterrit dans le
+     MÊME champ « used » que les entrées, donc « valable une fois » vient tout
+     seul et aucune règle Firestore ne change. Le scanner d'entrée n'est pas
+     touché : tous les comptages partent du roster et demandent « cette personne
+     est-elle entrée ? », jamais l'inverse.
+     ========================================================================== */
+  var LUNCH_SUFFIXE = "-L";
+  function codeLunch(token){ return String(token||"")+LUNCH_SUFFIXE; }
+  function estCodeLunch(c){ return /-L$/.test(String(c||"")); }
+  function jetonDeLunch(c){ return String(c||"").replace(/-L$/,""); }
+
+  function lunchKey(cid){ return "qrentry:lunch:"+(cid||currentCommId()||""); }
+  /* État local : { qr:{on,at}, scan:{on,at} }. Écrit aussi dans le document
+     Firestore pour suivre d'un appareil à l'autre. */
+  function lunchEtat(cid){
+    try{ var b=window.localStorage.getItem(lunchKey(cid)); if(b) return JSON.parse(b); }catch(e){}
+    return { qr:{on:false,at:""}, scan:{on:false,at:""} };
+  }
+  function lunchActif(quoi, cid){
+    if((cid||currentCommId())!=="proclamation") return false;
+    var e=lunchEtat(cid); return !!(e && e[quoi] && e[quoi].on);
+  }
+  function lunchPoser(etat, cid){
+    try{ window.localStorage.setItem(lunchKey(cid), JSON.stringify(etat)); }catch(e){}
+  }
+  async function lunchPublier(etat, cid){
+    var ok=await ensureAuth(cid); if(!ok) return false;
+    var a=loadAuth(cid); if(!a||!a.idToken) return false;
+    try{
+      var r=await fsPatchFields(ticketDocPath(cid), { lunch: fsField(JSON.stringify(etat)),
+            updatedAt: fsField(new Date().toISOString()) }, a.idToken);
+      return !!(r&&r.ok);
+    }catch(e){ return false; }
+  }
+  function lunchQuand(at){
+    if(!at) return "";
+    try{ return new Date(at).toLocaleString("fr-BE",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; }
+  }
+  /* L'affichage vient toujours de ce qui est enregistré, jamais de la position
+     du rail : si l'écriture échoue, l'interrupteur revient de lui-même. */
+  function renderLunchUI(){
+    var cid=currentCommId();
+    var z=$("suLunch"); if(z) z.style.display = (cid==="proclamation") ? "block" : "none";
+    if(cid!=="proclamation"){ if($("lscanOpenBtn")) $("lscanOpenBtn").style.display="none"; return; }
+    var e=lunchEtat(cid);
+    [["qr","railLunchQr","etatLunchQr"],["scan","railLunchScan","etatLunchScan"]].forEach(function(t){
+      var st=e[t[0]]||{on:false,at:""}, rail=$(t[1]), lbl=$(t[2]);
+      if(rail){ rail.classList.toggle("on", !!st.on); rail.setAttribute("aria-checked", st.on?"true":"false"); }
+      if(lbl){
+        lbl.className = "bascule-etat "+(st.on?"ok":"off");
+        lbl.textContent = st.on ? ("Activé"+(lunchQuand(st.at)?(" le "+lunchQuand(st.at)):"")) : "Désactivé";
+      }
+    });
+    var av=$("suLunchAvert");
+    if(av){
+      var envoyes = roster.filter(function(g){ return g.mailEnvoye; }).length;
+      av.textContent = (e.qr && e.qr.on && envoyes)
+        ? (envoyes+" billet(s) déjà envoyé(s) ne contiennent pas le QR lunch — il faudra les renvoyer.")
+        : "Le QR lunch n'est ajouté qu'aux billets envoyés après activation.";
+    }
+    if($("lscanOpenBtn")) $("lscanOpenBtn").style.display = (e.scan && e.scan.on) ? "inline-flex" : "none";
+  }
+  window.basculerLunch = async function(quoi){
+    var cid=currentCommId();
+    if(cid!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
+    var e=lunchEtat(cid), st=e[quoi]||{on:false,at:""};
+    var vers = !st.on;
+    var nom = (quoi==="qr") ? "le QR lunch dans les billets" : "l'écran de scan Lunch";
+    var envoyes = roster.filter(function(g){ return g.mailEnvoye; }).length;
+    var q = (vers?"Activer ":"Désactiver ")+nom+" ?";
+    if(vers && quoi==="qr" && envoyes) q += "\n\n"+envoyes+" billet(s) déjà envoyé(s) n'auront pas le QR lunch : il faudra les renvoyer.";
+    if(!vers && quoi==="scan") q += "\n\nLes repas déjà scannés restent enregistrés.";
+    if(!(await uiConfirm(q))) return;
+    var rail=$(quoi==="qr"?"railLunchQr":"railLunchScan"); if(rail) rail.classList.add("busy");
+    var nouveau = { qr:{on:!!(e.qr&&e.qr.on), at:(e.qr&&e.qr.at)||""}, scan:{on:!!(e.scan&&e.scan.on), at:(e.scan&&e.scan.at)||""} };
+    nouveau[quoi] = { on:vers, at: vers ? new Date().toISOString() : "" };
+    var ok = await lunchPublier(nouveau, cid);
+    if(rail) rail.classList.remove("busy");
+    if(!ok){ renderLunchUI(); uiAlert("PROBLEME : le réglage n'a pas pu être enregistré. Rien n'a changé."); return; }
+    lunchPoser(nouveau, cid);
+    renderLunchUI();
+    uiAlert((vers?"ACTIVÉ":"DÉSACTIVÉ")+" — "+nom+".\n\nEnregistré le "+lunchQuand(nouveau[quoi].at||new Date().toISOString())+".");
+  };
+
   /* ---------- Choix pour le traiteur (proclamation) ---------- */
   var REPAS_LBL = { tout:"Omnivore", sansporc:"Sans porc", sansviande:"Végétarien" };
   function lienRepas(g){
@@ -3710,6 +3993,7 @@
     if(g.cat){ payload.ct=g.cat; payload.cc=g.cc||""; }
     if(g.role){ payload.r=g.role; }
     if(g.section){ payload.sc=g.section; }
+    if(lunchActif("qr")) payload.lu=1;      // second QR sur la page billet
     return base+"#t="+encodeURIComponent(b64encode(JSON.stringify(payload)));
   }
   function showGuestTicket(data){
@@ -3729,6 +4013,17 @@
       var cv=document.createElement("canvas");
       new QRious({element:cv,value:data.t,size:600,level:"M",background:"#ffffff",foreground:"#181233"});
       $("gQr").innerHTML=""; $("gQr").appendChild(cv);
+    }catch(e){}
+    try{
+      var wrap=$("gLunchWrap");
+      if(wrap){
+        if(data.lu && data.t){
+          var cl=document.createElement("canvas");
+          new QRious({element:cl,value:codeLunch(data.t),size:600,level:"M",background:"#ffffff",foreground:"#181233"});
+          $("gQrLunch").innerHTML=""; $("gQrLunch").appendChild(cl);
+          wrap.style.display="block";
+        } else { wrap.style.display="none"; }
+      }
     }catch(e){}
     try{ document.title = (data.e? data.e+" — ":"")+"Billet "+(data.n||""); }catch(e){}
   }
@@ -4323,6 +4618,7 @@
     var cid=currentCommId(); if(!cid) return;
     if(["parrainage","festif","culture","aca","proclamation"].indexOf(cid)<0) return;
     monterSignupCard();
+    try{ renderLunchUI(); lunchSyncDepuisDoc(cid); }catch(e){}
     if($("suLink")) $("suLink").value=signupLink(false);
     if($("suLinkPay")) $("suLinkPay").value=signupLink(true);
     if($("suPayWrap")) $("suPayWrap").style.display = (cid==="parrainage" || cid==="proclamation") ? "none" : "";
@@ -4716,6 +5012,19 @@
      passe par l'équipe, qui retire la personne à la main dans l'onglet Suivi : la commande
      traiteur étant passée à l'avance, une place libérée seule était ingérable. */
   /* Choix traiteur déposés par le formulaire : on les applique au billet correspondant. */
+  /* L'état des interrupteurs vit dans le document : un autre appareil le voit. */
+  async function lunchSyncDepuisDoc(cid){
+    cid=cid||currentCommId(); if(cid!=="proclamation") return;
+    try{
+      var ok=await ensureAuth(cid); if(!ok) return;
+      var a=loadAuth(cid); if(!a||!a.idToken) return;
+      var data=await fsGetDoc(ticketDocPath(cid), a.idToken, ["lunch"]);
+      var brut=((data&&data.fields&&data.fields.lunch)||{}).stringValue||"";
+      if(!brut) return;
+      var e=JSON.parse(brut);
+      if(e && e.qr && e.scan){ lunchPoser(e, cid); renderLunchUI(); }
+    }catch(e){}
+  }
   async function traiterChoixRepas(){
     var cid=currentCommId(); if(!cid) return false;
     var marques = SIGNUPS.filter(function(x){ return x && x.statut==="repas" && x.repasToken && !x.traite; });
@@ -4833,6 +5142,19 @@
       <input class="f" type="text" id="suSearch" placeholder="Rechercher un nom, un e-mail, un matricule…" autocomplete="off" oninput="rechercheInscriptions()" style="margin-top:8px">
       <div style="margin-top:8px"><button class="btn ghost sm" id="btnRefreshSu2" type="button" onclick="refreshSignups()">🔄 Rafraîchir les inscriptions</button></div>
       <div id="suList" style="margin-top:8px"></div>
+      <div id="suLunch" style="display:none;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+        <p class="fld" style="margin:0 0 2px">Lunch</p>
+        <p class="hint" id="suLunchAvert" style="margin:0 0 8px"></p>
+        <div class="bascule">
+          <div class="txt"><b>QR lunch dans les billets</b><span id="etatLunchQr" class="bascule-etat off">Désactivé</span></div>
+          <div class="rail" id="railLunchQr" role="switch" aria-checked="false" tabindex="0" onclick="basculerLunch('qr')"></div>
+        </div>
+        <div class="bascule">
+          <div class="txt"><b>Écran de scan Lunch</b><span id="etatLunchScan" class="bascule-etat off">Désactivé</span></div>
+          <div class="rail" id="railLunchScan" role="switch" aria-checked="false" tabindex="0" onclick="basculerLunch('scan')"></div>
+        </div>
+      </div>
+
       <div id="suExport" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
         <div class="row" style="gap:8px;flex-wrap:wrap">
           <button class="btn ghost sm" type="button" onclick="ouvrirArchives()">🗂️ Archives des événements</button>
@@ -4915,6 +5237,10 @@
     try{ majCooptCount(); if(currentTab==="coopt") renderCooptTab(); }catch(e){}
     if($("suExport")) $("suExport").style.display = "block";
     if($("btnExportParticipants")) $("btnExportParticipants").style.display = (currentCommId()==="proclamation") ? "" : "none";
+    // Proclamation : pas de collage de liste — chaque personne passe par le
+    // formulaire un-par-un, donc avec e-mail, type et régime alimentaire.
+    if($("collageWrap")) $("collageWrap").style.display = (currentCommId()==="proclamation") ? "none" : "";
+    try{ renderLunchUI(); }catch(e){}
     try{ if(currentTab==="traiteur") renderTraiteurTab(); }catch(e){}
     var box=$("suList"), st=$("suStats"); if(!box) return;
     /* Recherche : elle ne filtre QUE l'affichage. Les compteurs du résumé, le bouton
@@ -5679,7 +6005,20 @@
       await Store.set("rosterVersion", String(localRosterVersion));
 
       var jsonRoster = JSON.stringify(roster);
-      var jsonUsed = JSON.stringify(localUsedMapObj());
+      /* Les entrées et les repas peuvent avoir été scannés par un AUTRE téléphone
+         depuis notre dernière relecture. Écrire notre seule vue les effacerait :
+         on relit et on fusionne, comme le fait déjà cloudPushUsed. Seule une
+         remise à zéro volontaire (remplacer) écrase. */
+      var usedFusion = localUsedMapObj();
+      if(!remplacer){
+        try{
+          var du = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used"]);
+          var distantUsed = {};
+          try{ distantUsed = JSON.parse((du && du.fields && du.fields.used && du.fields.used.stringValue)||"{}"); }catch(e){}
+          usedFusion = Object.assign({}, distantUsed, usedFusion);
+        }catch(e){}
+      }
+      var jsonUsed = JSON.stringify(usedFusion);
       alerteTailleDoc(tailleOctets(jsonRoster)+tailleOctets(jsonUsed), "Liste des billets");
 
       var fields = {
