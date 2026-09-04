@@ -226,14 +226,36 @@
       lien: lienConfirmation(token)
     });
   }
-  async function assurerTokenEcriture(){
-    if(window.__tok) return window.__tok;
-    if(window.__anon) return window.__anon;
+  /* Un jeton Google expire au bout d'une heure. Il était pris au chargement de la
+     page et réutilisé tel quel : quelqu'un qui laissait l'onglet ouvert un moment
+     se voyait refuser son inscription. On le renouvelle donc quand il vieillit,
+     et on sait en réclamer un neuf après un refus. */
+  var TOKEN_DUREE = 50*60*1000;   // marge sous l'heure réelle
+  function tokenFrais(){
+    if(window.__tok && (Date.now()-(window.__tokAt||0) < TOKEN_DUREE)) return window.__tok;
+    if(window.__anon && (Date.now()-(window.__anonAt||0) < TOKEN_DUREE)) return window.__anon;
+    return "";
+  }
+  async function assurerTokenEcriture(forcer){
+    if(!forcer){ var t=tokenFrais(); if(t) return t; }
     var ra = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
       { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) });
     var a = await ra.json();
     if(!a.idToken) throw new Error("auth");
-    window.__anon=a.idToken; return a.idToken;
+    window.__anon=a.idToken; window.__anonAt=Date.now();
+    window.__tok=""; window.__tokAt=0;      // le compte scanner périmé ne doit plus être repris
+    return a.idToken;
+  }
+  /* Un appel Firestore qui se voit refuser l'authentification est rejoué une fois
+     avec un jeton neuf. La personne ne voit rien. */
+  async function fsAvecJeton(faire){
+    var tok = await assurerTokenEcriture();
+    var r = await faire(tok);
+    if(r && r.status===401){
+      tok = await assurerTokenEcriture(true);
+      r = await faire(tok);
+    }
+    return { r:r, tok:tok };
   }
   // Une carte / preuve = un document séparé (évite la limite de 1 Mo du doc principal).
   function carteDocPath(carteId){ return "commission_cartes/"+CID+"__c__"+carteId; }
@@ -675,13 +697,13 @@
       { method:"POST", headers:{"Content-Type":"application/json"},
         body:JSON.stringify({email:"scan@qrentry.app", password:"123456", returnSecureToken:true}) })
       .then(function(r){ return r.json(); })
-      .then(function(a){ if(a && a.idToken){ window.__tok=a.idToken; return a.idToken; } throw 0; });
+      .then(function(a){ if(a && a.idToken){ window.__tok=a.idToken; window.__tokAt=Date.now(); return a.idToken; } throw 0; });
   }
   function connexionAnonyme(){
     return fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
       { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) })
       .then(function(r){ return r.json(); })
-      .then(function(a){ if(a && a.idToken){ window.__anon=a.idToken; return a.idToken; } throw 0; });
+      .then(function(a){ if(a && a.idToken){ window.__anon=a.idToken; window.__anonAt=Date.now(); return a.idToken; } throw 0; });
   }
 
   setTimeout(function(){
@@ -828,16 +850,11 @@
 
     var btn=q("btn"); btn.disabled=true; btn.textContent="Envoi…";
     try{
-      var tok = window.__tok || window.__anon;   // compte scanner en priorité (droits d'écriture)
-      if(!tok){
-        var ra = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key="+API_KEY,
-          { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({returnSecureToken:true}) });
-        var a = await ra.json();
-        if(!a.idToken) throw new Error("auth");
-        tok = a.idToken;
-      }
       var path = "commission_tickets/"+CID;   // seule collection autorisée
-      var rc = await fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+tok } });
+      var lecture = await fsAvecJeton(function(t){
+        return fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+t } });
+      });
+      var tok = lecture.tok, rc = lecture.r;
       var cur = rc.ok ? await rc.json() : null;
       var list=[];
       try{ if(cur && cur.fields && cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
@@ -906,9 +923,12 @@
       var fields = { signups:{ stringValue: JSON.stringify(list) },
                      updatedAt:{ stringValue: new Date().toISOString() } };
       var qs = Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
-      var rp = await fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
-        headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" },
-        body: JSON.stringify({ fields:fields }) });
+      var ecriture = await fsAvecJeton(function(t){
+        return fetch(FS_BASE+path+"?"+qs, { method:"PATCH",
+          headers:{ "Authorization":"Bearer "+t, "Content-Type":"application/json" },
+          body: JSON.stringify({ fields:fields }) });
+      });
+      var rp = ecriture.r; tok = ecriture.tok;
       if(!rp.ok){
         var det=""; try{ var je=await rp.json(); det=(je&&je.error&&je.error.message)||""; }catch(e){}
         try{ await supprimerImagesOrphelines(); }catch(e){}
