@@ -409,8 +409,8 @@
     }
   }
   async function chargerCorrection(token){
-    _CORR_TOKEN=token;
-    if(q("form")) q("form").style.display="none";
+    _CORR_TOKEN=token; cacherEcranRole();
+    if(q("form")) q("form").style.display="none"; cacherEcranRole();
     if(q("msg")) q("msg").innerHTML="";
     if(q("corrCard")) q("corrCard").style.display="";
     var cm=q("corrMsg"); if(cm) cm.textContent="Chargement…";
@@ -498,7 +498,14 @@
     var fin = new Date(d+"T23:59:59");
     return new Date() > fin;
   }
+  /* Toute page qui écarte le formulaire (fermeture, correction, confirmation…)
+     doit aussi écarter l'écran de choix, sinon il se superpose à son message.
+     On centralise ici pour ne plus avoir à y penser à chaque nouveau cas. */
+  function cacherEcranRole(){
+    var e=q("ecranRole"); if(e) e.style.display="none";
+  }
   function afficherFermeture(d){
+    cacherEcranRole();
     var fin = new Date(d+"T00:00:00").toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
     q("form").style.display="none";
     q("msg").innerHTML = '<div class="card"><p class="big">🔒</p><p><b>Les inscriptions sont closes</b></p>'
@@ -547,7 +554,7 @@
 
   var CONFIRM_TOK = par("confirm");
   if(CONFIRM_TOK){
-    if(q("form")) q("form").style.display="none";
+    if(q("form")) q("form").style.display="none"; cacherEcranRole();
     if(q("msg")) q("msg").innerHTML='<div class="card"><p class="hint">Confirmation en cours…</p></div>';
     confirmerInscription(CONFIRM_TOK);
   }
@@ -561,7 +568,7 @@
   var ANNUL_TOK = par("annuler");
   if(ANNUL_TOK){
     var MAIL_CONTACT = (CID==="proclamation") ? "proclamation@bureauetuidant.xyz" : "esat.bojku@ulb.be";
-    if(q("form")) q("form").style.display="none";
+    if(q("form")) q("form").style.display="none"; cacherEcranRole();
     q("msg").innerHTML='<div class="card"><p class="big">✉️</p><p><b>Un empêchement ?</b></p>'
       + '<p class="hint">L\'annulation en ligne n\'est plus possible. Écris-nous à '
       + '<a href="mailto:'+esc(MAIL_CONTACT)+'">'+esc(MAIL_CONTACT)+'</a> et nous libérerons ta place.</p>'
@@ -595,7 +602,7 @@
      un marqueur que l'app appliquera au billet. */
   var REPAS_TOK = par("choix") || par("repas");   // « repas » : ancien nom du paramètre
   if(REPAS_TOK){
-    if(q("form")) q("form").style.display="none";
+    if(q("form")) q("form").style.display="none"; cacherEcranRole();
     q("msg").innerHTML='<div class="card"><p><b>Indique ton choix</b></p>'
       + '<div style="margin-top:14px;text-align:left">'
       + '<label class="chk"><input type="radio" name="repas2" value="tout"> Omnivore</label>'

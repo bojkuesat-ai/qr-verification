@@ -869,7 +869,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v112</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v113</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -3201,6 +3201,9 @@
     var cibles = roster.filter(function(g){ return !usedSet.has(g.token) && emailOf(g); });
     if(!cibles.length){ flash("Aucun non-venu avec e-mail."); return; }
     if(!(await uiConfirm("Envoyer un rappel à "+cibles.length+" personne(s) non entrée(s) ?"))) return;
+    if(ENVOI_EN_COURS){ uiAlert("Un envoi est déjà en cours. Attends qu'il se termine."); return; }
+    ENVOI_EN_COURS = true;
+    try{
     var suivi=suiviEnvoi("relanceProgress","Rappel aux non-venus"); suivi.debut(cibles.length);
     var ok=0, fail=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
@@ -3215,6 +3218,7 @@
     }
     suivi.fin(cibles.length, ok, fail);
     flash(fail? ("Rappel : "+ok+" envoyé(s), "+fail+" échec(s).") : ("Rappel envoyé à "+ok+" personne(s)."));
+    } finally { ENVOI_EN_COURS = false; }
   };
   window.resendTicket = async function(token){
     var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
@@ -4022,6 +4026,10 @@
     };
   }
   var ECHECS_ENVOI={};
+  /* Un envoi en nombre dure plusieurs minutes. Sans verrou, un second appui
+     — un doigt qui glisse, un écran qui ne répond pas assez vite — relance tout
+     depuis le début : chacun reçoit son billet deux fois. */
+  var ENVOI_EN_COURS = false;
   window.copierEchecs=function(zoneId){
     var l=ECHECS_ENVOI[zoneId]||[];
     if(!l.length){ uiAlert("Aucune adresse en échec."); return; }
@@ -4035,6 +4043,9 @@
     if(!(await uiConfirm("Envoyer "+list.length+" billet(s) n'ayant jamais \u00e9t\u00e9 envoy\u00e9(s) ?"
       +(deja?("\n\n("+deja+" autre(s) d\u00e9j\u00e0 envoy\u00e9(s) ne seront PAS renvoy\u00e9(s).)"):"")))) return;
     var ev = eventName||"notre événement";
+    if(ENVOI_EN_COURS){ uiAlert("Un envoi est déjà en cours. Attends qu'il se termine."); return; }
+    ENVOI_EN_COURS = true;
+    try{
     var prog=$("mailProgress"); prog.style.display="none";
     var suivi=suiviEnvoi("mailProgress","Envoi des billets"); suivi.debut(list.length);
     var ok=0, fail=0;
@@ -4061,6 +4072,7 @@
     renderList();
     suivi.fin(list.length, ok, fail);
     flash(fail? (ok+" envoyé(s), "+fail+" échec(s).") : ok+" nouveau(x) billet(s) envoyé(s).");
+    } finally { ENVOI_EN_COURS = false; }
   };
 
   function ticketLinkFor(g){
