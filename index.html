@@ -175,6 +175,17 @@
   .bascule-etat.ok{color:var(--gold)}
   .bascule-etat.off{color:var(--muted2)}
 
+  /* Suivi d'un envoi en nombre : on voit où ça en est et ce qui a échoué. */
+  .envoi{background:var(--surface2);border:1px solid var(--line);border-radius:12px;padding:12px;margin:10px 0}
+  .envoi-tete{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:13px}
+  .envoi-barre{height:9px;background:var(--line);border-radius:999px;overflow:hidden;margin:9px 0 7px}
+  .envoi-barre>i{display:block;height:100%;background:linear-gradient(90deg,var(--gold),var(--gold-dim));transition:width .2s}
+  .envoi-chiffres{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+  .envoi-chiffres b{color:var(--text)}
+  .envoi-echecs{margin-top:9px;padding-top:9px;border-top:1px solid #5c2530}
+  .envoi-echecs p{margin:0 0 6px;font-size:12.5px;color:var(--red)}
+  .envoi-echecs ul{margin:0;padding-left:18px;font-size:12px;color:var(--muted);max-height:120px;overflow:auto}
+
   /* Scanner */
   .stat{border-radius:var(--r);padding:30px 16px;text-align:center;border:1px solid var(--line);
     background:var(--surface);transition:.2s;margin-bottom:12px}
@@ -448,7 +459,7 @@
         <button class="btn gold block" onclick="sendAllMails()">Envoyer les billets par mail</button>
         <button class="btn ghost sm block" onclick="showNoEmail()" style="margin-top:8px">Voir qui n'a pas d'e-mail</button>
         <p class="hint" id="mailCount" style="margin-top:8px"></p>
-        <p class="hint" id="mailProgress" style="display:none;color:var(--gold-soft);margin-top:8px"></p>
+        <div id="mailProgress" style="display:none;margin-top:8px"></div>
       </div>
       <p class="hint" id="mailNotSet" style="display:none">Envoi par mail pas encore configuré. Ouvre les Réglages (icône ⚙ en haut à droite) — à faire une seule fois.</p>
     </div>
@@ -503,6 +514,7 @@
         <button class="btn ghost sm" id="noShowBtn" onclick="toggleNoShow()">Non entrés</button>
         <button class="btn ghost sm" onclick="mailNoShow()">Relancer les non-venus</button>
       </div>
+      <div id="relanceProgress" style="display:none"></div>
       <details class="menu">
         <summary><span class="btn ghost sm menu-tit">Exporter</span></summary>
         <div class="menu-liste">
@@ -857,7 +869,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v111</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v112</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -3189,14 +3201,20 @@
     var cibles = roster.filter(function(g){ return !usedSet.has(g.token) && emailOf(g); });
     if(!cibles.length){ flash("Aucun non-venu avec e-mail."); return; }
     if(!(await uiConfirm("Envoyer un rappel à "+cibles.length+" personne(s) non entrée(s) ?"))) return;
-    flash("Envoi des rappels…");
-    var ok=0;
+    var suivi=suiviEnvoi("relanceProgress","Rappel aux non-venus"); suivi.debut(cibles.length);
+    var ok=0, fail=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
+      suivi.pas(i, cibles.length, g.name, ok, fail);
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
+        /* même billet que l'envoi d'origine : le lien porte déjà le QR lunch si
+           l'option est active, et on y ajoute le rappel du régime alimentaire. */
+        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+blocRepas(g)+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})});
+        if(r.ok){ ok++; } else { fail++; suivi.echec(g.name, emailOf(g)); }
+      }catch(e){ fail++; suivi.echec(g.name, emailOf(g)); }
       await new Promise(function(res){setTimeout(res,120);});
     }
-    flash("Rappel envoyé à "+ok+" personne(s).");
+    suivi.fin(cibles.length, ok, fail);
+    flash(fail? ("Rappel : "+ok+" envoyé(s), "+fail+" échec(s).") : ("Rappel envoyé à "+ok+" personne(s)."));
   };
   window.resendTicket = async function(token){
     var guest=null; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
@@ -3974,6 +3992,42 @@
       $("mailCount").textContent = n ? (n+" invité(s) avec e-mail sur "+roster.length+".") : "Aucun e-mail détecté — écris les lignes sous la forme « Prénom Nom, email ».";
     }
   }
+  /* Suivi partagé par les deux envois en nombre. On affiche où on en est, et
+     surtout QUI n'a pas reçu : sans ça, un échec passe inaperçu dans le tas. */
+  function suiviEnvoi(zoneId, titre){
+    var z=$(zoneId), echecs=[];
+    function peindre(faits, total, encours, ok, ko, fini){
+      if(!z) return;
+      var pct = total ? Math.round(faits/total*100) : 0;
+      var h = '<div class="envoi"><div class="envoi-tete"><b>'+escapeHtml(titre)+'</b>'
+        + '<span>'+faits+' / '+total+'</span></div>'
+        + '<div class="envoi-barre"><i style="width:'+pct+'%"></i></div>'
+        + '<div class="envoi-chiffres"><span>✅ <b>'+ok+'</b> envoyé(s)</span>'
+        + (ko?('<span>⚠️ <b>'+ko+'</b> échec(s)</span>'):'')
+        + (fini?'':'<span style="opacity:.75">'+escapeHtml(encours||"")+'</span>')+'</div>';
+      if(fini && echecs.length){
+        h += '<div class="envoi-echecs"><p>Ces personnes n\'ont rien reçu :</p><ul>'
+          + echecs.map(function(e){ return '<li>'+escapeHtml(e.nom)+' — '+escapeHtml(e.mail)+'</li>'; }).join("")
+          + '</ul><div style="margin-top:8px"><button class="btn ghost sm" type="button" onclick="copierEchecs(\''+zoneId+'\')">📋 Copier les adresses</button></div></div>';
+      }
+      if(fini && !echecs.length){ h += '<p class="hint" style="margin:8px 0 0;color:var(--gold)">Tout est parti.</p>'; }
+      h += '</div>';
+      z.style.display="block"; z.innerHTML=h;
+    }
+    return {
+      debut:function(total){ echecs=[]; peindre(0,total,"",0,0,false); },
+      pas:function(faits,total,nom,ok,ko){ peindre(faits,total,nom,ok,ko,false); },
+      echec:function(nom,mail){ echecs.push({nom:nom||"",mail:mail||""}); },
+      fin:function(total,ok,ko){ peindre(total,total,"",ok,ko,true); ECHECS_ENVOI[zoneId]=echecs.slice(); }
+    };
+  }
+  var ECHECS_ENVOI={};
+  window.copierEchecs=function(zoneId){
+    var l=ECHECS_ENVOI[zoneId]||[];
+    if(!l.length){ uiAlert("Aucune adresse en échec."); return; }
+    promptCopy(l.map(function(e){ return e.mail; }).join(", "));
+  };
+
   window.sendAllMails=async function(){
     var deja = mailableGuests().filter(function(g){ return !!g.mailEnvoye; }).length;
     var list = mailableGuests().filter(function(g){ return !g.mailEnvoye; });   // jamais envoyés uniquement
@@ -3981,11 +4035,12 @@
     if(!(await uiConfirm("Envoyer "+list.length+" billet(s) n'ayant jamais \u00e9t\u00e9 envoy\u00e9(s) ?"
       +(deja?("\n\n("+deja+" autre(s) d\u00e9j\u00e0 envoy\u00e9(s) ne seront PAS renvoy\u00e9(s).)"):"")))) return;
     var ev = eventName||"notre événement";
-    var prog=$("mailProgress"); prog.style.display="block";
+    var prog=$("mailProgress"); prog.style.display="none";
+    var suivi=suiviEnvoi("mailProgress","Envoi des billets"); suivi.debut(list.length);
     var ok=0, fail=0;
     for(var i=0;i<list.length;i++){
       var g=list[i];
-      prog.textContent="Envoi "+(i+1)+"/"+list.length+" — "+g.name+"…";
+      suivi.pas(i, list.length, g.name, ok, fail);
       try{
         var r = await fetch(SEND_FN, {
           method:"POST",
@@ -3998,13 +4053,13 @@
             reply_to: MAIL_REPONSES
           })
         });
-        if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; }
-      }catch(e){ fail++; g.mailEnvoye=0; }
+        if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; suivi.echec(g.name, emailOf(g)); }
+      }catch(e){ fail++; g.mailEnvoye=0; suivi.echec(g.name, emailOf(g)); }
       await new Promise(function(r){ setTimeout(r,600); });
     }
     try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
     renderList();
-    prog.textContent = "Terminé : "+ok+" envoyé(s)"+(fail?(", "+fail+" échec(s)"):"")+".";
+    suivi.fin(list.length, ok, fail);
     flash(fail? (ok+" envoyé(s), "+fail+" échec(s).") : ok+" nouveau(x) billet(s) envoyé(s).");
   };
 
