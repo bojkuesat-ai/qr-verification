@@ -52,6 +52,36 @@
 </style>
 </head>
 <body>
+<script>
+/* Filet de sécurité : si quoi que ce soit plante, la page l'affiche au lieu de
+   rester blanche. Sans ça, une erreur laisse l'écran vide et personne ne sait
+   quoi en dire. */
+(function(){
+  var vu = false;
+  function montrer(txt){
+    if(vu) return; vu = true;
+    try{
+      var b = document.createElement("div");
+      b.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:99999;background:#3a1113;color:#ffd9d6;"
+        + "font:13px/1.5 -apple-system,BlinkMacSystemFont,Arial,sans-serif;padding:14px 16px;border-bottom:2px solid #e0574f";
+      b.innerHTML = "<b>Une erreur est survenue sur cette page.</b><br>"
+        + "<span style='opacity:.9'>" + String(txt).replace(/</g,"&lt;").slice(0,300) + "</span><br>"
+        + "<span style='opacity:.7'>Fais une capture de ce message et envoie-la.</span>";
+      (document.body || document.documentElement).appendChild(b);
+      var f = document.getElementById("form");
+      if(f) f.style.display = "";               // on rend le formulaire quoi qu'il arrive
+      var e = document.getElementById("ecranRole");
+      if(e) e.style.display = "none";
+    }catch(_){}
+  }
+  window.addEventListener("error", function(ev){
+    montrer((ev && ev.message ? ev.message : "erreur") + (ev && ev.lineno ? (" — ligne " + ev.lineno) : ""));
+  });
+  window.addEventListener("unhandledrejection", function(ev){
+    montrer("Promesse rejetée : " + ((ev && ev.reason && ev.reason.message) || ev.reason || "?"));
+  });
+})();
+</script>
 <div class="wrap">
   <div id="enteteUlb" style="display:none;text-align:center;padding-bottom:18px;margin-bottom:20px;border-bottom:1px solid var(--line)">
     <div style="font-size:12.5px;letter-spacing:.10em;text-transform:uppercase;color:var(--muted)">Université libre de Bruxelles</div>
