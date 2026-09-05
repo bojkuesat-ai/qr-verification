@@ -869,7 +869,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v113</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v115</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -3208,10 +3208,11 @@
     var ok=0, fail=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       suivi.pas(i, cibles.length, g.name, ok, fail);
+      var _p = piecesDuBillet(g);          // fabriqué UNE fois par personne
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
         /* même billet que l'envoi d'origine : le lien porte déjà le QR lunch si
            l'option est active, et on y ajoute le rappel du régime alimentaire. */
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+blocRepas(g)+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})});
+        body:JSON.stringify(Object.assign({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+_p.html+blocRepas(g)+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _p.attachments.length?{attachments:_p.attachments}:{}))});
         if(r.ok){ ok++; } else { fail++; suivi.echec(g.name, emailOf(g)); }
       }catch(e){ fail++; suivi.echec(g.name, emailOf(g)); }
       await new Promise(function(res){setTimeout(res,120);});
@@ -3634,13 +3635,24 @@
   function lunchKey(cid){ return "qrentry:lunch:"+(cid||currentCommId()||""); }
   /* État local : { qr:{on,at}, scan:{on,at} }. Écrit aussi dans le document
      Firestore pour suivre d'un appareil à l'autre. */
+  var REGLAGES_MAIL = ["qr","scan","images","pdf"];   // qr/scan = lunch ; images/pdf = billets
   function lunchEtat(cid){
-    try{ var b=window.localStorage.getItem(lunchKey(cid)); if(b) return JSON.parse(b); }catch(e){}
-    return { qr:{on:false,at:""}, scan:{on:false,at:""} };
+    var vide={}; REGLAGES_MAIL.forEach(function(k){ vide[k]={on:false,at:""}; });
+    try{
+      var b=window.localStorage.getItem(lunchKey(cid));
+      if(b){ var e=JSON.parse(b)||{};
+        REGLAGES_MAIL.forEach(function(k){ if(!e[k]) e[k]={on:false,at:""}; });
+        return e; }
+    }catch(e){}
+    return vide;
   }
   function lunchActif(quoi, cid){
-    if((cid||currentCommId())!=="proclamation") return false;
-    var e=lunchEtat(cid); return !!(e && e[quoi] && e[quoi].on);
+    var c = cid||currentCommId();
+    if(!c) return false;
+    /* QR lunch et écran de scan sont propres à la proclamation.
+       Images et PDF valent pour n'importe quelle commission. */
+    if((quoi==="qr" || quoi==="scan") && c!=="proclamation") return false;
+    var e=lunchEtat(c); return !!(e && e[quoi] && e[quoi].on);
   }
   function lunchPoser(etat, cid){
     try{ window.localStorage.setItem(lunchKey(cid), JSON.stringify(etat)); }catch(e){}
@@ -3656,16 +3668,22 @@
   }
   function lunchQuand(at){
     if(!at) return "";
-    try{ return new Date(at).toLocaleString("fr-BE",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; }
+    try{
+      var d=new Date(at);
+      if(isNaN(d.getTime())) return "";      // date illisible : on n'affiche pas « Invalid Date »
+      return d.toLocaleString("fr-BE",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"});
+    }catch(e){ return ""; }
   }
   /* L'affichage vient toujours de ce qui est enregistré, jamais de la position
      du rail : si l'écriture échoue, l'interrupteur revient de lui-même. */
   function renderLunchUI(){
     var cid=currentCommId();
     var z=$("suLunch"); if(z) z.style.display = (cid==="proclamation") ? "block" : "none";
-    if(cid!=="proclamation"){ if($("lscanOpenBtn")) $("lscanOpenBtn").style.display="none"; return; }
+    var zb=$("suBillets"); if(zb) zb.style.display = "block";
+    if(cid!=="proclamation"){ if($("lscanOpenBtn")) $("lscanOpenBtn").style.display="none"; }
     var e=lunchEtat(cid);
-    [["qr","railLunchQr","etatLunchQr"],["scan","railLunchScan","etatLunchScan"]].forEach(function(t){
+    [["qr","railLunchQr","etatLunchQr"],["scan","railLunchScan","etatLunchScan"],
+     ["images","railImages","etatImages"],["pdf","railPdf","etatPdf"]].forEach(function(t){
       var st=e[t[0]]||{on:false,at:""}, rail=$(t[1]), lbl=$(t[2]);
       if(rail){ rail.classList.toggle("on", !!st.on); rail.setAttribute("aria-checked", st.on?"true":"false"); }
       if(lbl){
@@ -3684,17 +3702,21 @@
   }
   window.basculerLunch = async function(quoi){
     var cid=currentCommId();
-    if(cid!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
+    if(!cid) return;
+    if((quoi==="qr"||quoi==="scan") && cid!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
     var e=lunchEtat(cid), st=e[quoi]||{on:false,at:""};
     var vers = !st.on;
-    var nom = (quoi==="qr") ? "le QR lunch dans les billets" : "l'écran de scan Lunch";
+    var NOMS = { qr:"le QR lunch dans les billets", scan:"l'écran de scan Lunch",
+                 images:"les QR en images dans le mail", pdf:"le billet en PDF joint au mail" };
+    var nom = NOMS[quoi] || quoi;
     var envoyes = roster.filter(function(g){ return g.mailEnvoye; }).length;
     var q = (vers?"Activer ":"Désactiver ")+nom+" ?";
     if(vers && quoi==="qr" && envoyes) q += "\n\n"+envoyes+" billet(s) déjà envoyé(s) n'auront pas le QR lunch : il faudra les renvoyer.";
     if(!vers && quoi==="scan") q += "\n\nLes repas déjà scannés restent enregistrés.";
     if(!(await uiConfirm(q))) return;
     var rail=$(quoi==="qr"?"railLunchQr":"railLunchScan"); if(rail) rail.classList.add("busy");
-    var nouveau = { qr:{on:!!(e.qr&&e.qr.on), at:(e.qr&&e.qr.at)||""}, scan:{on:!!(e.scan&&e.scan.on), at:(e.scan&&e.scan.at)||""} };
+    var nouveau = {};
+    REGLAGES_MAIL.forEach(function(k){ nouveau[k] = { on:!!(e[k]&&e[k].on), at:(e[k]&&e[k].at)||"" }; });
     nouveau[quoi] = { on:vers, at: vers ? new Date().toISOString() : "" };
     var ok = await lunchPublier(nouveau, cid);
     if(rail) rail.classList.remove("busy");
@@ -4052,17 +4074,18 @@
     for(var i=0;i<list.length;i++){
       var g=list[i];
       suivi.pas(i, list.length, g.name, ok, fail);
+      var _p = piecesDuBillet(g);          // fabriqué UNE fois par personne
       try{
         var r = await fetch(SEND_FN, {
           method:"POST",
           headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-          body: JSON.stringify({
+          body: JSON.stringify(Object.assign({
             to: emailOf(g),
             subject: (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+ev,
-            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+lienDesistement(g)+mentionPerso(g)+blocCooptation(currentCommId()),
+            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+_p.html+blocRepas(g)+lienDesistement(g)+mentionPerso(g)+blocCooptation(currentCommId()),
             from: expediteurPour(g),
             reply_to: MAIL_REPONSES
-          })
+          }, _p.attachments.length?{attachments:_p.attachments}:{}))
         });
         if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; suivi.echec(g.name, emailOf(g)); }
       }catch(e){ fail++; g.mailEnvoye=0; suivi.echec(g.name, emailOf(g)); }
@@ -4074,6 +4097,84 @@
     flash(fail? (ok+" envoyé(s), "+fail+" échec(s).") : ok+" nouveau(x) billet(s) envoyé(s).");
     } finally { ENVOI_EN_COURS = false; }
   };
+
+  /* ---------- QR en images et billet PDF joints au mail ----------
+     Le QR encode uniquement le jeton : il reste valable même si le régime
+     change. Les images voyagent DANS le message (identifiant interne), donc
+     elles s'affichent sans que le destinataire autorise quoi que ce soit. */
+  function qrEnBase64(valeur, taille){
+    try{
+      if(typeof QRious==="undefined") return "";
+      var cv=document.createElement("canvas");
+      new QRious({element:cv, value:String(valeur), size:taille||420, level:"M",
+                  background:"#ffffff", foreground:"#181233"});
+      return cv.toDataURL("image/png").split(",")[1] || "";
+    }catch(e){ return ""; }
+  }
+  /* Renvoie { html, attachments } à ajouter au mail du billet. */
+  function piecesDuBillet(g){
+    var vide={html:"", attachments:[]};
+    if(!g || !g.token) return vide;
+    var avecImages = lunchActif("images"), avecPdf = lunchActif("pdf");
+    if(!avecImages && !avecPdf) return vide;
+    var lunch = lunchActif("qr");
+    var pj=[], html="";
+    if(avecImages){
+      var q1=qrEnBase64(g.token, 420);
+      if(q1){
+        pj.push({filename:"billet-"+g.token+".png", content:q1, cid:"qr-entree"});
+        html += '<div style="text-align:center;margin:18px 0">'
+             +  '<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8a8298;margin-bottom:6px">Entrée</div>'
+             +  '<img src="cid:qr-entree" width="200" height="200" alt="QR d\'entrée" style="border-radius:10px">'
+             +  '</div>';
+      }
+      if(lunch){
+        var q2=qrEnBase64(codeLunch(g.token), 420);
+        if(q2){
+          pj.push({filename:"lunch-"+g.token+".png", content:q2, cid:"qr-lunch"});
+          html += '<div style="text-align:center;margin:18px 0;padding-top:14px;border-top:1px dashed #ddd">'
+               +  '<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8a8298;margin-bottom:6px">🍽️ Lunch</div>'
+               +  '<img src="cid:qr-lunch" width="200" height="200" alt="QR lunch" style="border-radius:10px">'
+               +  '<div style="font-size:12px;color:#777;margin-top:5px">À présenter au stand repas.</div>'
+               +  '</div>';
+        }
+      }
+    }
+    if(avecPdf){
+      var pdf = billetPdfBase64(g, lunch);
+      if(pdf) pj.push({filename:"billet-"+sanitize(salutNom(g)||g.token)+".pdf", content:pdf});
+    }
+    return { html: html, attachments: pj };
+  }
+  /* Billet PDF : les mêmes QR, plus le nom et le régime au moment de l'envoi.
+     Volontairement figé — c'est un document, pas une page qui se met à jour. */
+  function billetPdfBase64(g, avecLunch){
+    try{
+      if(!(window.jspdf && window.jspdf.jsPDF) || typeof QRious==="undefined") return "";
+      var jsPDF=window.jspdf.jsPDF, doc=new jsPDF({unit:"mm", format:"a5"});
+      var L=148, y=18;
+      doc.setFontSize(9); doc.setTextColor(120);
+      doc.text((eventName||"Événement").toUpperCase(), L/2, y, {align:"center"}); y+=9;
+      doc.setFontSize(17); doc.setTextColor(20);
+      doc.text(String(salutNom(g)||g.name||""), L/2, y, {align:"center"}); y+=7;
+      var lbl=REPAS_LBL[g.repas||""]||"";
+      if(lbl){ doc.setFontSize(10); doc.setTextColor(110);
+        doc.text("Régime alimentaire : "+lbl, L/2, y, {align:"center"}); y+=6; }
+      y+=3;
+      var cv=document.createElement("canvas");
+      new QRious({element:cv, value:g.token, size:420, level:"M", background:"#ffffff", foreground:"#000000"});
+      doc.addImage(cv.toDataURL("image/png"), "PNG", (L-52)/2, y, 52, 52); y+=55;
+      doc.setFontSize(9); doc.setTextColor(120);
+      doc.text("Entrée · "+g.token, L/2, y, {align:"center"}); y+=10;
+      if(avecLunch){
+        var cl=document.createElement("canvas");
+        new QRious({element:cl, value:codeLunch(g.token), size:420, level:"M", background:"#ffffff", foreground:"#000000"});
+        doc.addImage(cl.toDataURL("image/png"), "PNG", (L-40)/2, y, 40, 40); y+=43;
+        doc.text("Lunch — à présenter au stand repas", L/2, y, {align:"center"});
+      }
+      return doc.output("datauristring").split(",")[1] || "";
+    }catch(e){ return ""; }
+  }
 
   function ticketLinkFor(g){
     var base=(location.origin&&location.origin!=="null")?(location.origin+location.pathname):location.href.split("#")[0];
@@ -4799,9 +4900,10 @@
   }
   async function envoyerBilletMail(g){
     var to = emailOf(g); if(!to){ return false; }
+    var _pcs = piecesDuBillet(g);
     try{
       var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+blocRepas(g)+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES})});
+        body:JSON.stringify(Object.assign({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+_pcs.html+blocRepas(g)+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _pcs.attachments.length?{attachments:_pcs.attachments}:{}))});
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
       return rm && rm.ok;
     }catch(e){ g.mailEnvoye = 0; return false; }
@@ -5115,16 +5217,38 @@
       if(e && e.qr && e.scan){ lunchPoser(e, cid); renderLunchUI(); }
     }catch(e){}
   }
+  async function confirmerChangementRegime(g){
+    if(!g) return;
+    var mail=emailOf(g); if(!mail) return;
+    var lbl=REPAS_LBL[g.repas||""]||""; if(!lbl) return;
+    var vous=vouvoyerG(g);
+    var salut = vous ? (((g.prenom||"")+" "+(g.nom||"")).trim() || g.name || "") : (prenomDe(g) || g.name || "");
+    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + "<p>Bonjour "+mailEsc(salut)+",</p>"
+      + (vous ? "<p>Votre régime alimentaire a bien été modifié.</p>"
+              : "<p>Ton régime alimentaire a bien été modifié.</p>")
+      + '<p style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:12px;margin:16px 0;font-size:13.5px;color:#555">'
+      + 'Nouveau choix : <b>'+mailEsc(lbl)+'</b>.</p>'
+      + '<p style="font-size:13px;color:#666">'+(vous?"Votre billet reste valable, il n'y a rien à refaire.":"Ton billet reste valable, il n'y a rien à refaire.")+'</p>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(currentCommId())+'</p></div>';
+    try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+      body:JSON.stringify({to:mail,subject:"Régime alimentaire modifié",html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); }catch(e){}
+  }
   async function traiterChoixRepas(){
     var cid=currentCommId(); if(!cid) return false;
     var marques = SIGNUPS.filter(function(x){ return x && x.statut==="repas" && x.repasToken && !x.traite; });
     if(!marques.length) return false;
-    var change=false;
+    var change=false, aPrevenir=[];
     marques.forEach(function(m){
       var g = roster.filter(function(x){ return x.token===m.repasToken; })[0];
-      if(g && REPAS_LBL[m.repas] && g.repas!==m.repas){ g.repas=m.repas; change=true; }
+      if(g && REPAS_LBL[m.repas] && g.repas!==m.repas){ g.repas=m.repas; change=true; aPrevenir.push(g); }
       m.traite=true; m.traiteTs=Date.now();
     });
+    /* La personne vient de changer son régime : on le lui confirme, sinon son
+       ancien mail continue d'afficher l'ancienne valeur. Le QR, lui, ne bouge
+       pas — il n'encode que le jeton — et le stand repas lit le régime à jour
+       au moment du scan. */
+    aPrevenir.forEach(function(g){ try{ confirmerChangementRegime(g); }catch(e){} });
     if(change){
       localRosterVersion=Date.now();
       await Store.set("roster", JSON.stringify(roster));
@@ -5232,6 +5356,19 @@
       <input class="f" type="text" id="suSearch" placeholder="Rechercher un nom, un e-mail, un matricule…" autocomplete="off" oninput="rechercheInscriptions()" style="margin-top:8px">
       <div style="margin-top:8px"><button class="btn ghost sm" id="btnRefreshSu2" type="button" onclick="refreshSignups()">🔄 Rafraîchir les inscriptions</button></div>
       <div id="suList" style="margin-top:8px"></div>
+      <div id="suBillets" style="display:none;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+        <p class="fld" style="margin:0 0 2px">Billets par mail</p>
+        <p class="hint" style="margin:0 0 8px">Le lien vers le billet est toujours présent, quels que soient ces réglages.</p>
+        <div class="bascule">
+          <div class="txt"><b>QR en images dans le mail</b><span id="etatImages" class="bascule-etat off">Désactivé</span></div>
+          <div class="rail" id="railImages" role="switch" aria-checked="false" tabindex="0" onclick="basculerLunch('images')"></div>
+        </div>
+        <div class="bascule">
+          <div class="txt"><b>Billet en PDF joint</b><span id="etatPdf" class="bascule-etat off">Désactivé</span></div>
+          <div class="rail" id="railPdf" role="switch" aria-checked="false" tabindex="0" onclick="basculerLunch('pdf')"></div>
+        </div>
+      </div>
+
       <div id="suLunch" style="display:none;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
         <p class="fld" style="margin:0 0 2px">Lunch</p>
         <p class="hint" id="suLunchAvert" style="margin:0 0 8px"></p>
