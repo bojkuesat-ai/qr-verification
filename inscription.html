@@ -670,13 +670,30 @@
     try{ window.scrollTo(0,0); }catch(e){}
   }
   function choisirRole(role){
-    var sel=q("f_role"); if(!sel) return;
-    sel.value = role;
-    try{ sel.dispatchEvent(new Event("change")); }catch(e){ majProcla(); }
-    majProcla();
-    var lbl=""; ROLES_PROCLA.forEach(function(r){ if(r[0]===role) lbl=r[1]; });
-    q("rappelRoleTxt").textContent = "Je suis : "+lbl;
-    q("rappelRole").style.display="block";
+    var sel=q("f_role");
+    /* Le formulaire doit s'afficher quoi qu'il arrive. Si l'adaptation des champs
+       échoue, on la laisse tomber plutôt que de laisser la personne bloquée sur
+       l'écran de choix sans rien comprendre. */
+    try{
+      if(sel){
+        sel.value = role;
+        /* Le rôle peut manquer dans le menu si la liste n'a pas encore été
+           remplie : on l'ajoute plutôt que de garder une valeur vide. */
+        if(sel.value !== role){
+          var lbl0=""; ROLES_PROCLA.forEach(function(r){ if(r[0]===role) lbl0=r[1]; });
+          var opt=document.createElement("option");
+          opt.value=role; opt.textContent=lbl0||role;
+          sel.appendChild(opt); sel.value=role;
+        }
+        try{ sel.dispatchEvent(new Event("change")); }catch(e){}
+      }
+      majProcla();
+    }catch(e){}
+    try{
+      var lbl=""; ROLES_PROCLA.forEach(function(r){ if(r[0]===role) lbl=r[1]; });
+      q("rappelRoleTxt").textContent = "Je suis : "+lbl;
+      q("rappelRole").style.display="block";
+    }catch(e){}
     q("ecranRole").style.display="none";
     q("form").style.display="";
     try{ window.scrollTo(0,0); }catch(e){}
