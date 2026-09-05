@@ -869,7 +869,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v115</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v117</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -3212,7 +3212,7 @@
       try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
         /* même billet que l'envoi d'origine : le lien porte déjà le QR lunch si
            l'option est active, et on y ajoute le rappel du régime alimentaire. */
-        body:JSON.stringify(Object.assign({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+_p.html+blocRepas(g)+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _p.attachments.length?{attachments:_p.attachments}:{}))});
+        body:JSON.stringify(Object.assign({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g, lunchActif("qr")?"entree":""),g.token,vouvoyerG(g), lunchActif("qr")?ticketLinkFor(g,"lunch"):"")+_p.html+blocRepas(g)+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _p.attachments.length?{attachments:_p.attachments}:{}))});
         if(r.ok){ ok++; } else { fail++; suivi.echec(g.name, emailOf(g)); }
       }catch(e){ fail++; suivi.echec(g.name, emailOf(g)); }
       await new Promise(function(res){setTimeout(res,120);});
@@ -3254,7 +3254,7 @@
       try{
         var r= await fetch(SEND_FN, { method:"POST",
           headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-          body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))+blocCooptation(currentCommId()), from: expediteurPour(g), reply_to:MAIL_REPONSES }) });
+          body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g))+blocCooptation(currentCommId()), from: expediteurPour(g), reply_to:MAIL_REPONSES }) });
         if(r && r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
       }catch(e){ fail++; }
       await new Promise(function(res){ setTimeout(res,600); });
@@ -3749,7 +3749,16 @@
                + (lbl ? (vous?"Modifier mon choix":"Modifier mon choix") : "Indiquer mon choix")+'</a></p>' : "")
       + '</div>';
   }
-  function billetHtml(name, ev, link, code, vous){
+  /* Deux boutons quand le lunch est actif : chacun ouvre une page qui n'affiche
+     QUE son propre QR. Sur place, personne ne se trompe de code. */
+  function boutonsBillet(lienEntree, lienLunch, vous){
+    var st='padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;margin:6px';
+    var h='<p style="text-align:center;margin:26px 0">'
+      + '<a href="'+lienEntree+'" style="background:#e0b64d;color:#181233;'+st+'">Mon billet d entree</a>';
+    if(lienLunch) h += '<a href="'+lienLunch+'" style="background:#3fae7a;color:#0b2418;'+st+'">Mon billet lunch</a>';
+    return h+'</p>';
+  }
+  function billetHtml(name, ev, link, code, vous, lienLunch){
     var titre    = vous ? "Votre billet pour " : "Ton billet pour ";
     var intro    = vous ? "Voici votre billet personnel. Présentez-le à l'entrée :" : "Voici ton billet personnel. Présente-le à l'entrée :";
     var fallback = vous ? "Si le bouton ne marche pas, copiez ce lien :" : "Si le bouton ne marche pas, copie ce lien :";
@@ -3758,8 +3767,9 @@
       + '<p>Bonjour '+mailEsc(name)+',</p>'
       + '<p>'+intro+'</p>'
       + infosPratiquesHtml()
-      + '<p style="text-align:center;margin:26px 0"><a href="'+link+'" style="background:#e0b64d;color:#181233;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block">Afficher mon billet</a></p>'
-      + '<p style="color:#666;font-size:13px">'+fallback+'<br><a href="'+link+'">'+link+'</a></p>'
+      + boutonsBillet(link, lienLunch, vous)
+      + '<p style="color:#666;font-size:13px">'+fallback+'<br><a href="'+link+'">'+link+'</a>'
+        + (lienLunch ? ('<br><br>Lien du billet lunch :<br><a href="'+lienLunch+'">'+lienLunch+'</a>') : '')+'</p>'
       + '<p style="color:#666;font-size:13px">Code du billet : <b>'+mailEsc(code)+'</b></p>'
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
       + '<p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
@@ -4082,7 +4092,7 @@
           body: JSON.stringify(Object.assign({
             to: emailOf(g),
             subject: (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+ev,
-            html: billetHtml(salutNom(g), ev, ticketLinkFor(g), g.token, vouvoyerG(g))+_p.html+blocRepas(g)+lienDesistement(g)+mentionPerso(g)+blocCooptation(currentCommId()),
+            html: billetHtml(salutNom(g), ev, ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g), lunchActif("qr")?ticketLinkFor(g,"lunch"):"")+_p.html+blocRepas(g)+lienDesistement(g)+mentionPerso(g)+blocCooptation(currentCommId()),
             from: expediteurPour(g),
             reply_to: MAIL_REPONSES
           }, _p.attachments.length?{attachments:_p.attachments}:{}))
@@ -4125,7 +4135,7 @@
         pj.push({filename:"billet-"+g.token+".png", content:q1, cid:"qr-entree"});
         html += '<div style="text-align:center;margin:18px 0">'
              +  '<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8a8298;margin-bottom:6px">Entrée</div>'
-             +  '<img src="cid:qr-entree" width="200" height="200" alt="QR d\'entrée" style="border-radius:10px">'
+             +  '<img src="cid:qr-entree" width="200" height="200" alt="QR entree" style="border-radius:10px">'
              +  '</div>';
       }
       if(lunch){
@@ -4141,42 +4151,51 @@
       }
     }
     if(avecPdf){
-      var pdf = billetPdfBase64(g, lunch);
-      if(pdf) pj.push({filename:"billet-"+sanitize(salutNom(g)||g.token)+".pdf", content:pdf});
+      /* Deux fichiers distincts plutôt qu'un seul : au stand comme à l'entrée,
+         on ouvre le bon document sans avoir à chercher le bon QR dedans. */
+      var nom = sanitize(salutNom(g)||g.token);
+      var pdfE = billetPdfBase64(g, "entree");
+      if(pdfE) pj.push({filename:"billet-entree-"+nom+".pdf", content:pdfE});
+      if(lunch){
+        var pdfL = billetPdfBase64(g, "lunch");
+        if(pdfL) pj.push({filename:"billet-lunch-"+nom+".pdf", content:pdfL});
+      }
     }
     return { html: html, attachments: pj };
   }
-  /* Billet PDF : les mêmes QR, plus le nom et le régime au moment de l'envoi.
-     Volontairement figé — c'est un document, pas une page qui se met à jour. */
-  function billetPdfBase64(g, avecLunch){
+  /* Billet PDF, un par usage. Figé à l'envoi : c'est un document, pas une page
+     qui se met à jour. Le régime ne figure que sur celui du lunch, où il sert. */
+  function billetPdfBase64(g, usage){
     try{
       if(!(window.jspdf && window.jspdf.jsPDF) || typeof QRious==="undefined") return "";
-      var jsPDF=window.jspdf.jsPDF, doc=new jsPDF({unit:"mm", format:"a5"});
-      var L=148, y=18;
-      doc.setFontSize(9); doc.setTextColor(120);
-      doc.text((eventName||"Événement").toUpperCase(), L/2, y, {align:"center"}); y+=9;
-      doc.setFontSize(17); doc.setTextColor(20);
-      doc.text(String(salutNom(g)||g.name||""), L/2, y, {align:"center"}); y+=7;
-      var lbl=REPAS_LBL[g.repas||""]||"";
-      if(lbl){ doc.setFontSize(10); doc.setTextColor(110);
-        doc.text("Régime alimentaire : "+lbl, L/2, y, {align:"center"}); y+=6; }
-      y+=3;
-      var cv=document.createElement("canvas");
-      new QRious({element:cv, value:g.token, size:420, level:"M", background:"#ffffff", foreground:"#000000"});
-      doc.addImage(cv.toDataURL("image/png"), "PNG", (L-52)/2, y, 52, 52); y+=55;
-      doc.setFontSize(9); doc.setTextColor(120);
-      doc.text("Entrée · "+g.token, L/2, y, {align:"center"}); y+=10;
-      if(avecLunch){
-        var cl=document.createElement("canvas");
-        new QRious({element:cl, value:codeLunch(g.token), size:420, level:"M", background:"#ffffff", foreground:"#000000"});
-        doc.addImage(cl.toDataURL("image/png"), "PNG", (L-40)/2, y, 40, 40); y+=43;
-        doc.text("Lunch — à présenter au stand repas", L/2, y, {align:"center"});
+      var lunch = (usage==="lunch");
+      var jsPDF=window.jspdf.jsPDF, doc=new jsPDF({unit:"mm", format:"a6"});
+      var L=105, y=15;
+      doc.setFontSize(8); doc.setTextColor(120);
+      doc.text((eventName||"Événement").toUpperCase(), L/2, y, {align:"center"}); y+=6;
+      doc.setFontSize(13); doc.setTextColor(20);
+      doc.text(lunch ? "BILLET LUNCH" : "BILLET D ENTREE", L/2, y, {align:"center"}); y+=8;
+      doc.setFontSize(14);
+      doc.text(String(salutNom(g)||g.name||""), L/2, y, {align:"center"}); y+=6;
+      if(lunch){
+        var lbl=REPAS_LBL[g.repas||""]||"";
+        if(lbl){ doc.setFontSize(10); doc.setTextColor(110);
+          doc.text(lbl, L/2, y, {align:"center"}); y+=6; }
       }
+      y+=2;
+      var code = lunch ? codeLunch(g.token) : g.token;
+      var cv=document.createElement("canvas");
+      new QRious({element:cv, value:code, size:420, level:"M", background:"#ffffff", foreground:"#000000"});
+      doc.addImage(cv.toDataURL("image/png"), "PNG", (L-48)/2, y, 48, 48); y+=53;
+      doc.setFontSize(9); doc.setTextColor(120);
+      doc.text(code, L/2, y, {align:"center"}); y+=6;
+      doc.setFontSize(8);
+      doc.text(lunch ? "À présenter au stand repas." : "À présenter à l entree.", L/2, y, {align:"center"});
       return doc.output("datauristring").split(",")[1] || "";
     }catch(e){ return ""; }
   }
 
-  function ticketLinkFor(g){
+  function ticketLinkFor(g, vue){
     var base=(location.origin&&location.origin!=="null")?(location.origin+location.pathname):location.href.split("#")[0];
     var payload={t:g.token,n:g.name,e:eventName||""};
     if(g.role){ payload.r=g.role; payload.y=g.annee||""; payload.sc=g.section||""; }
@@ -4184,7 +4203,9 @@
     if(g.cat){ payload.ct=g.cat; payload.cc=g.cc||""; }
     if(g.role){ payload.r=g.role; }
     if(g.section){ payload.sc=g.section; }
-    if(lunchActif("qr")) payload.lu=1;      // second QR sur la page billet
+    if(lunchActif("qr")) payload.lu=1;      // la page billet sait qu'un QR lunch existe
+    if(vue==="entree") payload.vue="e";     // page dédiée : entrée seule
+    if(vue==="lunch")  payload.vue="l";     // page dédiée : lunch seul
     return base+"#t="+encodeURIComponent(b64encode(JSON.stringify(payload)));
   }
   function showGuestTicket(data){
@@ -4201,14 +4222,24 @@
       else { $("gCat").style.display="none"; }
     }
     try{
+      /* Sur la page dédiée au lunch, le QR principal est celui du repas : inutile
+         de dessiner d'abord celui de l'entrée pour l'écraser juste après. */
+      var valeurQr = (data.vue==="l") ? codeLunch(data.t) : data.t;
       var cv=document.createElement("canvas");
-      new QRious({element:cv,value:data.t,size:600,level:"M",background:"#ffffff",foreground:"#181233"});
+      new QRious({element:cv,value:valeurQr,size:600,level:"M",background:"#ffffff",foreground:"#181233"});
       $("gQr").innerHTML=""; $("gQr").appendChild(cv);
     }catch(e){}
     try{
+      var vue = data.vue || "";                    // "e" = entrée seule, "l" = lunch seul
       var wrap=$("gLunchWrap");
-      if(wrap){
-        if(data.lu && data.t){
+      if(vue==="l"){
+        /* Page dédiée au lunch : un seul code à l'écran, pas de confusion possible. */
+        if($("gCode")) $("gCode").textContent = codeLunch(data.t);
+        if($("gEvent")) $("gEvent").textContent = (data.e? data.e+" — " : "")+"Lunch";
+        if(wrap) wrap.style.display="none";
+      } else if(wrap){
+        if(vue==="e"){ wrap.style.display="none"; }        // page dédiée à l'entrée
+        else if(data.lu && data.t){
           var cl=document.createElement("canvas");
           new QRious({element:cl,value:codeLunch(data.t),size:600,level:"M",background:"#ffffff",foreground:"#181233"});
           $("gQrLunch").innerHTML=""; $("gQrLunch").appendChild(cl);
@@ -4373,7 +4404,7 @@
         +(vouvoyerG(g)
             ? '<p>Nous ne vous avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau votre billet :</p>'
             : '<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>')
-        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))
+        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g))
         + lienDesistement(g)
         + mentionPerso(g)
         +'</div>';
@@ -4398,7 +4429,7 @@
         +(vouvoyerG(g)
             ? '<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
             : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>')
-        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g), g.token, vouvoyerG(g))
+        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g))
         + lienDesistement(g)
         + mentionPerso(g)
         +'</div>';
@@ -4903,7 +4934,7 @@
     var _pcs = piecesDuBillet(g);
     try{
       var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify(Object.assign({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g),g.token,vouvoyerG(g))+_pcs.html+blocRepas(g)+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _pcs.attachments.length?{attachments:_pcs.attachments}:{}))});
+        body:JSON.stringify(Object.assign({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g, lunchActif("qr")?"entree":""),g.token,vouvoyerG(g), lunchActif("qr")?ticketLinkFor(g,"lunch"):"")+_pcs.html+blocRepas(g)+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _pcs.attachments.length?{attachments:_pcs.attachments}:{}))});
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
       return rm && rm.ok;
     }catch(e){ g.mailEnvoye = 0; return false; }
