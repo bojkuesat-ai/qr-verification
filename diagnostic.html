@@ -57,6 +57,7 @@
 (function(){
   var FS_PROJET = "be-events-13c5c";
   var FS = "https://firestore.googleapis.com/v1/projects/"+FS_PROJET+"/databases/(default)/documents/commission_tickets/proclamation";
+  var API_KEY = "AIzaSyBLmGXcSQHQsba-Rw5CtUhuD-UpCuWKSQA";
   var SUPA_ANON = "sb_publishable_xoVRiE99YOepw-sb5Tmtcg_SJ3VE_0s";
   var SEND = "https://mlgzdfyqjhvyubrywuim.supabase.co/functions/v1/send-email";
   var IMG = "iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAIAAAC2BqGFAAAA8ElEQVR42u3bsQkAIAxFwcxg5R7uP5vuoCCBfyF94NpHao51vfth0u4WaNCgQYMGDRo0aNCgQYMGDRo0aNCgQYMGDRo0aNBNoWH9uQsaNGjQoEGDBg0aNGjQoEGDBg0aNGjQoEGDBg0adFdoWCo4aNCgQYMGDRo0aNCgQYMGDRo0aNCgQYMGDRo06GxoWCo4aNCgQYMGDRo0aNCgQYMGDRo0aNCgQYMGDRo0aH+GsFRw0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0LnQsFRw0KBBgwYNGjRo0KBBgwYNGjRo0KBBgwYNGjRo0NHQBxi1SMP4rVVEAAAAAElFTkSuQmCC";
@@ -97,13 +98,32 @@
       q("go").disabled = false; q("go").textContent = "Lancer le diagnostic";
       return;
     }
+    /* Le jeton stocke ne vit qu'une heure. On le renouvelle avant de tester,
+       sinon tout echoue en "refuse" alors que seul le jeton etait perime. */
     var TOK = auth.idToken;
+    if(auth.refreshToken){
+      try{
+        var rr = await fetch("https://securetoken.googleapis.com/v1/token?key="+API_KEY, {
+          method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+          body:"grant_type=refresh_token&refresh_token="+encodeURIComponent(auth.refreshToken) });
+        var dd = await rr.json();
+        if(rr.ok && (dd.id_token || dd.idToken)){
+          TOK = dd.id_token || dd.idToken;
+          try{
+            auth.idToken = TOK;
+            if(dd.refresh_token) auth.refreshToken = dd.refresh_token;
+            auth.expiresAt = Date.now() + (parseInt(dd.expires_in||"3600",10)*1000);
+            localStorage.setItem("qrentry:auth:proclamation", JSON.stringify(auth));
+          }catch(e){}
+        }
+      }catch(e){}
+    }
 
     var doc = null;
     try {
       var r1 = await fetch(FS, { headers:{ Authorization:"Bearer "+TOK } });
       doc = r1.ok ? await r1.json() : null;
-      pose(0, r1.ok, r1.ok ? "La liste des inscrits est accessible." : ("Refusé par le serveur (code "+r1.status+")."));
+      pose(0, r1.ok, r1.ok ? "La liste des inscrits est accessible." : (r1.status===401 ? "Session non valide. Rouvre la Proclamation dans l" + String.fromCharCode(39) + "app, puis relance." : ("Refusé par le serveur (code "+r1.status+").")));
     } catch(e){ pose(0, false, "Pas de réponse — vérifie ta connexion."); }
 
     try {
@@ -120,7 +140,8 @@
         headers:{ Authorization:"Bearer "+TOK, "Content-Type":"application/json" },
         body: JSON.stringify({ fields:{ lunch:{ stringValue: ancien } } }) });
       pose(2, r3.ok, r3.ok ? "Les interrupteurs Lunch pourront s'enregistrer."
-        : ("Tes règles de sécurité REFUSENT ce réglage (code "+r3.status+"). Les interrupteurs Lunch ne fonctionneront pas tant que ce ne sera pas corrigé."));
+        : (r3.status===401 ? "Non concluant : session non valide. Rouvre la Proclamation dans l" + String.fromCharCode(39) + "app, puis relance."
+          : ("Tes règles de sécurité REFUSENT ce réglage (code "+r3.status+"). Les interrupteurs Lunch ne fonctionneront pas tant que ce ne sera pas corrigé.")));
     } catch(e){ pose(2, false, "Pas de réponse — vérifie ta connexion."); }
 
     async function mailTest(i, corps, nom){
