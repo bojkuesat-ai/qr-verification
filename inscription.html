@@ -38,6 +38,13 @@
        -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);
        display:none;align-items:center;justify-content:center;padding:26px 16px;overflow-y:auto}
   .pm-overlay.on{display:flex}
+  /* Boutons du premier écran : un rôle par ligne, lisibles au pouce. */
+  .role-btn{display:block;width:100%;text-align:left;margin:0 0 10px;padding:16px 18px;border-radius:13px;
+    border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit;font-size:15.5px;
+    font-weight:600;cursor:pointer;transition:.15s}
+  .role-btn:hover,.role-btn:focus{border-color:var(--gold);background:var(--card2,var(--card))}
+  .role-btn:active{transform:translateY(1px)}
+  .role-btn small{display:block;font-weight:400;font-size:12.5px;color:var(--muted);margin-top:3px}
   .pm-box{background:var(--card);border:1px solid var(--line);border-radius:16px;
        max-width:440px;width:100%;padding:26px 22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
   .pm-box .big{font-size:40px;margin:0 0 6px}
@@ -55,7 +62,16 @@
   <h1>Inscription</h1>
   <p class="sub" id="titre">Chargement…</p>
 
+  <div id="ecranRole" style="display:none">
+    <p class="sub" style="margin-top:0">Je suis…</p>
+    <div id="listeRoles"></div>
+  </div>
+
   <div id="form">
+    <p id="rappelRole" style="display:none;font-size:13px;color:var(--muted);margin:0 0 16px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)">
+      <span id="rappelRoleTxt"></span>
+      <button type="button" id="changerRole" style="background:none;border:none;color:var(--gold);text-decoration:underline;cursor:pointer;padding:0;font:inherit;margin-left:6px">Changer</button>
+    </p>
     <label for="f_nom">Nom</label>
     <input type="text" id="f_nom" autocomplete="family-name">
 
@@ -500,10 +516,18 @@
   }
   if(isPro){
     q("enteteUlb").style.display="block";
-    q("wrapRole").style.display="";
     q("f_role").innerHTML = ROLES_PROCLA.map(function(r){ return '<option value="'+r[0]+'">'+r[1]+'</option>'; }).join("");
     q("wrapAnnee").style.display="none";
     q("wrapRepas").style.display="";          // même question pour tous les rôles
+    /* Le rôle se choisit AVANT le formulaire : chacun ne voit que les champs qui
+       le concernent. Le menu déroulant reste dans la page — tout le code le lit —
+       mais il est masqué, remplacé par l'écran de choix. */
+    q("wrapRole").style.display="none";
+    brancherChangerRole();
+    /* Uniquement sur le formulaire d'inscription : les pages ouvertes par un lien
+       (confirmation, choix de régime) affichent leur propre contenu et ne doivent
+       pas se retrouver avec l'écran de choix par-dessus. */
+    if(!par("confirm") && !par("choix") && !par("repas")) montrerEcranRole();
   }
   if(PAY) q("wrapPreuve").style.display="";
 
@@ -624,6 +648,36 @@
     }
   }
 
+  /* ---------- Premier écran : « Je suis… » ---------- */
+  function montrerEcranRole(){
+    var z=q("listeRoles"); if(!z) return;
+    z.innerHTML = ROLES_PROCLA.map(function(r){
+      return '<button type="button" class="role-btn" data-role="'+r[0]+'">'+r[1]+'</button>';
+    }).join("");
+    Array.prototype.forEach.call(z.querySelectorAll(".role-btn"), function(b){
+      b.onclick = function(){ choisirRole(b.getAttribute("data-role")); };
+    });
+    q("ecranRole").style.display="";
+    q("form").style.display="none";
+    q("titre").style.display="";
+    try{ window.scrollTo(0,0); }catch(e){}
+  }
+  function choisirRole(role){
+    var sel=q("f_role"); if(!sel) return;
+    sel.value = role;
+    try{ sel.dispatchEvent(new Event("change")); }catch(e){ majProcla(); }
+    majProcla();
+    var lbl=""; ROLES_PROCLA.forEach(function(r){ if(r[0]===role) lbl=r[1]; });
+    q("rappelRoleTxt").textContent = "Je suis : "+lbl;
+    q("rappelRole").style.display="block";
+    q("ecranRole").style.display="none";
+    q("form").style.display="";
+    try{ window.scrollTo(0,0); }catch(e){}
+  }
+  function brancherChangerRole(){
+    var b=q("changerRole"); if(!b || b.__ok) return; b.__ok=1;
+    b.onclick=function(){ q("msg").innerHTML=""; montrerEcranRole(); };
+  }
   function majProcla(){
     var role=q("f_role").value;
     q("wrapSec").style.display = (AVEC_SECTION.indexOf(role)>=0) ? "" : "none";
