@@ -302,7 +302,16 @@
   .flash-overlay.ok .flash-icon{background:var(--green);box-shadow:0 0 110px rgba(60,207,148,.7)}
   .flash-overlay.no .flash-icon{background:var(--red);box-shadow:0 0 110px rgba(242,100,95,.65)}
   .flash-icon svg{width:62%;height:62%;stroke:#0d1420;stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
-  .flash-label{font-family:'Fraunces',serif;font-weight:700;font-size:clamp(30px,9vw,54px);color:#fff;letter-spacing:.5px}
+  .flash-label{font-family:'Fraunces',serif;font-weight:700;font-size:clamp(30px,9vw,54px);color:#fff;letter-spacing:.5px;text-align:center;padding:0 16px;line-height:1.1}
+  /* Au stand repas, l'écran doit aussi porter le prénom et le régime : on réduit
+     la pastille pour leur faire de la place. Sans ces deux lignes, le plein écran
+     masquait pendant sa durée la seule zone qui portait l'information. */
+  .flash-name,.flash-diet{display:none}
+  .flash-overlay.compact{gap:12px}
+  .flash-overlay.compact .flash-icon{width:min(40vw,25vh);height:min(40vw,25vh)}
+  .flash-overlay.compact .flash-name,.flash-overlay.compact .flash-diet{display:block}
+  .flash-name{font-family:'Fraunces',serif;font-weight:700;font-size:clamp(26px,7.5vw,44px);color:#fff;text-align:center;padding:0 16px;line-height:1.1}
+  .flash-diet{font-weight:800;font-size:clamp(20px,6vw,34px);letter-spacing:.4px;color:#0d1420;background:#fff;border-radius:999px;padding:10px 28px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.35)}
   @media (prefers-reduced-motion: reduce){ .flash-overlay,.flash-icon{transition:opacity .1s ease} }
 
   @media (max-width:420px){
@@ -646,7 +655,7 @@
   <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3.1" stroke="currentColor" stroke-width="1.7"/><path d="M19.4 13.5a7.9 7.9 0 0 0 0-3l1.7-1.3-1.9-3.3-2 .8a7.8 7.8 0 0 0-2.6-1.5L14.3 3H9.7l-.3 2.2a7.8 7.8 0 0 0-2.6 1.5l-2-.8-1.9 3.3 1.7 1.3a7.9 7.9 0 0 0 0 3l-1.7 1.3 1.9 3.3 2-.8a7.8 7.8 0 0 0 2.6 1.5l.3 2.2h4.6l.3-2.2a7.8 7.8 0 0 0 2.6-1.5l2 .8 1.9-3.3-1.7-1.3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
 </button>
 
-<div class="flash-overlay" id="flashOverlay" aria-hidden="true"><div class="flash-icon" id="flashIcon"></div><div class="flash-label" id="flashLabel"></div></div>
+<div class="flash-overlay" id="flashOverlay" aria-hidden="true"><div class="flash-icon" id="flashIcon"></div><div class="flash-label" id="flashLabel"></div><div class="flash-name" id="flashName"></div><div class="flash-diet" id="flashDiet"></div></div>
 
 <div class="home" id="homeScreen">
   <div class="home-box">
@@ -869,7 +878,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v120</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v121</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -2290,13 +2299,18 @@
   var flashHideT=null;
   var SVG_OK='<svg viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>';
   var SVG_NO='<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-  function flashSignal(ok){
+  function flashSignal(ok, extra){
+    extra = extra || {};
     var o=$("flashOverlay");
     $("flashIcon").innerHTML = ok ? SVG_OK : SVG_NO;
-    $("flashLabel").textContent = ok ? "Valide" : "Refusé";
-    o.className = "flash-overlay show " + (ok ? "ok" : "no");
+    $("flashLabel").textContent = extra.label || (ok ? "Valide" : "Refusé");
+    var n=$("flashName"), d=$("flashDiet");
+    if(n) n.textContent = extra.nom || "";
+    if(d) d.textContent = extra.regime || "";
+    var sup = (extra.nom || extra.regime) ? " compact" : "";
+    o.className = "flash-overlay show " + (ok ? "ok" : "no") + sup;
     if(flashHideT) clearTimeout(flashHideT);
-    flashHideT = setTimeout(function(){ o.className = "flash-overlay " + (ok ? "ok" : "no"); }, 1500);
+    flashHideT = setTimeout(function(){ o.className = "flash-overlay " + (ok ? "ok" : "no") + sup; }, extra.duree || 1500);
   }
 
   var clearT=null;
@@ -2797,9 +2811,12 @@
      contrôle d'entrée. L'écran lunch n'appelait que le bandeau et le bip : à un
      mètre du poste, on entendait le son sans rien voir. Un seul point d'entrée
      pour que les trois ne puissent plus diverger. */
-  function lReponse(ok, mot, note){
+  function lReponse(ok, titre, mot, note, g, regime){
     lStat(ok ? "ok" : "bad", mot, note);
-    try{ flashSignal(ok); }catch(e){}
+    var extra = { label: titre, duree: 2200 };   // 2,2 s : lisible, et sous les 2,5 s de l'anti-rebond
+    if(g) extra.nom = prenomDe(g);
+    if(regime) extra.regime = regime;
+    try{ flashSignal(ok, extra); }catch(e){}
     try{ beep(ok); }catch(e){}
   }
   function lCompte(){
@@ -2913,22 +2930,23 @@
     if(!estCodeLunch(brut)){
       var t0=brut.toUpperCase();
       var connu=lRoster.filter(function(g){ return String(g.token||"").toUpperCase()===t0; })[0];
-      lReponse(false,"Ce n'est pas un QR lunch", connu ? (connu.name+" — c'est son billet d'entrée. Le QR lunch est plus bas sur la même page.") : "Code inconnu.");
+      lReponse(false,"Mauvais QR","Ce n'est pas un QR lunch", connu ? (connu.name+" — c'est son billet d'entrée. Le QR lunch est plus bas sur la même page.") : "Code inconnu.", connu||null);
       return;
     }
     var jeton=jetonDeLunch(brut).toUpperCase();
     var g=lRoster.filter(function(x){ return String(x.token||"").toUpperCase()===jeton; })[0];
-    if(!g){ lReponse(false,"Billet inconnu","Ce code ne correspond à aucun participant."); return; }
+    if(!g){ lReponse(false,"Billet inconnu","Billet inconnu","Ce code ne correspond à aucun participant."); return; }
     var cle=codeLunch(g.token);            // toujours la casse réelle du billet
     if(lUsed[cle]){
       var q=""; try{ q=new Date(lUsed[cle]).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){}
-      lReponse(false,"Repas déjà retiré", g.name+(q?(" — à "+q):""));
+      /* Pas de régime sur l'écran rouge : il ne faut pas qu'il serve quand même. */
+      lReponse(false,"Déjà servi","Repas déjà retiré", g.name+(q?(" — à "+q):""), g);
       return;
     }
     var at=Date.now();
     lUsed[cle]=at; lMiennes[cle]=at; await _lSauverMiennes(); lCompte();
     var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
-    lReponse(true,"Repas accordé", g.name+" · "+reg);
+    lReponse(true,"Repas accordé","Repas accordé", g.name+" · "+reg, g, reg);
 
     if(!(await gEnsureAuth())){ lStatus("⏳ Hors ligne : "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); return; }
     try{
