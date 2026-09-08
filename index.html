@@ -869,7 +869,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v119</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v120</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -2793,6 +2793,15 @@
     b.className="stat "+cls;
     b.innerHTML='<p class="word">'+escapeHtml(mot)+'</p><p class="note">'+escapeHtml(note||"")+'</p>';
   }
+  /* Retour au stand repas : bandeau + plein écran vert/rouge + bip, comme au
+     contrôle d'entrée. L'écran lunch n'appelait que le bandeau et le bip : à un
+     mètre du poste, on entendait le son sans rien voir. Un seul point d'entrée
+     pour que les trois ne puissent plus diverger. */
+  function lReponse(ok, mot, note){
+    lStat(ok ? "ok" : "bad", mot, note);
+    try{ flashSignal(ok); }catch(e){}
+    try{ beep(ok); }catch(e){}
+  }
   function lCompte(){
     var servis=0;
     lRoster.forEach(function(g){ if(lUsed[codeLunch(g.token)]) servis++; });
@@ -2904,25 +2913,22 @@
     if(!estCodeLunch(brut)){
       var t0=brut.toUpperCase();
       var connu=lRoster.filter(function(g){ return String(g.token||"").toUpperCase()===t0; })[0];
-      lStat("bad","Ce n'est pas un QR lunch", connu ? (connu.name+" — c'est son billet d'entrée. Le QR lunch est plus bas sur la même page.") : "Code inconnu.");
-      try{ beep(false); }catch(e){}
+      lReponse(false,"Ce n'est pas un QR lunch", connu ? (connu.name+" — c'est son billet d'entrée. Le QR lunch est plus bas sur la même page.") : "Code inconnu.");
       return;
     }
     var jeton=jetonDeLunch(brut).toUpperCase();
     var g=lRoster.filter(function(x){ return String(x.token||"").toUpperCase()===jeton; })[0];
-    if(!g){ lStat("bad","Billet inconnu","Ce code ne correspond à aucun participant."); try{ beep(false); }catch(e){} return; }
+    if(!g){ lReponse(false,"Billet inconnu","Ce code ne correspond à aucun participant."); return; }
     var cle=codeLunch(g.token);            // toujours la casse réelle du billet
     if(lUsed[cle]){
       var q=""; try{ q=new Date(lUsed[cle]).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){}
-      lStat("bad","Repas déjà retiré", g.name+(q?(" — à "+q):""));
-      try{ beep(false); }catch(e){}
+      lReponse(false,"Repas déjà retiré", g.name+(q?(" — à "+q):""));
       return;
     }
     var at=Date.now();
     lUsed[cle]=at; lMiennes[cle]=at; await _lSauverMiennes(); lCompte();
     var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
-    lStat("ok","Repas accordé", g.name+" · "+reg);
-    try{ beep(true); }catch(e){}
+    lReponse(true,"Repas accordé", g.name+" · "+reg);
 
     if(!(await gEnsureAuth())){ lStatus("⏳ Hors ligne : "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); return; }
     try{
