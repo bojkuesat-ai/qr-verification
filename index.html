@@ -869,7 +869,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v117</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v119</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1419,7 +1419,16 @@
   function $(id){ return document.getElementById(id); }
   function normalize(raw){ return raw ? String(raw).trim().toUpperCase().replace(/[^A-Z0-9]/g,"") : ""; }
   function fmtTime(ms){ try{ return new Date(ms).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } }
-  function sanitize(s){ return (s||"billet").replace(/[^a-z0-9\-_ ]/gi,"").trim().replace(/\s+/g,"_"); }
+  /* Les accents étaient purement supprimés : « Chloé » donnait « billet-entree-Chlo.pdf ».
+     On translittère d'abord, puis on nettoie. */
+  function sanitize(s){
+    var t=String(s||"billet");
+    try{ t=t.normalize("NFD").replace(/[\u0300-\u036f]/g,""); }catch(e){}
+    t=t.replace(/[łŁ]/g,"l").replace(/[đĐ]/g,"d").replace(/[øØ]/g,"o")
+       .replace(/[æÆ]/g,"ae").replace(/[œŒ]/g,"oe").replace(/ß/g,"ss");
+    t=t.replace(/[^a-z0-9\-_ ]/gi,"").trim().replace(/\s+/g,"_");
+    return t || "billet";
+  }
   // Préfixe unique par commission -> les nouveaux codes ne peuvent plus entrer en collision entre commissions.
   var COMM_PREFIX = { festif:"F", code:"C", aca:"A", culture:"U", social:"S", crimino:"R", salle:"M", parrainage:"P", proclamation:"T" };
   function genToken(existing){
@@ -2197,7 +2206,7 @@
   window.exportPDF = function(){
     if(!(window.jspdf && window.jspdf.jsPDF) || typeof QRious==="undefined"){ flash("Export PDF indisponible (librairie non chargée)."); return; }
     var jsPDF = window.jspdf.jsPDF;
-    var doc = new jsPDF({unit:"mm", format:"a4"});
+    var doc = new jsPDF({unit:"mm", format:"a4", compress:true});
     var pw=210, ph=297, m=12, cols=2, rows=4, per=cols*rows;
     var cw=(pw-2*m)/cols, ch=(ph-2*m)/rows;
     roster.forEach(function(g,i){
@@ -2697,7 +2706,17 @@
     var now=Date.now(); if(token===gLastTok && (now-gLastAt)<2500) return; gLastTok=token; gLastAt=now;
     hideGAmbig();
     var matches=gIndex[token]||[];
-    if(matches.length===0){ gStat("invalid","Billet inconnu", token, "Aucune commission ne contient ce code"); gFlash(false); beep(false); return; }
+    if(matches.length===0){
+      /* normalize() retire le tiret : un QR lunch arrive donc ici sous la forme
+         « …L ». Sans ce message, on annonçait « Billet inconnu » à quelqu'un qui
+         a simplement montré le mauvais des deux QR. */
+      var _brut=String(raw||"").trim();
+      if(estCodeLunch(_brut) && gIndex[normalize(jetonDeLunch(_brut))]){
+        gStat("invalid","C'est le QR du repas", token, "Demandez le billet d'entrée : c'est l'autre QR du même e-mail.");
+        gFlash(false); beep(false); return;
+      }
+      gStat("invalid","Billet inconnu", token, "Aucune commission ne contient ce code"); gFlash(false); beep(false); return;
+    }
     if(matches.length>1){ gAmbig(token, matches); return; }
     await gAdmit(token, matches[0]);
   }
@@ -2766,6 +2785,7 @@
      compte scanner déjà ouvert (gEnsureAuth) et n'écrit que « used » et
      « updatedAt », comme le scanner d'entrée. */
   var lRoster=[], lUsed={}, lScanner=null, lScanning=false, lTimer=null, lDernier=0, lMiennes={};
+  var lLastCode="", lLastAt=0;                 // anti-rebond de la caméra
   var LCID="proclamation";
   function lStatus(txt){ var e=$("lsStatus"); if(e) e.textContent=txt; }
   function lStat(cls, mot, note){
@@ -2779,8 +2799,28 @@
     if($("lServed")) $("lServed").textContent=servis;
     if($("lTotal")) $("lTotal").textContent=lRoster.length;
   }
-  async function _lChargerMiennes(){ try{ var s0=await Store.get("lscanMiennes"); lMiennes=s0?JSON.parse(s0):{}; }catch(e){ lMiennes={}; } }
-  async function _lSauverMiennes(){ try{ await Store.set("lscanMiennes", JSON.stringify(lMiennes)); }catch(e){} }
+  /* Clé FIXE, hors namespace de commission. Store préfixe ses clés par la commission
+     ouverte, et l'accueil n'en a aucune : selon le chemin emprunté, les repas notés
+     hors ligne étaient écrits sous une clé et relus sous une autre, donc jamais
+     rattrapés. On relit les deux anciennes clés une fois, pour ne rien perdre. */
+  var LMIENNES_CLE = "qrentry:lscanMiennes:proclamation";
+  var LMIENNES_ANCIENNES = ["qrentry:lscanMiennes", "qrentry:c:proclamation:lscanMiennes"];
+  async function _lChargerMiennes(){
+    var acc={};
+    LMIENNES_ANCIENNES.concat([LMIENNES_CLE]).forEach(function(k){
+      try{
+        var v=window.localStorage.getItem(k); if(!v) return;
+        var o=JSON.parse(v)||{};
+        Object.keys(o).forEach(function(c){ if(!acc[c]) acc[c]=o[c]; });
+      }catch(e){}
+    });
+    lMiennes=acc;
+    await _lSauverMiennes();
+  }
+  async function _lSauverMiennes(){
+    try{ window.localStorage.setItem(LMIENNES_CLE, JSON.stringify(lMiennes)); return; }catch(e){}
+    try{ await Store.set("lscanMiennes", JSON.stringify(lMiennes)); }catch(e){}
+  }
   /* Deux téléphones écrivent le même champ : on réinjecte toujours nos propres
      marquages avant d'écrire, sinon le dernier écrivain effacerait ceux de l'autre. */
   function _lFusion(map){ Object.keys(lMiennes).forEach(function(k){ if(!map[k]) map[k]=lMiennes[k]; }); return map; }
@@ -2800,14 +2840,12 @@
       var enRetard = Object.keys(lMiennes).filter(function(k){ return !lUsed[k]; });
       lUsed=_lFusion(lUsed);
       if(enRetard.length){
-        try{
-          var r=await fsPatchFields(ticketDocPath(LCID), { used: fsField(JSON.stringify(lUsed)),
-                  updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
-          if(!(r&&r.ok)){
-            lStatus("⏳ "+enRetard.length+" repas en attente de synchronisation.");
-            lCompte(); return false;
-          }
-        }catch(e){ lStatus("⏳ "+enRetard.length+" repas en attente de synchronisation."); lCompte(); return false; }
+        var rattrape = await lEcrireUsed(lMiennes);
+        if(!rattrape){
+          lStatus("⏳ "+enRetard.length+" repas en attente de synchronisation.");
+          lCompte(); return false;
+        }
+        lUsed = rattrape;
       }
       lDernier=Date.now();
       lStatus(lRoster.length+" participant(s) · liste à jour"+(enRetard.length?(" · "+enRetard.length+" repas rattrapé(s)"):""));
@@ -2817,9 +2855,52 @@
   }
   window.lReload=function(){ lLoad(false); };
 
+  /* Écrit nos marques de repas dans « used » SANS effacer ce que les téléphones
+     d'entrée viennent d'y mettre. Le stand repas et le contrôle d'entrée écrivent
+     le même champ au même moment le 13 : une entrée enregistrée entre notre
+     lecture et notre écriture était perdue, et rien ne la rattrapait chez nous.
+     On écrit donc sous condition, et on recommence sur la version fraîche en cas
+     de conflit. Si le serveur refuse pour une autre raison, on retombe sur
+     l'écriture simple : au pire, on se comporte comme avant. */
+  async function lEcrireUsed(marques){
+    function fusionner(map){
+      map=_lFusion(map);
+      Object.keys(marques||{}).forEach(function(k){ map[k]=marques[k]; });
+      return map;
+    }
+    for(var essai=0; essai<4; essai++){
+      var lu=null;
+      try{ lu = await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]); }catch(e){ lu=null; }
+      if(!lu || !lu.updateTime) break;                       // pas de date de version : repli
+      var map={}; try{ map=JSON.parse(((lu.fields&&lu.fields.used)||{}).stringValue||"{}"); }catch(e){}
+      map=fusionner(map);
+      var res = await fsCommitSiInchange(ticketDocPath(LCID),
+                  { used: fsField(JSON.stringify(map)), updatedAt: fsField(new Date().toISOString()) },
+                  lu.updateTime, gAuth.idToken);
+      if(res==="ok") return map;
+      if(res!=="conflit") break;                             // refus inattendu : repli
+      await new Promise(function(r){ setTimeout(r, 120+Math.floor(Math.random()*300)); });
+    }
+    // Repli : exactement le comportement des versions précédentes.
+    try{
+      var data=await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]);
+      var m2={}; try{ m2=JSON.parse(((data&&data.fields&&data.fields.used)||{}).stringValue||"{}"); }catch(e){}
+      m2=fusionner(m2);
+      var r2=await fsPatchFields(ticketDocPath(LCID),
+              { used: fsField(JSON.stringify(m2)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
+      return (r2&&r2.ok) ? m2 : null;
+    }catch(e){ return null; }
+  }
+
   async function lServir(code){
     var brut=String(code||"").trim();
     if(!brut) return;
+    /* Anti-rebond : la caméra relit le même QR plusieurs fois par seconde. Sans ça,
+       « Repas accordé » était suivi 100 ms plus tard de « Repas déjà retiré » et du
+       bip d'erreur. Même garde que le scanner d'entrée. */
+    var _now=Date.now(), _cle0=brut.toUpperCase();
+    if(_cle0===lLastCode && (_now-lLastAt)<2500) return;
+    lLastCode=_cle0; lLastAt=_now;
     if(!estCodeLunch(brut)){
       var t0=brut.toUpperCase();
       var connu=lRoster.filter(function(g){ return String(g.token||"").toUpperCase()===t0; })[0];
@@ -2827,10 +2908,10 @@
       try{ beep(false); }catch(e){}
       return;
     }
-    var jeton=jetonDeLunch(brut);
-    var g=lRoster.filter(function(x){ return String(x.token||"")===jeton; })[0];
+    var jeton=jetonDeLunch(brut).toUpperCase();
+    var g=lRoster.filter(function(x){ return String(x.token||"").toUpperCase()===jeton; })[0];
     if(!g){ lStat("bad","Billet inconnu","Ce code ne correspond à aucun participant."); try{ beep(false); }catch(e){} return; }
-    var cle=codeLunch(jeton);
+    var cle=codeLunch(g.token);            // toujours la casse réelle du billet
     if(lUsed[cle]){
       var q=""; try{ q=new Date(lUsed[cle]).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){}
       lStat("bad","Repas déjà retiré", g.name+(q?(" — à "+q):""));
@@ -2842,16 +2923,18 @@
     var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
     lStat("ok","Repas accordé", g.name+" · "+reg);
     try{ beep(true); }catch(e){}
-    try{ envoyerBonAppetit(g); }catch(e){}      // en arrière-plan : n'attend pas le mail
 
     if(!(await gEnsureAuth())){ lStatus("⏳ Hors ligne : "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); return; }
     try{
-      var data=await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]);
-      var map={}; try{ map=JSON.parse(((data&&data.fields&&data.fields.used)||{}).stringValue||"{}"); }catch(e){}
-      map=_lFusion(map); map[cle]=at;
-      var r=await fsPatchFields(ticketDocPath(LCID), { used: fsField(JSON.stringify(map)),
-              updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
-      if(r&&r.ok){ lUsed=map; lCompte(); lStatus(lRoster.length+" participant(s) · à jour"); }
+      var marques={}; marques[cle]=at;
+      var map = await lEcrireUsed(marques);
+      if(map){
+        lUsed=map; lCompte(); lStatus(lRoster.length+" participant(s) · à jour");
+        /* Le mail ne part qu'une fois le repas réellement enregistré : sinon la
+           personne avait son « Bon appétit » sans que le retrait soit noté, et
+           pouvait repasser au stand. */
+        try{ envoyerBonAppetit(g); }catch(e){}
+      }
       else { lStatus("⏳ "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); }
     }catch(e){ lStatus("⏳ "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); }
   }
@@ -3103,6 +3186,9 @@
     if(!emailOf(g)){ flash("Pas d'e-mail enregistré pour cette personne."); return; }
     flash("Envoi du billet à "+(g.name||"")+"…");
     var ok=false; try{ ok=await envoyerBilletMail(g); }catch(e){}
+    try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+    cloudPushRoster(currentCommId());
+    renderList();
     flash(ok ? ("Billet renvoyé à "+(g.name||"")+" ✓") : "Échec de l'envoi (réessaie).");
   };
   window.renderScanSearch = function(){
@@ -3208,11 +3294,7 @@
     var ok=0, fail=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       suivi.pas(i, cibles.length, g.name, ok, fail);
-      var _p = piecesDuBillet(g);          // fabriqué UNE fois par personne
-      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        /* même billet que l'envoi d'origine : le lien porte déjà le QR lunch si
-           l'option est active, et on y ajoute le rappel du régime alimentaire. */
-        body:JSON.stringify(Object.assign({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g, lunchActif("qr")?"entree":""),g.token,vouvoyerG(g), lunchActif("qr")?ticketLinkFor(g,"lunch"):"")+_p.html+blocRepas(g)+mentionPerso(g)+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _p.attachments.length?{attachments:_p.attachments}:{}))});
+      try{ var r=await envoiBillet(g, "Rappel — "+(eventName||"notre événement"), {sansCooptation:true});
         if(r.ok){ ok++; } else { fail++; suivi.echec(g.name, emailOf(g)); }
       }catch(e){ fail++; suivi.echec(g.name, emailOf(g)); }
       await new Promise(function(res){setTimeout(res,120);});
@@ -3228,17 +3310,17 @@
     if(!to){ flash("Pas d'e-mail pour "+guest.name+"."); return; }
     flash("Envoi du billet à "+guest.name+"…");
     try{
-      var r= await fetch(SEND_FN, { method:"POST",
-        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-        body: JSON.stringify({ to:to, subject:(vouvoyerG(guest)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(guest), eventName||"notre événement", ticketLinkFor(guest), guest.token, vouvoyerG(guest))+blocCooptation(currentCommId()), from: expediteurPour(guest), reply_to:MAIL_REPONSES }) });
+      var r= await envoiBillet(guest, (vouvoyerG(guest)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"));
       flash(r.ok ? ("Billet renvoyé à "+guest.name+".") : "Envoi impossible.");
       guest.mailEnvoye = r.ok ? Date.now() : 0;
       try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+      cloudPushRoster(currentCommId());     // « envoyé / en échec » doit suivre d'un appareil à l'autre
       renderList();
     }catch(e){
       flash("Envoi impossible (hors ligne ?).");
       guest.mailEnvoye = 0;
       try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+      cloudPushRoster(currentCommId());
       renderList();
     }
   };
@@ -3252,14 +3334,13 @@
       var g=rates[i];
       flash("Renvoi "+(i+1)+"/"+rates.length+"…");
       try{
-        var r= await fetch(SEND_FN, { method:"POST",
-          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-          body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"), html: billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g))+blocCooptation(currentCommId()), from: expediteurPour(g), reply_to:MAIL_REPONSES }) });
-        if(r && r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; }
-      }catch(e){ fail++; }
+        var r= await envoiBillet(g, (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"));
+        if(r && r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; }
+      }catch(e){ fail++; g.mailEnvoye=0; }
       await new Promise(function(res){ setTimeout(res,600); });
     }
     try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+    cloudPushRoster(currentCommId());       // sinon la liste des échecs reste sur ce seul appareil
     renderList();
     flash(fail ? (ok+" renvoyé(s), "+fail+" encore en échec.") : (ok+" billet(s) renvoyé(s) ✓"));
   };
@@ -3629,8 +3710,9 @@
      ========================================================================== */
   var LUNCH_SUFFIXE = "-L";
   function codeLunch(token){ return String(token||"")+LUNCH_SUFFIXE; }
-  function estCodeLunch(c){ return /-L$/.test(String(c||"")); }
-  function jetonDeLunch(c){ return String(c||"").replace(/-L$/,""); }
+  /* Insensible à la casse : un code recopié à la main en minuscules doit passer. */
+  function estCodeLunch(c){ return /-L$/i.test(String(c||"")); }
+  function jetonDeLunch(c){ return String(c||"").replace(/-L$/i,""); }
 
   function lunchKey(cid){ return "qrentry:lunch:"+(cid||currentCommId()||""); }
   /* État local : { qr:{on,at}, scan:{on,at} }. Écrit aussi dans le document
@@ -3700,6 +3782,28 @@
     }
     if($("lscanOpenBtn")) $("lscanOpenBtn").style.display = (e.scan && e.scan.on) ? "inline-flex" : "none";
   }
+  /* Bouton « Scanner lunch » de l'accueil. Il n'était rendu visible que par
+     renderLunchUI(), qui ne tourne que dans le parcours admin de la proclamation :
+     un téléphone dédié au stand repas ne le voyait donc jamais. On lit ici le
+     réglage avec le compte du scanner global, qui ne demande aucune connexion. */
+  async function lunchBoutonAccueil(){
+    var b=$("lscanOpenBtn"); if(!b) return;
+    function poser(etat){
+      if(!document.body.classList.contains("home-mode")) return;   // on est reparti dans une commission
+      b.style.display = (etat && etat.scan && etat.scan.on) ? "inline-flex" : "none";
+    }
+    poser(lunchEtat("proclamation"));            // dernier état connu : utilisable hors ligne
+    try{
+      if(!(await gEnsureAuth())) return;
+      var data=await fsGetDoc(ticketDocPath("proclamation"), gAuth.idToken, ["lunch"]);
+      var brut=((data&&data.fields&&data.fields.lunch)||{}).stringValue||"";
+      if(!brut) return;
+      var n=JSON.parse(brut);
+      if(!n || !n.scan) return;
+      lunchPoser(n, "proclamation");
+      poser(n);
+    }catch(e){}
+  }
   window.basculerLunch = async function(quoi){
     var cid=currentCommId();
     if(!cid) return;
@@ -3714,7 +3818,10 @@
     if(vers && quoi==="qr" && envoyes) q += "\n\n"+envoyes+" billet(s) déjà envoyé(s) n'auront pas le QR lunch : il faudra les renvoyer.";
     if(!vers && quoi==="scan") q += "\n\nLes repas déjà scannés restent enregistrés.";
     if(!(await uiConfirm(q))) return;
-    var rail=$(quoi==="qr"?"railLunchQr":"railLunchScan"); if(rail) rail.classList.add("busy");
+    /* Un seul des quatre interrupteurs doit passer en attente : « images » et « pdf »
+       mettaient celui du scan lunch. */
+    var RAILS={qr:"railLunchQr", scan:"railLunchScan", images:"railImages", pdf:"railPdf"};
+    var rail=RAILS[quoi]?$(RAILS[quoi]):null; if(rail) rail.classList.add("busy");
     var nouveau = {};
     REGLAGES_MAIL.forEach(function(k){ nouveau[k] = { on:!!(e[k]&&e[k].on), at:(e[k]&&e[k].at)||"" }; });
     nouveau[quoi] = { on:vers, at: vers ? new Date().toISOString() : "" };
@@ -3773,6 +3880,36 @@
       + '<p style="color:#666;font-size:13px">Code du billet : <b>'+mailEsc(code)+'</b></p>'
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
       + '<p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
+  }
+  /* ---------- Corps unique du mail de billet ----------
+     Tous les chemins d'envoi passent par ici : envoi groupé, renvoi individuel,
+     renvoi des échecs, rappel aux non-entré·e·s, rappel de la veille. Avant, chacun
+     recomposait le mail dans son coin et quatre d'entre eux avaient perdu le QR
+     lunch, les pièces jointes et le rappel du régime. Un seul endroit à corriger. */
+  function corpsBillet(g, o){
+    o = o || {};
+    var lunch = lunchActif("qr");
+    var p = piecesDuBillet(g);
+    var coeur = billetHtml(salutNom(g), eventName||"notre événement",
+                  ticketLinkFor(g, lunch?"entree":""), g.token, vouvoyerG(g),
+                  lunch ? ticketLinkFor(g,"lunch") : "")
+              + p.html
+              + blocRepas(g)
+              + mentionPerso(g)
+              + (o.sansCooptation ? "" : blocCooptation(currentCommId()))
+              + lienDesistement(g);
+    var html = o.entete
+      ? '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'+o.entete+coeur+'</div>'
+      : coeur;
+    return { html: html, attachments: p.attachments };
+  }
+  function envoiBillet(g, sujet, o){
+    var c = corpsBillet(g, o);
+    return fetch(SEND_FN, { method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+      body: JSON.stringify(Object.assign({ to:emailOf(g), subject:sujet, html:c.html,
+              from:expediteurPour(g), reply_to:MAIL_REPONSES },
+              c.attachments.length ? { attachments:c.attachments } : {})) });
   }
   window.saveMailConfig=function(){
     try{
@@ -4084,24 +4221,14 @@
     for(var i=0;i<list.length;i++){
       var g=list[i];
       suivi.pas(i, list.length, g.name, ok, fail);
-      var _p = piecesDuBillet(g);          // fabriqué UNE fois par personne
       try{
-        var r = await fetch(SEND_FN, {
-          method:"POST",
-          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-          body: JSON.stringify(Object.assign({
-            to: emailOf(g),
-            subject: (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+ev,
-            html: billetHtml(salutNom(g), ev, ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g), lunchActif("qr")?ticketLinkFor(g,"lunch"):"")+_p.html+blocRepas(g)+lienDesistement(g)+mentionPerso(g)+blocCooptation(currentCommId()),
-            from: expediteurPour(g),
-            reply_to: MAIL_REPONSES
-          }, _p.attachments.length?{attachments:_p.attachments}:{}))
-        });
+        var r = await envoiBillet(g, (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+ev);
         if(r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; suivi.echec(g.name, emailOf(g)); }
       }catch(e){ fail++; g.mailEnvoye=0; suivi.echec(g.name, emailOf(g)); }
       await new Promise(function(r){ setTimeout(r,600); });
     }
     try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+    cloudPushRoster(currentCommId());       // état d'envoi partagé entre appareils
     renderList();
     suivi.fin(list.length, ok, fail);
     flash(fail? (ok+" envoyé(s), "+fail+" échec(s).") : ok+" nouveau(x) billet(s) envoyé(s).");
@@ -4169,7 +4296,7 @@
     try{
       if(!(window.jspdf && window.jspdf.jsPDF) || typeof QRious==="undefined") return "";
       var lunch = (usage==="lunch");
-      var jsPDF=window.jspdf.jsPDF, doc=new jsPDF({unit:"mm", format:"a6"});
+      var jsPDF=window.jspdf.jsPDF, doc=new jsPDF({unit:"mm", format:"a6", compress:true});   // 520 Ko -> 5 Ko par billet
       var L=105, y=15;
       doc.setFontSize(8); doc.setTextColor(120);
       doc.text((eventName||"Événement").toUpperCase(), L/2, y, {align:"center"}); y+=6;
@@ -4215,7 +4342,11 @@
     $("gCode").textContent = data.t || "";
     if($("gCat")){
       if(data.r){
-        var LBL={parrain:"Parrain / Marraine",filleul:"Filleul·e",alumni:"Alumni / Ancien·ne"};
+        /* Sans les rôles de la proclamation, la page affichait « etudiant », « patgs »
+           ou « academique » en clair, tels qu'ils sont stockés. */
+        var LBL={parrain:"Parrain / Marraine",filleul:"Filleul·e",alumni:"Alumni / Ancien·ne",
+                 etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",
+                 patgs:"Personnel",doyen:"Doyen·ne"};
         var ex = (data.r==="alumni") ? (data.sc?(" · "+data.sc):"") : ((data.y?" · "+data.y:"")+(data.sc?" · "+data.sc:""));
         $("gCat").style.display="block"; $("gCat").textContent = (LBL[data.r]||data.r) + ex + (data.tb?(" · Table "+data.tb):"");
       }
@@ -4398,18 +4529,12 @@
     flash("Envoi des rappels…");
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
-      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
-        +'<h2 style="margin:0 0 10px">'+(vouvoyerG(g)?'Nous vous attendons !':'On t\'attend !')+'</h2>'
+      var entete='<h2 style="margin:0 0 10px">'+(vouvoyerG(g)?'Nous vous attendons !':'On t\'attend !')+'</h2>'
         +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
         +(vouvoyerG(g)
             ? '<p>Nous ne vous avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau votre billet :</p>'
-            : '<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>')
-        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g))
-        + lienDesistement(g)
-        + mentionPerso(g)
-        +'</div>';
-      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:(vouvoyerG(g)?"Nous vous attendons — ":"On t'attend — ")+(eventName||"notre événement"),html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
+            : '<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>');
+      try{ var r=await envoiBillet(g, (vouvoyerG(g)?"Nous vous attendons — ":"On t'attend — ")+(eventName||"notre événement"), {entete:entete, sansCooptation:true}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     uiAlert("Rappel envoyé à "+ok+" personne(s) non entrées.");
@@ -4423,18 +4548,12 @@
     flash("Envoi des rappels…");
     var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
-      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
-        +'<h2 style="margin:0 0 10px">Rappel — c\'est '+escapeHtml(quand)+'</h2>'
+      var entete='<h2 style="margin:0 0 10px">Rappel — c\'est '+escapeHtml(quand)+'</h2>'
         +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
         +(vouvoyerG(g)
             ? '<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
-            : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>')
-        + billetHtml(salutNom(g), eventName||"notre événement", ticketLinkFor(g, lunchActif("qr")?"entree":""), g.token, vouvoyerG(g))
-        + lienDesistement(g)
-        + mentionPerso(g)
-        +'</div>';
-      try{ var r=await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify({to:emailOf(g),subject:"Rappel — "+(eventName||"notre événement"),html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); if(r.ok) ok++; }catch(e){}
+            : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>');
+      try{ var r=await envoiBillet(g, "Rappel — "+(eventName||"notre événement"), {entete:entete, sansCooptation:true}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
     }
     try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
@@ -4931,10 +5050,8 @@
   }
   async function envoyerBilletMail(g){
     var to = emailOf(g); if(!to){ return false; }
-    var _pcs = piecesDuBillet(g);
     try{
-      var rm = await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-        body:JSON.stringify(Object.assign({to:to,subject:(vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"),html:billetHtml(salutNom(g),eventName||"notre événement",ticketLinkFor(g, lunchActif("qr")?"entree":""),g.token,vouvoyerG(g), lunchActif("qr")?ticketLinkFor(g,"lunch"):"")+_pcs.html+blocRepas(g)+mentionPerso(g)+blocCooptation(currentCommId())+lienDesistement(g),from:expediteurPour(g),reply_to:MAIL_REPONSES}, _pcs.attachments.length?{attachments:_pcs.attachments}:{}))});
+      var rm = await envoiBillet(g, (vouvoyerG(g)?"Votre billet — ":"Ton billet — ")+(eventName||"notre événement"));
       g.mailEnvoye = rm && rm.ok ? Date.now() : 0;
       return rm && rm.ok;
     }catch(e){ g.mailEnvoye = 0; return false; }
@@ -4960,6 +5077,7 @@
     var g=roster[roster.length-1];
     await envoyerBilletMail(g);
     await Store.set("roster", JSON.stringify(roster));
+    cloudPushRoster(currentCommId());       // le push précédent a eu lieu AVANT l'envoi : mailEnvoye serait resté local
     renderTickets(); renderList();
     try{ if(typeof renderParrainageSummary==="function") renderParrainageSummary(); }catch(e){}
     try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
@@ -5236,16 +5354,20 @@
      traiteur étant passée à l'avance, une place libérée seule était ingérable. */
   /* Choix traiteur déposés par le formulaire : on les applique au billet correspondant. */
   /* L'état des interrupteurs vit dans le document : un autre appareil le voit. */
+  /* Vaut pour les 9 commissions : « QR en images » et « billet PDF joint » sont des
+     réglages généraux. Réservée à la proclamation, cette relecture laissait tout
+     second appareil admin des autres commissions avec les deux options éteintes. */
   async function lunchSyncDepuisDoc(cid){
-    cid=cid||currentCommId(); if(cid!=="proclamation") return;
+    cid=cid||currentCommId(); if(!cid) return;
     try{
       var ok=await ensureAuth(cid); if(!ok) return;
       var a=loadAuth(cid); if(!a||!a.idToken) return;
       var data=await fsGetDoc(ticketDocPath(cid), a.idToken, ["lunch"]);
       var brut=((data&&data.fields&&data.fields.lunch)||{}).stringValue||"";
       if(!brut) return;
-      var e=JSON.parse(brut);
-      if(e && e.qr && e.scan){ lunchPoser(e, cid); renderLunchUI(); }
+      var e=JSON.parse(brut); if(!e || typeof e!=="object") return;
+      var n={}; REGLAGES_MAIL.forEach(function(k){ n[k]={ on:!!(e[k]&&e[k].on), at:(e[k]&&e[k].at)||"" }; });
+      lunchPoser(n, cid); renderLunchUI();
     }catch(e){}
   }
   async function confirmerChangementRegime(g){
@@ -6070,6 +6192,7 @@
   }
   function renderHome(){
     if(SIGNUP_MODE) return;
+    try{ lunchBoutonAccueil(); }catch(e){}
     var g=$("commGrid"); if(!g) return; g.innerHTML="";
     var visibles = COMMISSIONS.filter(function(c){ return commActive(c.id); });
     if(!visibles.length){
@@ -6172,6 +6295,31 @@
     var r = await fetch(FS_BASE+path+"?"+qs, { method:"PATCH", headers:{ "Authorization":"Bearer "+idToken, "Content-Type":"application/json" }, body: JSON.stringify({fields:fieldsObj}) });
     var data = await r.json().catch(function(){return null;});
     return { ok:r.ok, data:data };
+  }
+  /* Écriture SOUS CONDITION : elle n'est acceptée que si le document n'a pas bougé
+     depuis la lecture dont provient updateTime. C'est le seul moyen de ne pas
+     effacer ce qu'un autre téléphone vient d'écrire dans le même champ : une
+     relecture, aussi tardive soit-elle, laisse toujours passer un aller-retour.
+     Renvoie "ok", "conflit" (quelqu'un a écrit avant nous) ou "refus". */
+  function fsDocName(path){ return "projects/"+FIRESTORE_PROJECT_ID+"/databases/(default)/documents/"+path; }
+  async function fsCommitSiInchange(path, fieldsObj, updateTime, idToken){
+    if(!updateTime) return "refus";
+    var url = FS_BASE.replace(/\/documents\/$/, "/documents:commit");
+    try{
+      var r = await fetch(url, { method:"POST",
+        headers:{ "Authorization":"Bearer "+idToken, "Content-Type":"application/json" },
+        body: JSON.stringify({ writes:[{
+          update: { name: fsDocName(path), fields: fieldsObj },
+          updateMask: { fieldPaths: Object.keys(fieldsObj) },
+          currentDocument: { updateTime: updateTime }
+        }] }) });
+      if(r.ok) return "ok";
+      var e=null; try{ e=await r.json(); }catch(_){}
+      var st=(e && e.error && e.error.status) || "";
+      var msg=(e && e.error && e.error.message) || "";
+      if(st==="FAILED_PRECONDITION" || /precondition/i.test(msg)) return "conflit";
+      return "refus";
+    }catch(e){ return "refus"; }
   }
   async function cloudPull(cid){
     if(!cid) return;
@@ -6706,6 +6854,10 @@
        inscriptions : sinon, sur un appareil neuf, les premiers billets partaient avec
        « notre événement » et sans date ni lieu. */
     await cloudPull(id);
+    /* Les réglages d'envoi (QR lunch, images, PDF) doivent être connus AVANT le
+       premier billet : la relecture était lancée sans attente depuis refreshSignups,
+       donc un envoi déclenché tout de suite partait avec l'ancien état. */
+    try{ await lunchSyncDepuisDoc(id); }catch(e){}
     if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); setTimeout(function(){ try{ verifierRappelVeille(); }catch(e){} }, 1500); }
     startCloudPoll();
   }

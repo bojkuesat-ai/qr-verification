@@ -216,17 +216,21 @@
   var SEND_FN = SUPA_URL + "/functions/v1/send-email";
   /* Le contenu des messages est construit par le serveur (gabarits de send-email).
      Cette page etant publique, elle ne transmet plus de HTML libre. */
-  function envoyerGabarit(dest, modele, donnees){
-    return fetch(SEND_FN,{method:"POST",
-      headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:dest, modele:modele, data:donnees})}).catch(function(){});
-  }
-
-  function envoyerMailConfirmationEtudiant(nom, mail){
-    return envoyerGabarit(mail, "inscription_recue", {
-      nom: nom,
-      evenement: (NOM_LIEN || NOMS[CID])
-    });
+  /* L'échec était avalé (.catch vide, et le code HTTP jamais regardé) : l'étudiant
+     voyait « Vérifie ton e-mail » même quand rien n'était parti, et l'alerte à
+     l'équipe pouvait se perdre en silence. On réessaie une fois, puis on rend
+     compte du résultat pour que l'appelant puisse le dire. */
+  async function envoyerGabarit(dest, modele, donnees){
+    for(var essai=0; essai<2; essai++){
+      try{
+        var r = await fetch(SEND_FN,{method:"POST",
+          headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+          body:JSON.stringify({to:dest, modele:modele, data:donnees})});
+        if(r && r.ok) return true;
+      }catch(e){}
+      if(essai===0) await new Promise(function(res){ setTimeout(res, 900); });
+    }
+    return false;
   }
   function envoyerNotif(dest, rec){
     if(!dest || !rec) return;
@@ -303,6 +307,35 @@
     }
     return { r:r, tok:tok };
   }
+  /* Deux personnes qui s'inscrivent — ou qui confirment — dans la même demi-seconde
+     relisent la même liste et la réécrivent chacune : la seconde écriture efface la
+     première, sans que personne ne s'en aperçoive. On revient donc lire le document
+     après coup, et on réinsère notre ligne si elle a disparu. L'attente aléatoire
+     évite que deux appareils se réessaient exactement en même temps. */
+  async function verifierEtReinserer(path, present, appliquer){
+    for(var essai=0; essai<4; essai++){
+      await new Promise(function(res){ setTimeout(res, 250+Math.floor(Math.random()*450)); });
+      var lu;
+      try{ lu = await fsAvecJeton(function(t){ return fetch(FS_BASE+path, { headers:{ "Authorization":"Bearer "+t } }); }); }
+      catch(e){ return false; }
+      if(!lu.r.ok) return false;
+      var doc=null; try{ doc = await lu.r.json(); }catch(e){ return false; }
+      var liste=[]; try{ if(doc && doc.fields && doc.fields.signups) liste=JSON.parse(doc.fields.signups.stringValue||"[]"); }catch(e){}
+      if(present(liste)) return true;
+      var neuve = appliquer(liste);
+      if(!neuve) return false;                        // la ligne n'a plus lieu d'être : on n'invente rien
+      var champs = { signups:{ stringValue: JSON.stringify(neuve) }, updatedAt:{ stringValue:new Date().toISOString() } };
+      var masque = Object.keys(champs).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
+      try{
+        await fsAvecJeton(function(t){
+          return fetch(FS_BASE+path+"?"+masque, { method:"PATCH",
+            headers:{ "Authorization":"Bearer "+t, "Content-Type":"application/json" },
+            body: JSON.stringify({ fields:champs }) });
+        });
+      }catch(e){ return false; }
+    }
+    return false;
+  }
   // Une carte / preuve = un document séparé (évite la limite de 1 Mo du doc principal).
   function carteDocPath(carteId){ return "commission_cartes/"+CID+"__c__"+carteId; }
   async function ecrireImageDoc(fullPath, b64){
@@ -360,6 +393,20 @@
         var qs=Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
         var rp=await fetch(FS_BASE+path+"?"+qs, { method:"PATCH", headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" }, body:JSON.stringify({fields:fields}) });
         if(!rp.ok) throw new Error("write");
+        /* Même course que pour l'inscription : deux confirmations dans la même
+           demi-seconde, et l'une des deux disparaissait en affichant « confirmé ». */
+        try{
+          await verifierEtReinserer(path,
+            function(l){ return l.some(function(x){ return x && x.confToken===token && x.statut!=="apreconfirmer"; }); },
+            function(l){
+              for(var k=0;k<l.length;k++){
+                if(l[k] && l[k].confToken===token){
+                  l[k].statut="acarte"; l[k].emailConfirme=true; l[k].confirmeTs=Date.now(); return l;
+                }
+              }
+              return null;                      // la ligne n'existe plus : on ne la réinvente pas
+            });
+        }catch(e){}
         var notifMail=(cur&&cur.fields&&cur.fields.notifMail&&cur.fields.notifMail.stringValue)||"";
         if(notifMail){ try{ envoyerNotif(notifMail, list[idx]); }catch(e){} }
       }
@@ -1044,6 +1091,14 @@
       }
       _imagesEcrites=[];
 
+      /* Course avec une inscription simultanée : on vérifie que la nôtre est
+         toujours dans la liste, et on la remet sinon. */
+      try{
+        await verifierEtReinserer(path,
+          function(l){ return l.some(function(x){ return x && x.ts===rec.ts && String(x.email||"").toLowerCase()===m1.toLowerCase(); }); },
+          function(l){ l.push(rec); return l; });
+      }catch(e){}
+
       var notifMail=(cur&&cur.fields&&cur.fields.notifMail&&cur.fields.notifMail.stringValue)||"";
       if(notifMail && rec.statut!=="apreconfirmer"){ try{ envoyerNotif(notifMail, rec); }catch(e){} }
 
@@ -1051,7 +1106,18 @@
       q("form").style.display="none";
       var okHtml;
       if(estEtudiant){
-        envoyerMailConfirmationLien(prenom, m1, rec.confToken);
+        var mailParti = false;
+        try{ mailParti = await envoyerMailConfirmationLien(prenom, m1, rec.confToken); }catch(e){}
+        if(!mailParti){
+          /* L'inscription EST enregistrée : on ne dit pas le contraire, mais on ne
+             laisse pas la personne attendre un e-mail qui n'est jamais parti. */
+          okHtml='<p class="big">⚠️</p><p><b>Inscription enregistrée, mais l\'e-mail n\'est pas parti</b></p>'
+            + '<p class="hint">Ton inscription est bien enregistrée pour <b>'+esc(m1)+'</b>, mais l\'e-mail contenant le <b>lien de confirmation</b> n\'a pas pu être envoyé.</p>'
+            + '<p class="hint">Attends quelques minutes et <b>recharge cette page pour réessayer</b>. Si rien n\'arrive, écris à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a> : l\'équipe peut te renvoyer le lien à la main.</p>';
+          msg.innerHTML='<div class="card">'+okHtml+'</div>';
+          popupMaison(okHtml);
+          return;
+        }
         okHtml='<p class="big">📧</p><p><b>Vérifie ton e-mail</b></p>'
           + '<p class="hint">Un e-mail contenant un <b>lien de confirmation</b> vient d\'être envoyé à <b>'+esc(m1)+'</b>.<br>Clique sur ce lien pour <b>valider ton inscription</b>.</p>'
           + '<p class="hint">Tant que tu n\'as pas cliqué, ton inscription n\'est <b>pas</b> prise en compte. Après confirmation, l\'équipe vérifiera ta carte étudiante, puis tu recevras ton billet QR.</p>'
