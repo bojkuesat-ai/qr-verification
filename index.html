@@ -878,7 +878,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v121</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v122</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -2401,7 +2401,7 @@
       scanner = new Html5Qrcode("reader", { verbose:false });
       await scanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:230,height:230}},
         function(txt){ verify(txt); }, function(){});
-      scanning=true; $("camStart").style.display="none"; $("camStop").style.display="inline-flex"; checkTorch();
+      scanning=true; $("camStart").style.display="none"; $("camStop").style.display="inline-flex"; checkTorch(); veilleMaj();
     }catch(e){
       scanner=null;
       msg.className="cam-msg on";
@@ -2412,7 +2412,7 @@
     try{ if(torchOn){ var t=torchTrack||getVideoTrack(); if(t) t.applyConstraints({advanced:[{torch:false}]}); } }catch(e){}
     torchOn=false; torchTrack=null; $("torchBtn").style.display="none"; $("torchBtn").classList.remove("on"); $("torchBtn").textContent="🔦 Lampe";
     if(scanner && scanning){ try{ await scanner.stop(); await scanner.clear(); }catch(e){} }
-    scanner=null; scanning=false; $("camStart").style.display="inline-flex"; $("camStop").style.display="none";
+    scanner=null; scanning=false; $("camStart").style.display="inline-flex"; $("camStop").style.display="none"; veilleMaj();
   };
 
   var torchOn=false, torchTrack=null;
@@ -2479,6 +2479,39 @@
   }
 
   var gCache={};    // cid -> {rv:"...", roster:[...]} : évite de retélécharger toutes les listes toutes les 25 s
+  /* Les listes ne vivaient qu'en mémoire : un rechargement de page sans réseau
+     (bâtiment saturé, 900 personnes) rendait le scanner aveugle — tout le monde
+     « Billet inconnu », alors que l'écran annonçait la liste utilisable. On garde
+     donc une copie sur l'appareil, relue au démarrage. */
+  var GCACHE_CLE="qrentry:gscanListes";
+  function _gSauverListes(){
+    try{ window.localStorage.setItem(GCACHE_CLE, JSON.stringify({at:Date.now(), cache:gCache})); }catch(e){}
+  }
+  function _gRelireListes(){
+    try{
+      var v=JSON.parse(window.localStorage.getItem(GCACHE_CLE)||"null");
+      if(v && v.cache){ gCache=v.cache; return v.at||0; }
+    }catch(e){}
+    return 0;
+  }
+  /* Reconstruit l'index à partir des listes gardées sur l'appareil. */
+  function _gIndexerCache(){
+    var idx={}, total=0, used=0;
+    var enAttente={}; gQueue.forEach(function(it){ enAttente[it.cid+"|"+it.token]=it.at; });
+    try{
+      COMMISSIONS.forEach(function(c){
+        var e=gCache[c.id]; if(!e || !e.roster) return;
+        e.roster.forEach(function(g){
+          if(!g||!g.token) return;
+          var key=normalize(g.token);
+          var at=(gMiennes[c.id]&&gMiennes[c.id][g.token])||enAttente[c.id+"|"+g.token]||null;
+          (idx[key]=idx[key]||[]).push({ cid:c.id, cname:c.name, guest:g, usedAt:at });
+          total++; if(at) used++;
+        });
+      });
+    }catch(e){}
+    return { idx:idx, total:total, used:used };
+  }
   var gDerniereMaj=0;   // horodatage du dernier chargement complet réussi
   /* Sans réseau, la liste déjà chargée reste utilisable : on l'affiche tel quel, sans rien effacer. */
   function gStatutHorsLigne(){
@@ -2488,7 +2521,13 @@
     try{ if($("gSync")) $("gSync").textContent = gDerniereMaj ? "🟠 Hors-ligne · dernière synchronisation à "+new Date(gDerniereMaj).toLocaleTimeString("fr-BE") : ""; }catch(e){}
   }
   async function gLoadAll(silent){
-    if(!(await gEnsureAuth())){ gStatutHorsLigne(); return false; }
+    if(!(await gEnsureAuth())){
+      if(gTotal===0){                       // rien en mémoire : on repart de la copie locale
+        var at=_gRelireListes();
+        if(at){ var r=_gIndexerCache(); gIndex=r.idx; gTotal=r.total; gUsed=r.used; gDerniereMaj=at; gUpdateCounts(); }
+      }
+      gStatutHorsLigne(); return false;
+    }
     if(!silent) gStatus("Chargement des commissions…", false);
     var ancien=gIndex;                                  // dernier index connu : réutilisé pour toute commission injoignable
     var enAttente={}; gQueue.forEach(function(it){ enAttente[it.cid+"|"+it.token]=it.at; });   // validées ici, pas encore synchronisées
@@ -2539,9 +2578,10 @@
             if(!liste.some(function(e){ return e.cid===c; })){ delete gMiennes[c][tk]; change=true; }
           });
         });
-        if(change) await Store.set("gscanMiennes", JSON.stringify(gMiennes));
+        if(change) _gEcrireCle(GMIENNES_CLE, gMiennes);
       }catch(e){}
       gDerniereMaj=Date.now();
+      _gSauverListes();
       try{ if($("gSync")) $("gSync").textContent="🟢 Synchronisation en direct active · dernière mise à jour à "+new Date(gDerniereMaj).toLocaleTimeString("fr-BE"); }catch(e){}
     }
     gStatus(okC+" commission(s) · "+total+" billets"+(failC?(" · "+failC+" non accessible(s) — active le compte scanner dessus"):""), false);
@@ -2597,19 +2637,55 @@
      instant réécrivaient chacun la liste complète telle qu'ils l'avaient lue, et le second
      effaçait l'entrée du premier (~14 pertes pour 300 personnes sur 2 postes). */
   var gMiennes={};
-  async function _gLoadMiennes(){ try{ var s=await Store.get("gscanMiennes"); gMiennes = s?JSON.parse(s):{}; }catch(e){ gMiennes={}; } }
+  /* Clés FIXES, hors namespace de commission. Store préfixe ses clés par la
+     commission ouverte, et l'accueil n'en a aucune : après un « Changer de
+     commission » puis un rechargement de page, la file d'attente hors ligne et
+     la mémoire anti-écrasement étaient relues sous une autre clé, donc vides.
+     Les entrées validées sans réseau étaient perdues sans un mot. On relit les
+     anciennes clés une fois pour ne rien laisser derrière. */
+  function _gLireCle(cle, anciennes){
+    var out=null;
+    [cle].concat(anciennes||[]).forEach(function(k){
+      if(out!==null) return;
+      try{ var v=window.localStorage.getItem(k); if(v) out=JSON.parse(v); }catch(e){}
+    });
+    return out;
+  }
+  function _gEcrireCle(cle, valeur){
+    try{ window.localStorage.setItem(cle, JSON.stringify(valeur)); return true; }catch(e){ return false; }
+  }
+  var GMIENNES_CLE="qrentry:gscanMiennes", GQUEUE_CLE="qrentry:gscanQueue";
+  function _gAnciennes(base){
+    var out=["qrentry:"+base];
+    try{ COMMISSIONS.forEach(function(c){ out.push("qrentry:c:"+c.id+":"+base); }); }catch(e){}
+    return out;
+  }
+  async function _gLoadMiennes(){
+    var v=_gLireCle(GMIENNES_CLE, _gAnciennes("gscanMiennes"));
+    if(v===null){ try{ var s=await Store.get("gscanMiennes"); v = s?JSON.parse(s):{}; }catch(e){ v={}; } }
+    gMiennes = v || {};
+    _gEcrireCle(GMIENNES_CLE, gMiennes);
+  }
   async function _gNoterMienne(cid, token, at){
     if(!cid||!token) return;
     gMiennes[cid]=gMiennes[cid]||{}; gMiennes[cid][token]=at;
-    try{ await Store.set("gscanMiennes", JSON.stringify(gMiennes)); }catch(e){}
+    if(!_gEcrireCle(GMIENNES_CLE, gMiennes)){ try{ await Store.set("gscanMiennes", JSON.stringify(gMiennes)); }catch(e){} }
   }
   function _gFusionMiennes(cid, usedMap){
     // les entrées de ce téléphone priment : une écriture concurrente perdue se répare au scan suivant
     return Object.assign({}, usedMap, gMiennes[cid]||{});
   }
   var gQueue=[]; // entrées en attente de synchro (hors-ligne) : {cid, token, at, name}
-  async function _gLoadQueue(){ try{ var s=await Store.get("gscanQueue"); gQueue = s?JSON.parse(s):[]; }catch(e){ gQueue=[]; } await _gLoadMiennes(); }
-  async function _gSaveQueue(){ try{ await Store.set("gscanQueue", JSON.stringify(gQueue)); }catch(e){} }
+  async function _gLoadQueue(){
+    var v=_gLireCle(GQUEUE_CLE, _gAnciennes("gscanQueue"));
+    if(v===null){ try{ var s=await Store.get("gscanQueue"); v = s?JSON.parse(s):[]; }catch(e){ v=[]; } }
+    gQueue = Array.isArray(v) ? v : [];
+    _gEcrireCle(GQUEUE_CLE, gQueue);
+    await _gLoadMiennes();
+  }
+  async function _gSaveQueue(){
+    if(!_gEcrireCle(GQUEUE_CLE, gQueue)){ try{ await Store.set("gscanQueue", JSON.stringify(gQueue)); }catch(e){} }
+  }
   function gShowPending(){ if(gQueue.length){ var e=$("gsStatus"); if(e){ e.innerHTML='⏳ '+gQueue.length+' entrée(s) en attente de synchronisation…'; e.style.color="var(--amber,#d8b45a)"; } } }
   function _gQueueAdmit(m, token, at, cloudLibre){
     var cid=m.cid, guest=m.guest, tkStored=guest.token||token;
@@ -2729,6 +2805,10 @@
         gStat("invalid","C'est le QR du repas", token, "Demandez le billet d'entrée : c'est l'autre QR du même e-mail.");
         gFlash(false); beep(false); return;
       }
+      if(gTotal===0){
+        gStat("invalid","Liste pas encore chargée", token, "Attends le chargement (ou appuie sur Recharger) avant de scanner.");
+        gFlash(false); beep(false); return;
+      }
       gStat("invalid","Billet inconnu", token, "Aucune commission ne contient ce code"); gFlash(false); beep(false); return;
     }
     if(matches.length>1){ gAmbig(token, matches); return; }
@@ -2784,14 +2864,14 @@
     try{
       gScanner=new Html5Qrcode("greader", { verbose:false });
       await gScanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:230,height:230}}, function(txt){ gVerify(txt); }, function(){});
-      gScanning=true; $("gcamStart").style.display="none"; $("gcamStop").style.display="inline-flex"; gCheckTorch();
+      gScanning=true; $("gcamStart").style.display="none"; $("gcamStop").style.display="inline-flex"; gCheckTorch(); veilleMaj();
     }catch(e){ gScanner=null; msg.className="cam-msg on"; msg.textContent="Caméra inaccessible ici. Autorise la caméra ou utilise la saisie manuelle / un lecteur externe."; }
   };
   window.gStopCam=async function(){
     try{ if(gTorchOn){ var t=gTorchTrack||gGetTrack(); if(t) t.applyConstraints({advanced:[{torch:false}]}); } }catch(e){}
     gTorchOn=false; gTorchTrack=null; if($("gtorch")){ $("gtorch").style.display="none"; $("gtorch").classList.remove("on"); $("gtorch").textContent="🔦 Lampe"; }
     if(gScanner && gScanning){ try{ await gScanner.stop(); await gScanner.clear(); }catch(e){} }
-    gScanner=null; gScanning=false; if($("gcamStart")) $("gcamStart").style.display="inline-flex"; if($("gcamStop")) $("gcamStop").style.display="none";
+    gScanner=null; gScanning=false; if($("gcamStart")) $("gcamStart").style.display="inline-flex"; if($("gcamStop")) $("gcamStop").style.display="none"; veilleMaj();
   };
 
   /* ---------- Écran de scan Lunch ----------
@@ -2851,14 +2931,35 @@
      marquages avant d'écrire, sinon le dernier écrivain effacerait ceux de l'autre. */
   function _lFusion(map){ Object.keys(lMiennes).forEach(function(k){ if(!map[k]) map[k]=lMiennes[k]; }); return map; }
 
+  /* Même chose au stand repas : sans copie locale, un rechargement sans réseau
+     donnait « Billet inconnu » à tout le monde. */
+  var LROSTER_CLE="qrentry:lscanRoster";
+  function _lSauverRoster(){
+    try{ window.localStorage.setItem(LROSTER_CLE, JSON.stringify({at:Date.now(), roster:lRoster})); }catch(e){}
+  }
+  function _lRelireRoster(){
+    try{
+      var v=JSON.parse(window.localStorage.getItem(LROSTER_CLE)||"null");
+      if(v && v.roster && v.roster.length){ lRoster=v.roster; return v.at||0; }
+    }catch(e){}
+    return 0;
+  }
   async function lLoad(silent){
-    if(!(await gEnsureAuth())){ lStatus("Hors ligne — la liste chargée reste utilisable."); return false; }
+    if(!(await gEnsureAuth())){
+      if(!lRoster.length){
+        var at=_lRelireRoster();
+        if(at){ lCompte(); lStatus("Hors ligne — liste du "+new Date(at).toLocaleTimeString("fr-BE")+" utilisable ("+lRoster.length+" participant·e·s)."); return false; }
+        lStatus("Hors ligne et aucune liste sur cet appareil — connecte-toi une fois avant le service."); return false;
+      }
+      lStatus("Hors ligne — la liste chargée reste utilisable."); return false;
+    }
     if(!silent) lStatus("Chargement…");
     try{
       var data=await fsGetDoc(ticketDocPath(LCID), gAuth.idToken);
       if(!data){ lStatus("Liste injoignable — on garde la dernière connue."); return false; }
       var f=data.fields||{};
       try{ lRoster=JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e){}
+      _lSauverRoster();
       try{ lUsed=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){ lUsed={}; }
       /* Repas marqués ici mais absents du serveur : scannés pendant une coupure.
          Sans ce rattrapage, le dernier repas d'une soirée hors ligne ne
@@ -2935,6 +3036,10 @@
     }
     var jeton=jetonDeLunch(brut).toUpperCase();
     var g=lRoster.filter(function(x){ return String(x.token||"").toUpperCase()===jeton; })[0];
+    if(!lRoster.length){
+      lReponse(false,"Liste non chargée","Liste non chargée","Attends le chargement de la liste (ou appuie sur Recharger) avant de servir.");
+      return;
+    }
     if(!g){ lReponse(false,"Billet inconnu","Billet inconnu","Ce code ne correspond à aucun participant."); return; }
     var cle=codeLunch(g.token);            // toujours la casse réelle du billet
     if(lUsed[cle]){
@@ -2974,7 +3079,7 @@
     try{
       lScanner=new Html5Qrcode("lreader", { verbose:false });
       await lScanner.start({facingMode:"environment"}, {fps:10, qrbox:{width:230,height:230}}, function(txt){ lServir(txt); }, function(){});
-      lScanning=true; $("lcamStart").style.display="none"; $("lcamStop").style.display="inline-flex";
+      lScanning=true; $("lcamStart").style.display="none"; $("lcamStop").style.display="inline-flex"; veilleMaj();
     }catch(e){ lScanner=null; msg.className="cam-msg on"; msg.textContent="Caméra inaccessible ici. Autorise la caméra ou utilise la saisie manuelle."; }
   };
   window.lStopCam=async function(){
@@ -2982,6 +3087,7 @@
     lScanner=null; lScanning=false;
     if($("lcamStart")) $("lcamStart").style.display="inline-flex";
     if($("lcamStop")) $("lcamStop").style.display="none";
+    veilleMaj();
   };
   window.lscanOpen=function(){
     ensureAudio();
@@ -2996,6 +3102,54 @@
     if(lTimer){ clearInterval(lTimer); lTimer=null; }
     $("lscanScreen").classList.remove("on"); $("lscanScreen").setAttribute("aria-hidden","true");
   };
+
+  /* ---------- Mise en veille de l'appareil ----------
+     Quand l'écran s'éteint, le système coupe le flux vidéo. L'app croyait toujours
+     scanner — le bouton affichait encore « Arrêter » — alors que l'image était
+     morte : il fallait arrêter puis redémarrer à la main, et un bénévole qui voit
+     du noir pense que l'app a planté. Deux mesures : garder l'écran allumé tant
+     qu'un scanner est ouvert, et relancer la caméra au retour au premier plan. */
+  var _veilleLock=null;
+  async function veilleTenir(){
+    try{
+      if(!("wakeLock" in navigator)) return;               // iOS ancien, navigateur sans l'API : sans effet
+      if(_veilleLock) return;
+      _veilleLock = await navigator.wakeLock.request("screen");
+      _veilleLock.addEventListener("release", function(){ _veilleLock=null; });
+    }catch(e){ _veilleLock=null; }                          // refus (batterie faible…) : on n'insiste pas
+  }
+  function veilleLacher(){
+    try{ if(_veilleLock) _veilleLock.release(); }catch(e){}
+    _veilleLock=null;
+  }
+  function veilleMaj(){
+    if(scanning || gScanning || lScanning) veilleTenir();
+    else veilleLacher();
+  }
+  function _ecranOuvert(id){ var e=$(id); return !!(e && e.classList.contains("on")); }
+  async function _relancerCam(sel, actif, stop, start){
+    if(!actif) return;
+    var v=null, t=null;
+    try{ v=document.querySelector(sel+" video"); var st=v&&v.srcObject; t=(st&&st.getVideoTracks)?st.getVideoTracks()[0]:null; }catch(e){}
+    if(v && t && t.readyState==="live"){                    // le flux a survécu : il suffit de relire
+      try{ await v.play(); return; }catch(e){}
+    }
+    try{ await stop(); await start(); }catch(e){}           // flux coupé : redémarrage complet
+  }
+  async function veilleReprise(){
+    if(document.visibilityState!=="visible") return;
+    await veilleTenir();                                    // le verrou est perdu à chaque veille
+    if(_ecranOuvert("lscanScreen")) return _relancerCam("#lreader", lScanning, window.lStopCam, window.lStartCam);
+    if(_ecranOuvert("gscanScreen")) return _relancerCam("#greader", gScanning, window.gStopCam, window.gStartCam);
+    return _relancerCam("#reader", scanning, window.stopCam, window.startCam);
+  }
+  document.addEventListener("visibilitychange", function(){
+    if(document.visibilityState==="visible"){ veilleReprise(); }
+    else { veilleLacher(); }
+  });
+  /* Au retour du réseau, le stand repas rattrape tout de suite au lieu d'attendre
+     son minuteur de 25 s (le scanner global le faisait déjà). */
+  window.addEventListener("online", function(){ if(_ecranOuvert("lscanScreen")) lLoad(true); });
 
   window.gscanOpen=function(){
     ensureAudio();
