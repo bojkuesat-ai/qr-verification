@@ -183,7 +183,7 @@
       <div style="font-weight:700;color:var(--gold);margin-bottom:8px">Protection de tes données (RGPD)</div>
       <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:12.5px;line-height:1.55">
         <input type="checkbox" id="f_rgpd" style="margin-top:3px;flex:0 0 auto;width:18px;height:18px">
-        <span id="rgpdText">J'accepte que mes données (nom, prénom, e-mail, et selon l'événement matricule / carte étudiante / preuve de paiement / choix de régime alimentaire et de boisson) soient collectées et traitées <b>uniquement</b> pour la gestion de cet événement, sans transmission à des tiers, et <b>supprimées après l'événement</b>. Les choix de régime et de boisson servent <b>uniquement à préparer les commandes</b> : les documents remis au traiteur et aux fournisseurs ne contiennent <b>que des totaux</b>, sans nom ni adresse. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a>.</span>
+        <span id="rgpdText">J'accepte que mes données (nom, prénom, e-mail, et selon l'événement matricule / carte étudiante / preuve de paiement / choix de régime alimentaire et de boisson) soient collectées et traitées <b>uniquement</b> pour la gestion de cet événement, sans transmission à des tiers, et <b>supprimées après l'événement</b>. Les choix de régime et de boisson servent <b>uniquement à préparer les commandes</b> : les documents remis au traiteur et aux fournisseurs ne contiennent <b>que des totaux</b>, sans nom ni adresse. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a>.</span>
       </label>
     </div>
     <div id="jaugeBox" style="display:none;margin-top:16px;border:1px solid rgba(216,180,90,.40);border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5"></div>
@@ -640,7 +640,7 @@
       ? " Mon <b>choix de régime alimentaire</b> et mon <b>choix de boisson</b> servent <b>uniquement à préparer les commandes</b> : ils ne sont ni revendus, ni communiqués à des tiers, et les documents remis au traiteur et aux fournisseurs ne contiennent <b>que des totaux</b>, sans aucun nom ni aucune adresse. Le choix de boisson n'apparaît <b>ni sur mon billet, ni à l'entrée, ni au stand repas</b> ; le régime alimentaire figure sur le billet repas, afin de pouvoir me servir le jour même."
       : "";
     var el=q("rgpdText");
-    if(el) el.innerHTML="J'accepte que mes données ("+donnees+") soient collectées et traitées par "+resp+", <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>."+noteChoix+" Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href=\"mailto:proclamation@bureauetuidant.xyz\">proclamation@bureauetuidant.xyz</a>.";
+    if(el) el.innerHTML="J'accepte que mes données ("+donnees+") soient collectées et traitées par "+resp+", <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>."+noteChoix+" Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href=\"mailto:esat.bojku@ulb.be\">esat.bojku@ulb.be</a>.";
   }
   majTexteRgpd();
 
@@ -659,7 +659,7 @@
      renvoie désormais vers l'équipe au lieu de libérer la place toute seule. */
   var ANNUL_TOK = par("annuler");
   if(ANNUL_TOK){
-    var MAIL_CONTACT = (CID==="proclamation") ? "proclamation@bureauetuidant.xyz" : "esat.bojku@ulb.be";
+    var MAIL_CONTACT = (CID==="proclamation") ? "esat.bojku@ulb.be" : "esat.bojku@ulb.be";
     if(q("form")) q("form").style.display="none"; cacherEcranRole();
     q("msg").innerHTML='<div class="card"><p class="big">✉️</p><p><b>Un empêchement ?</b></p>'
       + '<p class="hint">L\'annulation en ligne n\'est plus possible. Écris-nous à '
@@ -1156,7 +1156,7 @@
              laisse pas la personne attendre un e-mail qui n'est jamais parti. */
           okHtml='<p class="big">⚠️</p><p><b>Inscription enregistrée, mais l\'e-mail n\'est pas parti</b></p>'
             + '<p class="hint">Ton inscription est bien enregistrée pour <b>'+esc(m1)+'</b>, mais l\'e-mail contenant le <b>lien de confirmation</b> n\'a pas pu être envoyé.</p>'
-            + '<p class="hint">Attends quelques minutes et <b>recharge cette page pour réessayer</b>. Si rien n\'arrive, écris à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a> : l\'équipe peut te renvoyer le lien à la main.</p>';
+            + '<p class="hint">Attends quelques minutes et <b>recharge cette page pour réessayer</b>. Si rien n\'arrive, écris à <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a> : l\'équipe peut te renvoyer le lien à la main.</p>';
           msg.innerHTML='<div class="card">'+okHtml+'</div>';
           popupMaison(okHtml);
           return;
@@ -1207,7 +1207,10 @@
     <button type="button" id="repasAnnBtn" style="margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--text)">Annuler</button>
   </div>
 </div>
-<p id="credit" style="text-align:center;font-size:12px;color:var(--muted);opacity:.7;margin:26px 0 18px;letter-spacing:.02em">
+<p id="contact" style="text-align:center;font-size:13px;color:var(--muted);margin:26px 0 4px">
+  Une question ? Écrivez-nous à <a href="mailto:esat.bojku@ulb.be" style="color:var(--gold,#d8b45a);font-weight:600">esat.bojku@ulb.be</a>
+</p>
+<p id="credit" style="text-align:center;font-size:12px;color:var(--muted);opacity:.7;margin:0 0 18px;letter-spacing:.02em">
   Formulaire conçu et développé par Esat
 </p>
 
