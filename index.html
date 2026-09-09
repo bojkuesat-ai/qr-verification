@@ -378,6 +378,7 @@
       <h2>Commande traiteur</h2>
       <p class="sub">Comptage des choix indiqués à l'inscription. Le fichier destiné au traiteur ne contient <b>que des chiffres</b> : aucun nom, aucune adresse.</p>
       <div id="traiteurChiffres" style="margin-top:14px"></div>
+      <div id="traiteurBoissons" style="margin-top:18px"></div>
       <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:16px">
         <button class="btn ghost sm" type="button" onclick="renderTraiteurTab(true)">↻ Rafraîchir</button>
         <button class="btn gold sm" type="button" onclick="commandeTraiteur()">⬇ Fichier pour le traiteur</button>
@@ -878,7 +879,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v122</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v127</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -5003,6 +5004,197 @@
     att.n  = att.tout+att.sansporc+att.sansviande+att.vide;
     return { emis:emis, attente:att, total:tot };
   }
+  /* Comptage des boissons — sert UNIQUEMENT à commander : jamais imprimé sur un
+     billet, jamais transmis au stand. Même périmètre que le comptage des repas :
+     billets émis + inscriptions encore en attente de validation. */
+  function comptageBoissons(){
+    var att={alcool:0,sansalcool:0,vide:0}, emis={alcool:0,sansalcool:0,vide:0};
+    function add(o,v){ if(v==="alcool"||v==="sansalcool") o[v]++; else o.vide++; }
+    roster.forEach(function(g){ add(emis, g.boisson||""); });
+    (SIGNUPS||[]).forEach(function(x){
+      if(["accepte","nouveau","refuse","annule","repas"].indexOf(x.statut)>=0) return;
+      add(att, x.boisson||"");
+    });
+    var tot={};
+    ["alcool","sansalcool","vide"].forEach(function(k){ tot[k]=emis[k]+att[k]; });
+    tot.n = tot.alcool+tot.sansalcool+tot.vide;
+    emis.n = emis.alcool+emis.sansalcool+emis.vide;
+    att.n  = att.alcool+att.sansalcool+att.vide;
+    return { emis:emis, attente:att, total:tot };
+  }
+  /* Réglages de la commande. Gardés sur CET appareil, comme les chiffres figés :
+     ce sont des notes de travail, et les écrire dans le cloud demanderait des
+     droits en écriture que le compte n'a pas. */
+  var CLE_BOISSONS = "boissonsReglages";
+  var BOISSONS_DEFAUT = {
+    duree:3,                 // heures de réception
+    verresParHeure:1,        // verres par personne et par heure
+    marge:10,                // % de sécurité
+    sansReponseBuveurs:true, // les sans-réponse comptent comme buveurs
+    partCava:40,             // répartition des verres alcoolisés, en %
+    partVin:25,
+    partBiere:35,
+    partCola:40,             // répartition des verres sans alcool, en %
+    partSoft:20,
+    partJusOrange:20,
+    partJusPomme:20,
+    eauVerresParPersonne:2,  // l'eau se compte sur TOUT le monde, buveurs compris
+    formatBiere:"fut30",     // fût ou bouteilles : décidé plus tard, le calcul suit
+    verreBiereCl:25,         // verre de bière belge courant
+    /* Salé sec. Quantités par personne et par heure de réception. Les saucisses
+       sont de volaille : elles conviennent aux omnivores ET aux « sans porc »,
+       on les calcule donc sur tout le monde sauf les végétariens. */
+    chipsGrParHeure:8,       // grammes de chips par personne et par heure
+    cacaGrParHeure:5,        // grammes de cacahuètes
+    fromageCubesParHeure:1,  // cubes de fromage
+    saucissesParHeure:1.3,   // mini-saucisses
+    fromageCubeGr:20,        // poids d'un cube
+    saucissesParKg:60,       // pièces au kilo
+    formatChips:"paq300", formatCaca:"sach500", formatFromage:"kg", formatSaucisses:"kg",
+    prix:{ cava:0, vin:0, cola:0, soft:0, eauPlate:0, eauPet:0, jusOrange:0, jusPomme:0 }
+  };
+  /* Formats d'achat du salé. Comme pour la bière, le prix est retenu PAR FORMAT :
+     changer de conditionnement ne doit pas traîner le prix du précédent. */
+  var FORMATS_SALE = {
+    chips:    [ { cle:"paq300", nom:"Grand paquet 300 g", gr:300,  unite:"grand(s) paquet(s) 300 g" },
+                { cle:"paq200", nom:"Paquet 200 g",       gr:200,  unite:"paquet(s) 200 g" },
+                { cle:"paq500", nom:"Paquet 500 g",       gr:500,  unite:"paquet(s) 500 g" },
+                { cle:"kg",     nom:"Au kilo",            gr:1000, unite:"kg" } ],
+    caca:     [ { cle:"sach500",nom:"Sachet 500 g",       gr:500,  unite:"sachet(s) 500 g" },
+                { cle:"sach250",nom:"Sachet 250 g",       gr:250,  unite:"sachet(s) 250 g" },
+                { cle:"sach1kg",nom:"Sachet 1 kg",        gr:1000, unite:"sachet(s) 1 kg" },
+                { cle:"kg",     nom:"Au kilo",            gr:1000, unite:"kg" } ],
+    fromage:  [ { cle:"kg",     nom:"Au kilo",            gr:1000, unite:"kg" },
+                { cle:"barq250",nom:"Barquette 250 g",    gr:250,  unite:"barquette(s) 250 g" },
+                { cle:"barq500",nom:"Barquette 500 g",    gr:500,  unite:"barquette(s) 500 g" } ],
+    saucisses:[ { cle:"kg",     nom:"Au kilo",            gr:1000, unite:"kg" },
+                { cle:"barq250",nom:"Barquette 250 g",    gr:250,  unite:"barquette(s) 250 g" },
+                { cle:"barq500",nom:"Barquette 500 g",    gr:500,  unite:"barquette(s) 500 g" },
+                { cle:"bocal",  nom:"Bocal 400 g",        gr:400,  unite:"bocal/bocaux 400 g" } ]
+  };
+  function formatSale(poste){
+    var r=BOISSONS||BOISSONS_DEFAUT;
+    var champ={chips:"formatChips",caca:"formatCaca",fromage:"formatFromage",saucisses:"formatSaucisses"}[poste];
+    var liste=FORMATS_SALE[poste]||[];
+    return liste.filter(function(f){ return f.cle===r[champ]; })[0] || liste[0];
+  }
+  function clePrixSale(poste){ return poste+"_"+formatSale(poste).cle; }
+  /* Formats de bière possibles. Le prix est retenu PAR FORMAT : changer de format
+     ne doit pas garder le prix d'un contenant qui n'a plus rien à voir. */
+  var FORMATS_BIERE = [
+    { cle:"fut20",   nom:"Fût 20 L",            contenantL:20,      unite:"fût(s) de 20 L" },
+    { cle:"fut30",   nom:"Fût 30 L",            contenantL:30,      unite:"fût(s) de 30 L" },
+    { cle:"fut50",   nom:"Fût 50 L",            contenantL:50,      unite:"fût(s) de 50 L" },
+    { cle:"bt25",    nom:"Bouteille 25 cl",     contenantL:0.25,    unite:"bouteille(s) 25 cl" },
+    { cle:"bt33",    nom:"Bouteille 33 cl",     contenantL:0.33,    unite:"bouteille(s) 33 cl" },
+    { cle:"bt50",    nom:"Bouteille 50 cl",     contenantL:0.5,     unite:"bouteille(s) 50 cl" },
+    { cle:"bt75",    nom:"Bouteille 75 cl",     contenantL:0.75,    unite:"bouteille(s) 75 cl" },
+    { cle:"bac24x25",nom:"Bac 24 × 25 cl",      contenantL:6,       unite:"bac(s) de 24" },
+    { cle:"bac24x33",nom:"Bac 24 × 33 cl",      contenantL:7.92,    unite:"bac(s) de 24" }
+  ];
+  function formatBiere(){
+    var r=BOISSONS||BOISSONS_DEFAUT;
+    return FORMATS_BIERE.filter(function(f){ return f.cle===r.formatBiere; })[0] || FORMATS_BIERE[1];
+  }
+  function cleePrixBiere(){ return "biere_"+formatBiere().cle; }
+  var BOISSONS = null;
+  async function chargerReglagesBoissons(){
+    if(BOISSONS) return BOISSONS;
+    var v=null; try{ var b=await Store.get(CLE_BOISSONS); v=b?JSON.parse(b):null; }catch(e){ v=null; }
+    BOISSONS = Object.assign({}, BOISSONS_DEFAUT, v||{});
+    BOISSONS.prix = Object.assign({}, BOISSONS_DEFAUT.prix, (v&&v.prix)||{});
+    return BOISSONS;
+  }
+  async function sauverReglagesBoissons(){ try{ await Store.set(CLE_BOISSONS, JSON.stringify(BOISSONS)); }catch(e){} }
+
+  /* Contenants : cava et vin en 75 cl, softs et eau en 1,5 L, jus en carton d'1 L,
+     bière au litre (fût : la taille se choisit à la commande). Un verre = 12 cl
+     pour le cava et le vin, 20 cl pour la bière, 20 cl pour les softs et l'eau. */
+  var CONTENANTS = [
+    { cle:"cava",      nom:"Cava",              groupe:"alcool", part:"partCava",      verreCl:12, contenantL:0.75, unite:"bouteille(s) 75 cl" },
+    { cle:"vin",       nom:"Vin",               groupe:"alcool", part:"partVin",       verreCl:12, contenantL:0.75, unite:"bouteille(s) 75 cl" },
+
+    { cle:"cola",      nom:"Cola",              groupe:"soft",   part:"partCola",      verreCl:20, contenantL:1.5,  unite:"bouteille(s) 1,5 L" },
+    { cle:"soft",      nom:"Autre soft",        groupe:"soft",   part:"partSoft",      verreCl:20, contenantL:1.5,  unite:"bouteille(s) 1,5 L" },
+    { cle:"jusOrange", nom:"Jus d'orange",      groupe:"soft",   part:"partJusOrange", verreCl:20, contenantL:1,    unite:"carton(s) 1 L" },
+    { cle:"jusPomme",  nom:"Jus de pomme",      groupe:"soft",   part:"partJusPomme",  verreCl:20, contenantL:1,    unite:"carton(s) 1 L" },
+    { cle:"eauPlate",  nom:"Eau plate",         groupe:"eau",    part:null,            verreCl:20, contenantL:1.5,  unite:"bouteille(s) 1,5 L" },
+    { cle:"eauPet",    nom:"Eau pétillante",    groupe:"eau",    part:null,            verreCl:20, contenantL:1.5,  unite:"bouteille(s) 1,5 L" }
+  ];
+  /* La bière est ajoutée à la volée : son contenant dépend du format choisi. */
+  function listeContenants(){
+    var r=BOISSONS||BOISSONS_DEFAUT, f=formatBiere();
+    var biere = { cle:cleePrixBiere(), nom:"Bière — "+f.nom, groupe:"alcool", part:"partBiere",
+                  verreCl:Math.max(1, r.verreBiereCl||25), contenantL:f.contenantL, unite:f.unite };
+    var out=CONTENANTS.slice();
+    out.splice(2, 0, biere);            // à sa place d'origine, après le vin
+    return out;
+  }
+  function estimerBoissons(){
+    var r=BOISSONS||BOISSONS_DEFAUT, c=comptageBoissons().total;
+    var buveurs = c.alcool + (r.sansReponseBuveurs ? c.vide : 0);
+    var sobres  = c.sansalcool + (r.sansReponseBuveurs ? 0 : c.vide);
+    var verresParPers = Math.max(0, r.duree) * Math.max(0, r.verresParHeure);
+    var facteur = 1 + Math.max(0, r.marge)/100;
+    var lignes = listeContenants().map(function(p){
+      var verres;
+      if(p.groupe==="eau"){ verres = c.n * Math.max(0, r.eauVerresParPersonne) / 2; }   // réparti plate / pétillante
+      else {
+        var base = (p.groupe==="alcool") ? buveurs : sobres;
+        verres = base * verresParPers * (Math.max(0, r[p.part])/100);
+      }
+      var litres = verres * p.verreCl/100 * facteur;
+      var qte = Math.ceil(litres / p.contenantL);
+      var pu = Number((r.prix||{})[p.cle])||0;
+      /* Arrondi au dixième et non à l'entier : une bouteille de 33 cl donne 1,3 verre
+         de 25 cl, pas 1 — afficher « 1 » laissait croire qu'on perdait un tiers. */
+      var verresParContenant = Math.round(p.contenantL*1000 / p.verreCl)/10;
+      return { cle:p.cle, nom:p.nom, unite:p.unite, litres:litres, qte:qte, pu:pu, cout:qte*pu,
+               verreCl:p.verreCl, verresParContenant:verresParContenant };
+    });
+    var cout = lignes.reduce(function(n,l){ return n+l.cout; }, 0);
+    return { buveurs:buveurs, sobres:sobres, total:c, verresParPers:verresParPers, lignes:lignes, cout:cout };
+  }
+  /* Salé sec. Les saucisses sont de volaille : convenables pour les omnivores et
+     les « sans porc », donc calculées sur l'effectif MOINS les végétarien·ne·s.
+     Le reste se compte sur tout le monde. */
+  function estimerSale(){
+    var r=BOISSONS||BOISSONS_DEFAUT;
+    var t=comptageTraiteur().total;               // comptage par régime déjà en place
+    var n = t.n;
+    var mangeursSaucisse = Math.max(0, n - t.sansviande);
+    var heures = Math.max(0, r.duree);
+    var facteur = 1 + Math.max(0, r.marge)/100;
+    var postes = [
+      { poste:"chips",     nom:"Chips",                base:n,
+        grammes: n * Math.max(0,r.chipsGrParHeure) * heures,
+        detail: Math.round(Math.max(0,r.chipsGrParHeure)*heures)+" g/pers." },
+      { poste:"caca",      nom:"Cacahuètes",           base:n,
+        grammes: n * Math.max(0,r.cacaGrParHeure) * heures,
+        detail: Math.round(Math.max(0,r.cacaGrParHeure)*heures)+" g/pers." },
+      { poste:"fromage",   nom:"Cubes de fromage",     base:n,
+        grammes: n * Math.max(0,r.fromageCubesParHeure) * heures * Math.max(1,r.fromageCubeGr),
+        detail: Math.round(Math.max(0,r.fromageCubesParHeure)*heures)+" cube(s)/pers." },
+      { poste:"saucisses", nom:"Mini-saucisses (volaille)", base:mangeursSaucisse,
+        grammes: mangeursSaucisse * Math.max(0,r.saucissesParHeure) * heures * (1000/Math.max(1,r.saucissesParKg)),
+        detail: Math.round(Math.max(0,r.saucissesParHeure)*heures)+" pièce(s)/pers. · hors végétarien·ne·s" }
+    ];
+    var lignes = postes.map(function(p){
+      var f=formatSale(p.poste);
+      var gr = p.grammes * facteur;
+      var qte = Math.ceil(gr / f.gr);
+      var cle = clePrixSale(p.poste);
+      var pu = Number((r.prix||{})[cle])||0;
+      var pieces = (p.poste==="fromage") ? Math.ceil(gr/Math.max(1,r.fromageCubeGr))
+                 : (p.poste==="saucisses") ? Math.ceil(gr/1000*Math.max(1,r.saucissesParKg)) : 0;
+      return { cle:cle, poste:p.poste, nom:p.nom+" — "+f.nom, unite:f.unite, base:p.base,
+               grammes:gr, qte:qte, pu:pu, cout:qte*pu, pieces:pieces, detail:p.detail };
+    });
+    var cout = lignes.reduce(function(x,l){ return x+l.cout; }, 0);
+    return { lignes:lignes, cout:cout, n:n, mangeursSaucisse:mangeursSaucisse };
+  }
+  function euro(v){ return (Math.round(v*100)/100).toFixed(2).replace(".",",")+" €"; }
+
   function texteTraiteur(){
     var c=comptageTraiteur(), t=c.total;
     if(!t.n) return "";
@@ -5011,7 +5203,13 @@
       + "· Omnivore : "+t.tout+" ("+pc(t.tout)+")\n"
       + "· Sans porc : "+t.sansporc+" ("+pc(t.sansporc)+")\n"
       + "· Végétarien : "+t.sansviande+" ("+pc(t.sansviande)+")\n"
-      + (t.vide ? "· Sans préférence indiquée : "+t.vide+" ("+pc(t.vide)+")\n" : "");
+      + (t.vide ? "· Sans préférence indiquée : "+t.vide+" ("+pc(t.vide)+")\n" : "")
+      + (function(){
+          var cb=comptageBoissons().total;
+          if(!cb.n) return "";
+          return "\nBoissons\n· Avec alcool : "+cb.alcool+"\n· Sans alcool : "+cb.sansalcool
+               + (cb.vide ? "\n· Sans réponse : "+cb.vide : "") + "\n";
+        })();
   }
   window.copierTexteTraiteur = function(){
     var txt=texteTraiteur();
@@ -5033,9 +5231,59 @@
               ["Végétarien", t.sansviande, pc(t.sansviande)],
               ["Sans préférence indiquée", t.vide, pc(t.vide)],
               ["TOTAL", t.n, "100 %"]];
+    /* Section Boissons : mêmes règles que le reste du fichier — que des chiffres. */
+    await chargerReglagesBoissons();
+    var cb=comptageBoissons().total;
+    var rowsB=[];
+    var e = cb.n ? estimerBoissons() : { lignes:[], cout:0 };   // pas de réponse boisson : le salé doit quand même sortir
+    if(cb.n){
+      rowsB=[[],["BOISSONS"],
+        ["Avec alcool", cb.alcool, cb.n?Math.round(cb.alcool/cb.n*100)+" %":""],
+        ["Sans alcool", cb.sansalcool, cb.n?Math.round(cb.sansalcool/cb.n*100)+" %":""],
+        ["Sans réponse", cb.vide, cb.n?Math.round(cb.vide/cb.n*100)+" %":""],
+        [],
+        ["Base de calcul"],
+        ["Durée (h)", BOISSONS.duree],
+        ["Verres par personne et par heure", BOISSONS.verresParHeure],
+        ["Marge de sécurité (%)", BOISSONS.marge],
+        ["Verres d'eau par personne", BOISSONS.eauVerresParPersonne],
+        ["Sans-réponse comptés comme", BOISSONS.sansReponseBuveurs ? "buveurs" : "non-buveurs"],
+        ["Buveurs retenus", e.buveurs],
+        ["Non-buveurs retenus", e.sobres],
+        [],
+        ["Format de bière retenu", formatBiere().nom],
+        ["Verre de bière (cl)", BOISSONS.verreBiereCl],
+        [],
+        ["Produit","Quantité","Unité","Verres par contenant","Taille du verre (cl)","Prix unité (€)","Coût (€)"]];
+      e.lignes.forEach(function(l){
+        rowsB.push([l.nom, l.qte, l.unite, l.verresParContenant, l.verreCl, l.pu||"", l.pu?Math.round(l.cout*100)/100:""]);
+      });
+      rowsB.push(["Sous-total boissons","","","","","", e.cout?Math.round(e.cout*100)/100:""]);
+    }
+    /* Salé : mêmes règles, uniquement des totaux. */
+    var sa = comptageTraiteur().total.n ? estimerSale() : null;
+    if(sa && sa.n){
+      rowsB.push([],["SALÉ"],
+        ["Personnes", sa.n],
+        ["Mangeurs de saucisses (hors végétarien·ne·s)", sa.mangeursSaucisse],
+        ["Chips (g/pers./h)", BOISSONS.chipsGrParHeure],
+        ["Cacahuètes (g/pers./h)", BOISSONS.cacaGrParHeure],
+        ["Cubes de fromage (/pers./h)", BOISSONS.fromageCubesParHeure],
+        ["Poids d'un cube (g)", BOISSONS.fromageCubeGr],
+        ["Mini-saucisses (/pers./h)", BOISSONS.saucissesParHeure],
+        ["Saucisses au kilo", BOISSONS.saucissesParKg],
+        [],
+        ["Produit","Quantité","Unité","Quantité totale (g)","Pièces (indicatif)","Prix unité (€)","Coût (€)"]);
+      sa.lignes.forEach(function(l){
+        rowsB.push([l.nom, l.qte, l.unite, Math.round(l.grammes), l.pieces||"", l.pu||"", l.pu?Math.round(l.cout*100)/100:""]);
+      });
+      rowsB.push(["Sous-total salé","","","","","", sa.cout?Math.round(sa.cout*100)/100:""]);
+      rowsB.push(["TOTAL ESTIMÉ","","","","","", (e.cout+sa.cout)?Math.round((e.cout+sa.cout)*100)/100:""]);
+    }
+    rows = rows.concat(rowsB);
     var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
     if(!XLSX){ telechargerCSV(rows, sanitize(eventName||"proclamation")+"_traiteur.csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
-    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:28},{wch:10},{wch:8}];
+    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:30},{wch:12},{wch:22},{wch:20},{wch:18},{wch:14},{wch:12}];
     var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Commande traiteur");
     XLSX.writeFile(wb, sanitize(eventName||"proclamation")+"_traiteur.xlsx");
     flash("Fichier téléchargé — chiffres uniquement.");
@@ -5068,7 +5316,164 @@
       ? '<p class="hint">'+sans.length+' personne(s) sans régime alimentaire — inscriptions faites avant que le choix ne devienne obligatoire, ou collées depuis une liste.</p>'
       : '<p class="hint">✓ Toutes les personnes ayant un billet ont un régime alimentaire.</p>';
     renderTraiteurFige(t);
+    try{ await renderBoissons(); }catch(e){}
   };
+  /* Bloc Boissons : comptage, réglages modifiables et estimation de la commande.
+     Les prix sont saisis à la main — ceux des magasins varient et ne sont pas
+     lisibles automatiquement. */
+  window.majReglageBoisson = async function(champ, valeur){
+    await chargerReglagesBoissons();
+    if(champ==="sansReponseBuveurs"){ BOISSONS.sansReponseBuveurs = (valeur==="1"); }
+    else if(champ==="formatBiere"){ BOISSONS.formatBiere = String(valeur||"fut30"); }
+    else if(champ.indexOf("format")===0){ BOISSONS[champ] = String(valeur||""); }
+    else if(champ.indexOf("prix.")===0){ BOISSONS.prix[champ.slice(5)] = Math.max(0, Number(String(valeur).replace(",","."))||0); }
+    else { BOISSONS[champ] = Math.max(0, Number(String(valeur).replace(",","."))||0); }
+    await sauverReglagesBoissons();
+    try{ await renderBoissons(); }catch(e){}
+  };
+  window.reinitReglagesBoisson = async function(){
+    if(!(await uiConfirm("Remettre les réglages et les prix par défaut ?"))) return;
+    try{ await Store.set(CLE_BOISSONS, JSON.stringify({})); }catch(e){}
+    BOISSONS=null; await chargerReglagesBoissons();
+    try{ await renderBoissons(); }catch(e){}
+    flash("Réglages remis à zéro.");
+  };
+  async function renderBoissons(){
+    var z=$("traiteurBoissons"); if(!z) return;
+    if(currentCommId()!=="proclamation"){ z.innerHTML=""; return; }
+    await chargerReglagesBoissons();
+    var c=comptageBoissons().total;
+    if(!c.n){ z.innerHTML='<p class="hint">Boissons : aucune réponse pour l\'instant.</p>'; return; }
+    var e=estimerBoissons(), r=BOISSONS;
+    function nb(champ, val, pas){
+      return '<input type="number" min="0" step="'+(pas||1)+'" value="'+val+'" inputmode="decimal" '
+        + 'style="width:74px;padding:6px 8px;text-align:right" '
+        + 'onchange="majReglageBoisson(\''+champ+'\', this.value)">';
+    }
+    var reglages =
+        '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:10px 0 4px">'
+      + '<label class="hint">Durée (h) '+nb("duree", r.duree, 0.5)+'</label>'
+      + '<label class="hint">Verres/pers./h '+nb("verresParHeure", r.verresParHeure, 0.5)+'</label>'
+      + '<label class="hint">Marge (%) '+nb("marge", r.marge, 5)+'</label>'
+      + '<label class="hint">Verres d\'eau/pers. '+nb("eauVerresParPersonne", r.eauVerresParPersonne, 1)+'</label>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0 10px">'
+      + '<label class="hint">Alcool : cava '+nb("partCava", r.partCava, 5)+' % · vin '+nb("partVin", r.partVin, 5)+' % · bière '+nb("partBiere", r.partBiere, 5)+' %</label>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0 10px">'
+      + '<label class="hint">Sans alcool : cola '+nb("partCola", r.partCola, 5)+' % · autre soft '+nb("partSoft", r.partSoft, 5)+' % · jus orange '+nb("partJusOrange", r.partJusOrange, 5)+' % · jus pomme '+nb("partJusPomme", r.partJusPomme, 5)+' %</label>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0 10px">'
+      + '<label class="hint">Bière — format '
+      +   '<select onchange="majReglageBoisson(\'formatBiere\', this.value)" style="padding:6px 8px">'
+      +   FORMATS_BIERE.map(function(f){ return '<option value="'+f.cle+'"'+(r.formatBiere===f.cle?" selected":"")+'>'+escapeHtml(f.nom)+'</option>'; }).join("")
+      +   '</select></label>'
+      + '<label class="hint">Verre de bière (cl) '+nb("verreBiereCl", r.verreBiereCl, 5)+'</label>'
+      + '</div>'
+      + '<label class="hint" style="display:block;margin-bottom:10px">Les sans-réponse comptent comme '
+      + '<select onchange="majReglageBoisson(\'sansReponseBuveurs\', this.value)" style="padding:6px 8px">'
+      + '<option value="1"'+(r.sansReponseBuveurs?" selected":"")+'>buveurs (prudent)</option>'
+      + '<option value="0"'+(r.sansReponseBuveurs?"":" selected")+'>non-buveurs</option>'
+      + '</select></label>';
+    var somAl=r.partCava+r.partVin+r.partBiere, somSo=r.partCola+r.partSoft+r.partJusOrange+r.partJusPomme;
+    var avert="";
+    if(Math.round(somAl)!==100) avert += '<p class="hint" style="color:var(--red,#c0392b)">⚠️ Les parts « alcool » font '+Math.round(somAl)+' % au lieu de 100 %.</p>';
+    if(Math.round(somSo)!==100) avert += '<p class="hint" style="color:var(--red,#c0392b)">⚠️ Les parts « sans alcool » font '+Math.round(somSo)+' % au lieu de 100 %.</p>';
+    var lignes = e.lignes.map(function(l){
+      return '<tr>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line)">'+escapeHtml(l.nom)+'</td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right"><b>'+l.qte+'</b> <span class="hint">'+escapeHtml(l.unite)+'</span></td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right"><span class="hint">'+String(l.verresParContenant).replace(".",",")+' × '+l.verreCl+' cl</span></td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right">'
+        +   '<input type="number" min="0" step="0.01" value="'+l.pu+'" inputmode="decimal" style="width:82px;padding:6px 8px;text-align:right" '
+        +   'onchange="majReglageBoisson(\'prix.'+l.cle+'\', this.value)"></td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right">'+(l.pu?euro(l.cout):'<span class="hint">—</span>')+'</td>'
+        + '</tr>';
+    }).join("");
+    z.innerHTML =
+        '<h3 style="margin:0 0 6px">Boissons</h3>'
+      + '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px">'
+      +   '<span class="hint">Avec alcool : <b>'+c.alcool+'</b></span>'
+      +   '<span class="hint">Sans alcool : <b>'+c.sansalcool+'</b></span>'
+      +   (c.vide ? '<span class="hint" style="color:var(--red,#c0392b)">Sans réponse : <b>'+c.vide+'</b></span>' : "")
+      + '</div>'
+      + '<p class="hint">Base de calcul : '+e.buveurs+' buveur(s), '+e.sobres+' non-buveur(s), '+e.verresParPers+' verre(s) par personne.</p>'
+      + reglages + avert
+      + '<table style="width:100%;border-collapse:collapse;font-size:14px">'
+      +   '<tr><th style="text-align:left;padding:6px;font-size:12px;color:var(--muted)">Produit</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">À acheter</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Verres / contenant</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Prix unité</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Coût</th></tr>'
+      +   lignes
+      + '</table>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">'
+      +   '<b>Total estimé</b><b style="font-size:19px;color:var(--gold)">'+(e.cout?euro(e.cout):"—")+'</b></div>'
+      + '<p class="hint" style="margin-top:6px">Les prix sont à saisir une fois : ils varient d\'un magasin à l\'autre et ne sont pas lisibles automatiquement. Ils restent sur cet appareil.</p>'
+      + blocSale()
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:2px solid var(--line)">'
+      +   '<b>Total général (boissons + salé)</b><b style="font-size:19px;color:var(--gold)">'+((e.cout+estimerSale().cout)?euro(e.cout+estimerSale().cout):"—")+'</b></div>'
+      + '<div class="row" style="margin-top:8px"><button class="btn ghost sm" type="button" onclick="reinitReglagesBoisson()">Réglages par défaut</button></div>';
+  }
+  /* Bloc Salé : mêmes règles que les boissons — ratios modifiables, formats au
+     choix, prix retenu par format, et rien qui sorte de l'appareil. */
+  function blocSale(){
+    var r=BOISSONS, sa=estimerSale();
+    if(!sa.n) return "";
+    function nb(champ, val, pas){
+      return '<input type="number" min="0" step="'+(pas||1)+'" value="'+val+'" inputmode="decimal" '
+        + 'style="width:74px;padding:6px 8px;text-align:right" '
+        + 'onchange="majReglageBoisson(\''+champ+'\', this.value)">';
+    }
+    function sel(champ, poste){
+      return '<select onchange="majReglageBoisson(\''+champ+'\', this.value)" style="padding:6px 8px">'
+        + FORMATS_SALE[poste].map(function(f){
+            return '<option value="'+f.cle+'"'+(r[champ]===f.cle?" selected":"")+'>'+escapeHtml(f.nom)+'</option>'; }).join("")
+        + '</select>';
+    }
+    var lignes = sa.lignes.map(function(l){
+      var extra = l.pieces ? ('<span class="hint"> · ≈ '+l.pieces+' pièce(s)</span>') : '';
+      return '<tr>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line)">'+escapeHtml(l.nom)
+        +   '<br><span class="hint">'+escapeHtml(l.detail)+'</span></td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right"><b>'+l.qte+'</b> <span class="hint">'+escapeHtml(l.unite)+'</span></td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right"><span class="hint">'+Math.round(l.grammes)+' g</span>'+extra+'</td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right">'
+        +   '<input type="number" min="0" step="0.01" value="'+l.pu+'" inputmode="decimal" style="width:82px;padding:6px 8px;text-align:right" '
+        +   'onchange="majReglageBoisson(\'prix.'+l.cle+'\', this.value)"></td>'
+        + '<td style="padding:7px 6px;border-bottom:1px solid var(--line);text-align:right">'+(l.pu?euro(l.cout):'<span class="hint">—</span>')+'</td>'
+        + '</tr>';
+    }).join("");
+    return '<h3 style="margin:22px 0 6px">Salé</h3>'
+      + '<p class="hint">Sur '+sa.n+' personne(s). Saucisses de volaille : '+sa.mangeursSaucisse+' mangeur(s), les végétarien·ne·s sont retiré·e·s.</p>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:10px 0">'
+      +   '<label class="hint">Chips (g/pers./h) '+nb("chipsGrParHeure", r.chipsGrParHeure, 1)+'</label>'
+      +   '<label class="hint">Cacahuètes (g/pers./h) '+nb("cacaGrParHeure", r.cacaGrParHeure, 1)+'</label>'
+      +   '<label class="hint">Cubes fromage (/pers./h) '+nb("fromageCubesParHeure", r.fromageCubesParHeure, 0.5)+'</label>'
+      +   '<label class="hint">Saucisses (/pers./h) '+nb("saucissesParHeure", r.saucissesParHeure, 0.1)+'</label>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 10px">'
+      +   '<label class="hint">Poids d\'un cube (g) '+nb("fromageCubeGr", r.fromageCubeGr, 5)+'</label>'
+      +   '<label class="hint">Saucisses au kilo '+nb("saucissesParKg", r.saucissesParKg, 5)+'</label>'
+      + '</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 10px">'
+      +   '<label class="hint">Chips '+sel("formatChips","chips")+'</label>'
+      +   '<label class="hint">Cacahuètes '+sel("formatCaca","caca")+'</label>'
+      +   '<label class="hint">Fromage '+sel("formatFromage","fromage")+'</label>'
+      +   '<label class="hint">Saucisses '+sel("formatSaucisses","saucisses")+'</label>'
+      + '</div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:14px">'
+      +   '<tr><th style="text-align:left;padding:6px;font-size:12px;color:var(--muted)">Produit</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">À acheter</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Quantité totale</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Prix unité</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Coût</th></tr>'
+      +   lignes
+      + '</table>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">'
+      +   '<b>Sous-total salé</b><b style="font-size:17px;color:var(--gold)">'+(sa.cout?euro(sa.cout):"—")+'</b></div>'
+      + '<p class="hint" style="margin-top:6px">Ces quantités valent pour un drink sans repas assis. Si un buffet est servi à côté, divise-les par deux.</p>';
+  }
   /* Chiffres figés : une photo datée des totaux, pour commander sur un nombre qui
      ne bouge plus. Gardée sur CET appareil — c'est une note de travail, pas une
      donnée partagée, et l'écrire dans le cloud demanderait des droits en écriture. */
@@ -5245,7 +5650,7 @@
     if(roster.some(function(g){ return g.viaFormulaire && g.sigKey===key; })){ return; }
     var existing=new Set(roster.map(function(g){return g.token;}));
     var tok=genToken(existing);
-    roster.push({ token:tok, name:x.name, prenom:x.prenom||"", nom:x.nom||"", extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", repas:x.repas||"", viaFormulaire:true, ajoutManuel:false, sigKey:key, coopt:(Array.isArray(x.coopt)?x.coopt:(x.coopt?["be"]:undefined)) });
+    roster.push({ token:tok, name:x.name, prenom:x.prenom||"", nom:x.nom||"", extra:x.email, role:x.role||undefined, section:x.section||undefined, annee:x.annee||"", exPasserelle:!!x.exPasserelle, matricule:x.matricule||"", repas:x.repas||"", boisson:x.boisson||"", viaFormulaire:true, ajoutManuel:false, sigKey:key, coopt:(Array.isArray(x.coopt)?x.coopt:(x.coopt?["be"]:undefined)) });
     localRosterVersion=Date.now();
     await Store.set("roster", JSON.stringify(roster));
     await Store.set("rosterVersion", String(localRosterVersion));
@@ -5548,22 +5953,30 @@
       lunchPoser(n, cid); renderLunchUI();
     }catch(e){}
   }
+  /* Régime modifié : on renvoie le billet COMPLET, pas une simple confirmation.
+     Le jeton ne change pas, mais le régime est imprimé sur le billet lunch (page,
+     image et PDF) : sans renvoi, la personne garde un billet qui affiche l'ancien
+     choix et le présente tel quel au stand. Elle reçoit donc les deux QR — entrée
+     et repas — à jour, comme à l'envoi d'origine. */
   async function confirmerChangementRegime(g){
-    if(!g) return;
-    var mail=emailOf(g); if(!mail) return;
-    var lbl=REPAS_LBL[g.repas||""]||""; if(!lbl) return;
+    if(!g) return false;
+    if(!emailOf(g)) return false;
+    var lbl=REPAS_LBL[g.repas||""]||""; if(!lbl) return false;
     var vous=vouvoyerG(g);
     var salut = vous ? (((g.prenom||"")+" "+(g.nom||"")).trim() || g.name || "") : (prenomDe(g) || g.name || "");
-    var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
-      + "<p>Bonjour "+mailEsc(salut)+",</p>"
+    var entete = "<p>Bonjour "+mailEsc(salut)+",</p>"
       + (vous ? "<p>Votre régime alimentaire a bien été modifié.</p>"
               : "<p>Ton régime alimentaire a bien été modifié.</p>")
       + '<p style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:12px;margin:16px 0;font-size:13.5px;color:#555">'
       + 'Nouveau choix : <b>'+mailEsc(lbl)+'</b>.</p>'
-      + '<p style="font-size:13px;color:#666">'+(vous?"Votre billet reste valable, il n'y a rien à refaire.":"Ton billet reste valable, il n'y a rien à refaire.")+'</p>'
-      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(currentCommId())+'</p></div>';
-    try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
-      body:JSON.stringify({to:mail,subject:"Régime alimentaire modifié",html:html,from:expediteurPour(g),reply_to:MAIL_REPONSES})}); }catch(e){}
+      + '<p style="font-size:13px;color:#666">'
+      + (vous ? "Voici votre billet à jour. Il remplace le précédent : présentez celui-ci."
+              : "Voici ton billet à jour. Il remplace le précédent : présente celui-ci.")
+      + '</p>';
+    try{
+      var r = await envoiBillet(g, "Régime modifié — voici ton billet à jour", { entete:entete, sansCooptation:true });
+      return !!(r && r.ok);
+    }catch(e){ return false; }
   }
   async function traiterChoixRepas(){
     var cid=currentCommId(); if(!cid) return false;
@@ -5575,11 +5988,6 @@
       if(g && REPAS_LBL[m.repas] && g.repas!==m.repas){ g.repas=m.repas; change=true; aPrevenir.push(g); }
       m.traite=true; m.traiteTs=Date.now();
     });
-    /* La personne vient de changer son régime : on le lui confirme, sinon son
-       ancien mail continue d'afficher l'ancienne valeur. Le QR, lui, ne bouge
-       pas — il n'encode que le jeton — et le stand repas lit le régime à jour
-       au moment du scan. */
-    aPrevenir.forEach(function(g){ try{ confirmerChangementRegime(g); }catch(e){} });
     if(change){
       localRosterVersion=Date.now();
       await Store.set("roster", JSON.stringify(roster));
@@ -5587,7 +5995,20 @@
       await cloudPushRoster(cid);
       try{ renderList(); }catch(e){}
     }
-    await saveSignups(marques);
+    var enregistre = await saveSignups(marques);
+    /* Le renvoi n'a lieu qu'une fois les marqueurs publiés comme traités. Sinon un
+       second appareil admin, qui sonde la même liste, renverrait le même billet. */
+    if(enregistre!==false){
+      for(var iP=0; iP<aPrevenir.length; iP++){
+        var gP=aPrevenir[iP];
+        try{
+          var envoye = await confirmerChangementRegime(gP);
+          flash(envoye ? ("Billet à jour renvoyé à "+(gP.name||"")+" ✓")
+                       : ("⚠️ Régime modifié pour "+(gP.name||"")+" mais le renvoi du billet a échoué."));
+        }catch(e){}
+        if(iP < aPrevenir.length-1) await new Promise(function(r){ setTimeout(r,600); });
+      }
+    }
     return change;
   }
   /* Le repêchage de la liste d'attente se fait à la main, bouton « Repêcher » ci-dessous :
