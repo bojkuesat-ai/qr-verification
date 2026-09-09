@@ -910,7 +910,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v133</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v134</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -2282,7 +2282,13 @@
 
     var guest = null;
     for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ guest=roster[i]; break; } }
-    if(!guest){ setStat("invalid","Billet inconnu", token, "Ce code n'est pas dans la liste"); flashSignal(false); beep(false); return; }
+    if(!guest){
+      var _brutV=String(raw||"").trim();
+      if(estCodeLunch(_brutV) && roster.some(function(x){ return x && x.token===jetonDeLunch(_brutV); })){
+        setStat("invalid","C'est le QR du repas", token, "Demandez le billet d'entrée : c'est l'autre QR du même e-mail."); flashSignal(false); beep(false); return;
+      }
+      setStat("invalid","Billet inconnu", token, "Ce code n'est pas dans la liste"); flashSignal(false); beep(false); return;
+    }
 
     var existing = await Store.get("used:"+token);
     if(existing || usedSet.has(token)){
@@ -2298,7 +2304,7 @@
         await ensureAuth(cidLive);                 // jeton expiré => la vérif live échouait en silence
         var aLive = loadAuth(cidLive);
         if(aLive && aLive.idToken){
-          var liveDoc = await fsGetDoc(ticketDocPath(cidLive), aLive.idToken);
+          var liveDoc = await fsGetDoc(ticketDocPath(cidLive), aLive.idToken, ["used"]);   // pas toute la liste à chaque scan
           if(liveDoc){
             var lf = liveDoc.fields||{};
             var liveUsed = {};
@@ -7136,11 +7142,15 @@
     var a = loadAuth(cid); if(!a || !a.idToken) return false;
     try{
       var remoteUsed = {};
-      var data = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used","rosterVersion"]);
+      var data = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used"]);
+      /* On fusionne TOUJOURS avec ce qui est en ligne. Avant, la fusion était
+         conditionnée à l'égalité des versions de liste : pendant les 6 s qui
+         suivent un ajout par l'admin (le temps du sondage), ce téléphone écrasait
+         les entrées enregistrées par tous les autres postes. Fusionner ne peut
+         qu'ajouter des entrées, jamais en retirer. */
       if(data){
         var f=data.fields||{};
-        var grv = parseInt((f.rosterVersion&&f.rosterVersion.stringValue)||"0",10);
-        if(grv===localRosterVersion){ try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e0){} }
+        try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e0){}
       }
       var mergedUsed = Object.assign({}, remoteUsed, localUsedMapObj());
       var r = await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(mergedUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
