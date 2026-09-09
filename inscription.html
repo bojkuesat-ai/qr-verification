@@ -166,6 +166,13 @@
       <label class="chk"><input type="radio" name="repas" value="sansviande"> Végétarien</label>
     </div>
 
+    <div id="wrapBoisson" style="display:none;margin-top:18px">
+      <label id="lblBoisson">Boisson <span class="req">*</span></label>
+      <p class="hint" style="margin:-4px 0 8px">Uniquement pour commander les quantités. Cette réponse n'apparaît <b>pas</b> sur ton billet et n'est jamais communiquée : seuls des totaux servent à la commande.</p>
+      <label class="chk"><input type="radio" name="boisson" value="alcool"> Je bois de l'alcool</label>
+      <label class="chk"><input type="radio" name="boisson" value="sansalcool"> Je ne bois pas d'alcool</label>
+    </div>
+
     <div id="notePerso" style="display:none;background:rgba(216,180,90,.10);border:1px solid rgba(216,180,90,.35);border-radius:12px;padding:14px;margin-top:18px">
       <b style="color:var(--gold)">Invitation strictement personnelle</b>
       <p class="hint" style="margin-top:6px">Proclamation de la Faculté de Droit et de Criminologie de l'Université libre de Bruxelles, organisée par la Délégation étudiante de la Faculté de Droit et de Criminologie.</p>
@@ -176,7 +183,7 @@
       <div style="font-weight:700;color:var(--gold);margin-bottom:8px">Protection de tes données (RGPD)</div>
       <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:12.5px;line-height:1.55">
         <input type="checkbox" id="f_rgpd" style="margin-top:3px;flex:0 0 auto;width:18px;height:18px">
-        <span id="rgpdText">J'accepte que mes données (nom, prénom, e-mail, et selon l'événement matricule / carte étudiante / preuve de paiement) soient collectées et traitées <b>uniquement</b> pour la gestion de cet événement, sans transmission à des tiers, et <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a>.</span>
+        <span id="rgpdText">J'accepte que mes données (nom, prénom, e-mail, et selon l'événement matricule / carte étudiante / preuve de paiement / choix de régime alimentaire et de boisson) soient collectées et traitées <b>uniquement</b> pour la gestion de cet événement, sans transmission à des tiers, et <b>supprimées après l'événement</b>. Les choix de régime et de boisson servent <b>uniquement à préparer les commandes</b> : les documents remis au traiteur et aux fournisseurs ne contiennent <b>que des totaux</b>, sans nom ni adresse. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href="mailto:proclamation@bureauetuidant.xyz">proclamation@bureauetuidant.xyz</a>.</span>
       </label>
     </div>
     <div id="jaugeBox" style="display:none;margin-top:16px;border:1px solid rgba(216,180,90,.40);border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5"></div>
@@ -603,6 +610,7 @@
     q("f_role").innerHTML = ROLES_PROCLA.map(function(r){ return '<option value="'+r[0]+'">'+r[1]+'</option>'; }).join("");
     q("wrapAnnee").style.display="none";
     q("wrapRepas").style.display="";          // même question pour tous les rôles
+    if(q("wrapBoisson")) q("wrapBoisson").style.display="";
     /* Le rôle se choisit AVANT le formulaire : chacun ne voit que les champs qui
        le concernent. Le menu déroulant reste dans la page — tout le code le lit —
        mais il est masqué, remplacé par l'écran de choix. */
@@ -623,9 +631,16 @@
     else resp="le <b>Bureau étudiant de la Faculté de Droit et de Criminologie</b> (ULB)";
     var partenaires = (typeof coorgNoms==="function") ? coorgNoms() : [];
     if(partenaires.length) resp += ", en collaboration avec <b>"+listeFr(partenaires)+"</b>";
-    var donnees="nom, prénom, e-mail" + (CID==="proclamation" ? ", matricule, carte étudiante et choix alimentaire" : (PAY ? " et preuve de paiement" : ""));
+    var donnees="nom, prénom, e-mail" + (CID==="proclamation" ? ", matricule, carte étudiante, choix de régime alimentaire et choix de boisson" : (PAY ? " et preuve de paiement" : ""));
+    /* Précision demandée sur le régime et la boisson. Écrite pour être exacte : le
+       régime figure bien sur le billet lunch (il faut pouvoir servir la personne),
+       la boisson ne figure nulle part. Les deux ne servent qu'à commander, et les
+       fichiers de commande ne contiennent que des totaux. */
+    var noteChoix = (CID==="proclamation")
+      ? " Mon <b>choix de régime alimentaire</b> et mon <b>choix de boisson</b> servent <b>uniquement à préparer les commandes</b> : ils ne sont ni revendus, ni communiqués à des tiers, et les documents remis au traiteur et aux fournisseurs ne contiennent <b>que des totaux</b>, sans aucun nom ni aucune adresse. Le choix de boisson n'apparaît <b>ni sur mon billet, ni à l'entrée, ni au stand repas</b> ; le régime alimentaire figure sur le billet repas, afin de pouvoir me servir le jour même."
+      : "";
     var el=q("rgpdText");
-    if(el) el.innerHTML="J'accepte que mes données ("+donnees+") soient collectées et traitées par "+resp+", <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>. Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href=\"mailto:proclamation@bureauetuidant.xyz\">proclamation@bureauetuidant.xyz</a>.";
+    if(el) el.innerHTML="J'accepte que mes données ("+donnees+") soient collectées et traitées par "+resp+", <b>uniquement</b> pour la gestion de cet événement. Elles ne sont <b>pas transmises à des tiers</b> et sont <b>supprimées après l'événement</b>."+noteChoix+" Conformément au RGPD, je peux demander l'accès, la rectification ou la suppression de mes données à <a href=\"mailto:proclamation@bureauetuidant.xyz\">proclamation@bureauetuidant.xyz</a>.";
   }
   majTexteRgpd();
 
@@ -653,6 +668,10 @@
   }
 
   /* Choix pour le traiteur : lecture des boutons radio du formulaire. */
+  function lireChoixBoisson(){
+    var el=document.querySelector('input[name="boisson"]:checked');
+    return el ? el.value : "";
+  }
   function lireChoixRepas(){
     if(REPAS_CONFIRME) return REPAS_CONFIRME;      // la fenêtre de confirmation fait foi
     var el=document.querySelector('input[name="repas"]:checked');
@@ -985,6 +1004,15 @@
         msg.innerHTML='<p class="err">'+raison+'</p>'; return;
       }
     }
+    /* Contrôlé avant le régime : sinon la personne confirme sa fenêtre de régime
+       puis se prend une erreur sur la boisson. */
+    if(isPro && q("wrapBoisson") && q("wrapBoisson").style.display!=="none" && !lireChoixBoisson()){
+      var etuB = (q("f_role").value==="etudiant");
+      msg.innerHTML='<p class="err"><b>'+(etuB ? "Indique si tu bois de l'alcool." : "Indiquez si vous buvez de l'alcool.")+'</b><br>'
+        +'<span class="hint">C\'est uniquement pour commander les bonnes quantités — ça n\'apparaît pas sur le billet.</span></p>';
+      try{ q("wrapBoisson").scrollIntoView({behavior:"smooth",block:"center"}); }catch(e){}
+      return;
+    }
     if(isPro && q("wrapRepas") && q("wrapRepas").style.display!=="none"){
       var etu = (q("f_role").value==="etudiant");
       if(!document.querySelector('input[name="repas"]:checked')){
@@ -1064,6 +1092,7 @@
         var rl=q("f_role").value;
         rec.role=rl;
         rec.repas=lireChoixRepas();
+        rec.boisson=lireChoixBoisson();      // sert uniquement au comptage des boissons
         rec.section=(AVEC_SECTION.indexOf(rl)>=0) ? q("f_sec").value : "";
         rec.annee="";
         if(rl==="etudiant"){ rec.matricule=matricule; rec.carteId=nouveauToken(); rec.statut="apreconfirmer"; rec.confToken=(_ancienConfToken||nouveauToken()); rec.emailConfirme=false; await ecrireCarteDoc(rec.carteId, carte); _imagesEcrites.push(carteDocPath(rec.carteId)); }
