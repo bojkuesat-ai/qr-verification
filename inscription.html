@@ -684,6 +684,10 @@
     var ov=q("repasOverlay"); if(!ov) return;
     var actuel=(document.querySelector('input[name="repas"]:checked')||{}).value||"";
     var r=document.querySelector('input[name="repas3"][value="'+actuel+'"]'); if(r) r.checked=true;
+    /* La boisson est relue dans la même fenêtre : un seul écran pour les deux choix. */
+    var bActuel=lireChoixBoisson();
+    var rb=document.querySelector('input[name="boisson3"][value="'+bActuel+'"]'); if(rb) rb.checked=true;
+    if(q("boissonConfTitre")) q("boissonConfTitre").textContent = etu ? "Confirme ton choix de boisson" : "Confirmez votre choix de boisson";
     q("repasConfTitre").textContent = etu ? "Confirme ton régime alimentaire" : "Confirmez votre régime alimentaire";
     q("repasConfNote").textContent  = etu ? "Ce choix ne pourra plus être modifié ensuite."
                                           : "Ce choix ne pourra plus être modifié ensuite.";
@@ -699,7 +703,9 @@
   var REPAS_TOK = par("choix") || par("repas");   // « repas » : ancien nom du paramètre
   if(REPAS_TOK){
     if(q("form")) q("form").style.display="none"; cacherEcranRole();
-    q("msg").innerHTML='<div class="card"><p><b>Indique ton choix</b></p>'
+    /* À cet instant on ne sait pas encore qui est la personne (le billet n'est lu
+       qu'à l'enregistrement) : formulation neutre, ni tu ni vous. */
+    q("msg").innerHTML='<div class="card"><p><b>Régime alimentaire</b></p><p class="hint" style="margin-top:2px">Quel est votre choix ?</p>'
       + '<div style="margin-top:14px;text-align:left">'
       + '<label class="chk"><input type="radio" name="repas2" value="tout"> Omnivore</label>'
       + '<label class="chk"><input type="radio" name="repas2" value="sansporc"> Sans porc</label>'
@@ -708,7 +714,7 @@
       + '<button id="btnRepas" style="margin-top:18px">Enregistrer mon choix</button></div>';
     q("btnRepas").onclick=function(){
       var el=document.querySelector('input[name="repas2"]:checked');
-      if(!el){ alert("Choisis d'abord une option."); return; }
+      if(!el){ alert("Merci de choisir d'abord une option."); return; }
       enregistrerChoixRepas(REPAS_TOK, el.value);
     };
   }
@@ -729,7 +735,7 @@
       }catch(e){}
       if(!trouve){
         q("msg").innerHTML='<div class="card"><p class="big">🚫</p><p><b>Lien non reconnu</b></p>'
-          + '<p class="hint">Utilise le lien reçu dans ton e-mail, ou préviens l\'équipe.</p></div>';
+          + '<p class="hint">Merci d\'utiliser le lien reçu par e-mail, ou de prévenir l\'équipe.</p></div>';
         return;
       }
       // Un seul marqueur par billet : on remplace le précédent s'il n'a pas encore été appliqué
@@ -742,9 +748,13 @@
         headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" },
         body: JSON.stringify({ fields:fields }) });
       if(!rp.ok) throw new Error("HTTP "+rp.status);
+      var vous = (trouve.role && trouve.role!=="etudiant");     // même règle que les mails
       q("msg").innerHTML='<div class="card"><p class="big">✅</p><p><b>C\'est noté</b></p>'
-        + '<p class="hint">Ton choix : <b>'+esc(REPAS_LBL[choix]||choix)+'</b>.</p>'
-        + '<p class="hint">Tu peux revenir sur ce lien si tu changes d\'avis. Ton billet QR reste valable.</p></div>';
+        + '<p class="hint">'+(vous?'Votre choix':'Ton choix')+' : <b>'+esc(REPAS_LBL[choix]||choix)+'</b>.</p>'
+        + '<p class="hint">'+(vous
+            ? 'Vous pouvez revenir sur ce lien si vous changez d\'avis. Votre billet QR reste valable, et vous recevrez un billet à jour par e-mail.'
+            : 'Tu peux revenir sur ce lien si tu changes d\'avis. Ton billet QR reste valable, et tu recevras un billet à jour par e-mail.')
+        + '</p></div>';
     }catch(e){
       q("msg").innerHTML='<div class="card"><p class="big">⚠️</p><p><b>Enregistrement impossible</b></p>'
         + '<p class="hint">Réessaie dans un instant.</p></div>';
@@ -956,9 +966,13 @@
       ok.onclick=function(){
         var el=document.querySelector('input[name="repas3"]:checked');
         if(!el){ return; }                                   // rien de coché : on n'envoie pas
+        var eb=document.querySelector('input[name="boisson3"]:checked');
+        if(!eb){ return; }                                   // la boisson doit aussi être cochée
         REPAS_CONFIRME = el.value;
         var f=document.querySelector('input[name="repas"][value="'+el.value+'"]');
         if(f) f.checked=true;                                // le formulaire reflète le choix confirmé
+        var fb=document.querySelector('input[name="boisson"][value="'+eb.value+'"]');
+        if(fb) fb.checked=true;                              // idem pour la boisson
         q("repasOverlay").classList.remove("on");
         q("btn").click();                                    // reprend l'envoi là où il s'était arrêté
       };
@@ -1185,6 +1199,10 @@
     <label class="chk"><input type="radio" name="repas3" value="tout"> Omnivore</label>
     <label class="chk"><input type="radio" name="repas3" value="sansporc"> Sans porc</label>
     <label class="chk"><input type="radio" name="repas3" value="sansviande"> Végétarien</label>
+    <p id="boissonConfTitre" style="text-align:center;font-weight:700;margin:18px 0 4px">Confirme ton choix de boisson</p>
+    <p class="hint" style="text-align:center;margin:0 0 12px">Sert uniquement à commander les bonnes quantités.</p>
+    <label class="chk"><input type="radio" name="boisson3" value="alcool"> Je bois de l'alcool</label>
+    <label class="chk"><input type="radio" name="boisson3" value="sansalcool"> Je ne bois pas d'alcool</label>
     <button type="button" id="repasConfBtn" style="margin-top:20px">Confirmer et m'inscrire</button>
     <button type="button" id="repasAnnBtn" style="margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--text)">Annuler</button>
   </div>

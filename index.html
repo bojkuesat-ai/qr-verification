@@ -134,7 +134,8 @@
   #traiteurBoissons{font-size:15px}
   #traiteurBoissons h3{font-size:20px;color:var(--gold-soft)}
   #traiteurBoissons .hint{color:var(--muted);font-size:13.5px}
-  #traiteurBoissons table{font-size:15.5px!important}
+  #traiteurBoissons table{font-size:15.5px!important;min-width:520px}
+  #traiteurBoissons .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -2px}
   #traiteurBoissons th{font-size:13.5px!important;color:var(--muted)!important;letter-spacing:.02em}
   #traiteurBoissons label.cmd-lbl{display:inline-flex;align-items:center;gap:8px;color:var(--text);font-size:14.5px;
            background:var(--bg2);border:1px solid var(--line);border-radius:11px;padding:8px 12px}
@@ -462,6 +463,14 @@
           <option value="sansporc">Sans porc</option>
           <option value="sansviande">Végétarien</option>
         </select>
+        <div style="height:9px"></div>
+        <label class="fld" for="genBoisson">Boisson <span style="color:var(--red)">*</span></label>
+        <select id="genBoisson">
+          <option value="">— à choisir —</option>
+          <option value="alcool">Avec alcool</option>
+          <option value="sansalcool">Sans alcool</option>
+        </select>
+        <p class="hint" style="margin-top:4px">Sert uniquement à la commande des boissons. Sans réponse, la personne comptait comme buveuse.</p>
       </div>
       <div style="height:9px"></div>
       <button class="btn gold sm" onclick="addOnePerson()">Ajouter cette personne</button>
@@ -901,7 +910,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v129</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v133</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1530,6 +1539,8 @@
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)){ flash("L'e-mail est obligatoire (le billet est envoyé par mail)."); if($("g1Mail")) $("g1Mail").focus(); return; }
     if(currentCommId()==="proclamation" && $("genRepas") && !$("genRepas").value){
       flash("Choisis le régime alimentaire de cette personne."); $("genRepas").focus(); return; }
+    if(currentCommId()==="proclamation" && $("genBoisson") && !$("genBoisson").value){
+      flash("Indique si cette personne boit de l'alcool (pour la commande)."); $("genBoisson").focus(); return; }
     ADDING_ONE=true;
     try{
       var name=(nom+" "+prenom).trim(); if(!name && mail) name=mail;
@@ -1538,7 +1549,10 @@
       var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
       var g={ token:tok, name:name, prenom:prenom, nom:nom, extra:mail, cat:_gc, cc:_cc, ajoutManuel:true };
       if(currentCommId()==="proclamation" && $("genRole") && $("genRole").value){ g.role=$("genRole").value; }
-      if(currentCommId()==="proclamation"){ g.repas=($("genRepas")&&$("genRepas").value)||""; }
+      if(currentCommId()==="proclamation"){
+        g.repas=($("genRepas")&&$("genRepas").value)||"";
+        g.boisson=($("genBoisson")&&$("genBoisson").value)||"";     // sert au comptage des boissons, jamais imprimé
+      }
       roster.push(g);
       var evn=($("evName")&&$("evName").value||"").trim(); if(evn) eventName=evn;
       localRosterVersion=Date.now();
@@ -4745,6 +4759,15 @@
     if(!cibles.length){ if(!auto) uiAlert("Aucun invité avec e-mail."); return; }
     if(!auto && !(await uiConfirm("Envoyer le rappel avec le billet à "+cibles.length+" personne(s) ?"))) return;
     var d=getEvDate();
+    /* Réservation AVANT l'envoi. Le marquage n'avait lieu qu'à la fin de la boucle :
+       à 900 personnes et 0,6 s par mail, deux appareils admin ouverts la veille
+       voyaient la même fenêtre pendant neuf minutes, et tout le monde recevait le
+       rappel deux fois. On réserve d'abord, on envoie ensuite. */
+    if(d){
+      if(auto && (await lireRappelCloud(d))){ flash("Rappel déjà envoyé depuis un autre appareil."); return; }
+      try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d,"1"); }catch(e){}
+      try{ await marquerRappelCloud(d); }catch(e){}
+    }
     var quand = d ? new Date(d+"T00:00:00").toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long"}) : "demain";
     flash("Envoi des rappels…");
     var ok=0;
@@ -5454,14 +5477,14 @@
       + '</div>'
       + '<p class="hint">Base de calcul : '+e.buveurs+' buveur(s), '+e.sobres+' non-buveur(s), '+e.verresParPers+' verre(s) par personne.</p>'
       + reglages + avert
-      + '<table style="width:100%;border-collapse:collapse;font-size:14px">'
+      + '<div class="tbl-scroll"><table style="width:100%;border-collapse:collapse;font-size:14px">'
       +   '<tr><th style="text-align:left;padding:6px;font-size:12px;color:var(--muted)">Produit</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">À acheter</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Verres / contenant</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Prix unité</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Coût</th></tr>'
       +   lignes
-      + '</table>'
+      + '</table></div>'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">'
       +   '<b>Total estimé</b><b style="font-size:19px;color:var(--gold)">'+(e.cout?euro(e.cout):"—")+'</b></div>'
       + '<p class="hint" style="margin-top:6px">Les prix sont à saisir une fois : ils varient d\'un magasin à l\'autre et ne sont pas lisibles automatiquement. Ils restent sur cet appareil.</p>'
@@ -5520,14 +5543,14 @@
       +   '<label class="cmd-lbl">Fromage '+sel("formatFromage","fromage")+'</label>'
       +   '<label class="cmd-lbl">Saucisses '+sel("formatSaucisses","saucisses")+'</label>'
       + '</div>'
-      + '<table style="width:100%;border-collapse:collapse;font-size:14px">'
+      + '<div class="tbl-scroll"><table style="width:100%;border-collapse:collapse;font-size:14px">'
       +   '<tr><th style="text-align:left;padding:6px;font-size:12px;color:var(--muted)">Produit</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">À acheter</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Quantité totale</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Prix unité</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Coût</th></tr>'
       +   lignes
-      + '</table>'
+      + '</table></div>'
       + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">'
       +   '<b>Sous-total salé</b><b style="font-size:17px;color:var(--gold)">'+(sa.cout?euro(sa.cout):"—")+'</b></div>'
       + '<p class="hint" style="margin-top:6px">Ces quantités valent pour un drink sans repas assis. Si un buffet est servi à côté, divise-les par deux.</p>';
