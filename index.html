@@ -910,7 +910,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v134</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v137</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1411,11 +1411,16 @@
       if(typeof renderHome==="function") renderHome();
     }catch(e){}
   }
+  /* Prénoms signant les mails de la proclamation, dans cet ordre. */
+  var SIGNATAIRES_PROCLA = ["Esat", "Najwa", "Waled", "Shekinah", "Anaïs", "Charlotte"];
   function signatureMail(cid){
     var c = cid || currentCommId();
     var base;
     if(c==="parrainage") base = SIG_PARR;
-    else if(c==="proclamation") base = "La Délégation étudiante de la Faculté de Droit et de Criminologie";
+    /* Pas « la Délégation » : la proclamation est organisée par une partie des
+       délégué·e·s, pas par toute la délégation. */
+    else if(c==="proclamation") base = "L'équipe d'organisation de l'événement"
+                                     + "<br>" + SIGNATAIRES_PROCLA.join(", ").replace(/, ([^,]*)$/, " et $1");
     else base = "Le bureau étudiant";
     return base + coorgLigne(c);
   }
@@ -5962,6 +5967,7 @@
         + '<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Renvoyer ma carte</a></p>'
         + '<p style="color:#999;font-size:12px">Si le bouton ne fonctionne pas, copie ce lien :<br>'+lien+'</p>'
         + '<p style="text-align:center;font-size:13px;color:#666">Une question ? <a href="'+contact+'" style="color:#8a6d1f;font-weight:bold">Contactez-nous</a>.</p>'
+        + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(cid)+'</p>'
         + '</div>';
       try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
         body:JSON.stringify({to:x.email,subject:"Renvoie ta carte étudiante — "+nomEv,html:html,from:expediteurPour(x),reply_to:MAIL_REPONSES})}); flash("Demande envoyée à "+x.name+"."); }
