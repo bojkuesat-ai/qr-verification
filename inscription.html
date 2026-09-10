@@ -161,9 +161,9 @@
 
     <div id="wrapRepas" style="display:none;margin-top:18px">
       <label id="lblRepas">Fais ton choix <span class="req">*</span></label>
-      <label class="chk"><input type="radio" name="repas" value="tout"> Omnivore</label>
+      <label class="chk"><input type="radio" name="repas" value="tout"> Sans restriction</label>
       <label class="chk"><input type="radio" name="repas" value="sansporc"> Sans porc</label>
-      <label class="chk"><input type="radio" name="repas" value="sansviande"> Végétarien</label>
+      <label class="chk"><input type="radio" name="repas" value="sansviande"> Végétarien (ni viande ni poisson)</label>
     </div>
 
     <div id="wrapBoisson" style="display:none;margin-top:18px">
@@ -695,7 +695,7 @@
     brancherBoutonsRepas();
     ov.classList.add("on");
   }
-  var REPAS_LBL = { tout:"Omnivore", sansporc:"Sans porc", sansviande:"Végétarien" };
+  var REPAS_LBL = { tout:"Sans restriction", sansporc:"Sans porc", sansviande:"Végétarien (ni viande ni poisson)" };
 
   /* Lien « indiquer / modifier mon choix » envoyé avec le billet ou en relance.
      Comme pour le désistement, on ne peut écrire que dans « signups » : on y dépose
@@ -707,9 +707,9 @@
        qu'à l'enregistrement) : formulation neutre, ni tu ni vous. */
     q("msg").innerHTML='<div class="card"><p><b>Régime alimentaire</b></p><p class="hint" style="margin-top:2px">Quel est votre choix ?</p>'
       + '<div style="margin-top:14px;text-align:left">'
-      + '<label class="chk"><input type="radio" name="repas2" value="tout"> Omnivore</label>'
+      + '<label class="chk"><input type="radio" name="repas2" value="tout"> Sans restriction</label>'
       + '<label class="chk"><input type="radio" name="repas2" value="sansporc"> Sans porc</label>'
-      + '<label class="chk"><input type="radio" name="repas2" value="sansviande"> Végétarien</label>'
+      + '<label class="chk"><input type="radio" name="repas2" value="sansviande"> Végétarien (ni viande ni poisson)</label>'
       + '</div>'
       + '<button id="btnRepas" style="margin-top:18px">Enregistrer mon choix</button></div>';
     q("btnRepas").onclick=function(){
@@ -1196,9 +1196,9 @@
     <p class="big" style="text-align:center">🍽️</p>
     <p id="repasConfTitre" style="text-align:center;font-weight:700;margin:0 0 4px">Confirme ton régime alimentaire</p>
     <p class="hint" id="repasConfNote" style="text-align:center;margin:0 0 16px">Ce choix ne pourra plus être modifié ensuite.</p>
-    <label class="chk"><input type="radio" name="repas3" value="tout"> Omnivore</label>
+    <label class="chk"><input type="radio" name="repas3" value="tout"> Sans restriction</label>
     <label class="chk"><input type="radio" name="repas3" value="sansporc"> Sans porc</label>
-    <label class="chk"><input type="radio" name="repas3" value="sansviande"> Végétarien</label>
+    <label class="chk"><input type="radio" name="repas3" value="sansviande"> Végétarien (ni viande ni poisson)</label>
     <p id="boissonConfTitre" style="text-align:center;font-weight:700;margin:18px 0 4px">Confirme ton choix de boisson</p>
     <p class="hint" style="text-align:center;margin:0 0 12px">Sert uniquement à commander les bonnes quantités.</p>
     <label class="chk"><input type="radio" name="boisson3" value="alcool"> Je bois de l'alcool</label>

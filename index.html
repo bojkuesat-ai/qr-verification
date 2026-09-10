@@ -459,9 +459,9 @@
         <label class="fld" for="genRepas">Régime alimentaire <span style="color:var(--red)">*</span></label>
         <select id="genRepas">
           <option value="">— à choisir —</option>
-          <option value="tout">Omnivore</option>
+          <option value="tout">Sans restriction</option>
           <option value="sansporc">Sans porc</option>
-          <option value="sansviande">Végétarien</option>
+          <option value="sansviande">Végétarien (ni viande ni poisson)</option>
         </select>
         <div style="height:9px"></div>
         <label class="fld" for="genBoisson">Boisson <span style="color:var(--red)">*</span></label>
@@ -910,7 +910,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v137</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v140</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -4060,7 +4060,7 @@
   };
 
   /* ---------- Choix pour le traiteur (proclamation) ---------- */
-  var REPAS_LBL = { tout:"Omnivore", sansporc:"Sans porc", sansviande:"Végétarien" };
+  var REPAS_LBL = { tout:"Sans restriction", sansporc:"Sans porc", sansviande:"Végétarien (ni viande ni poisson)" };
   function lienRepas(g){
     var cid=currentCommId()||""; if(!g || !g.token || !cid) return "";
     var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
@@ -5098,7 +5098,7 @@
     formatBiere:"fut30",     // fût ou bouteilles : décidé plus tard, le calcul suit
     verreBiereCl:25,         // verre de bière belge courant
     /* Salé sec. Quantités par personne et par heure de réception. Les saucisses
-       sont de volaille : elles conviennent aux omnivores ET aux « sans porc »,
+       sont de volaille : elles conviennent aux « sans restriction » ET aux « sans porc »,
        on les calcule donc sur tout le monde sauf les végétariens. */
     chipsGrParHeure:8,       // grammes de chips par personne et par heure
     cacaGrParHeure:5,        // grammes de cacahuètes
@@ -5211,7 +5211,7 @@
     var cout = lignes.reduce(function(n,l){ return n+l.cout; }, 0);
     return { buveurs:buveurs, sobres:sobres, total:c, verresParPers:verresParPers, lignes:lignes, cout:cout };
   }
-  /* Salé sec. Les saucisses sont de volaille : convenables pour les omnivores et
+  /* Salé sec. Les saucisses sont de volaille : convenables pour les « sans restriction » et
      les « sans porc », donc calculées sur l'effectif MOINS les végétarien·ne·s.
      Le reste se compte sur tout le monde. */
   function estimerSale(){
@@ -5256,9 +5256,9 @@
     if(!t.n) return "";
     function pc(x){ return t.n ? Math.round(x/t.n*100)+" %" : "0 %"; }
     return t.n+" personnes\n"
-      + "· Omnivore : "+t.tout+" ("+pc(t.tout)+")\n"
+      + "· Sans restriction : "+t.tout+" ("+pc(t.tout)+")\n"
       + "· Sans porc : "+t.sansporc+" ("+pc(t.sansporc)+")\n"
-      + "· Végétarien : "+t.sansviande+" ("+pc(t.sansviande)+")\n"
+      + "· Végétarien (ni viande ni poisson) : "+t.sansviande+" ("+pc(t.sansviande)+")\n"
       + (t.vide ? "· Sans préférence indiquée : "+t.vide+" ("+pc(t.vide)+")\n" : "")
       + (function(){
           var cb=comptageBoissons().total;
@@ -5282,9 +5282,9 @@
     var rows=[["Commande traiteur — "+(eventName||"proclamation")],
               ["Établi le "+new Date().toLocaleDateString("fr-BE")],[],
               ["Choix","Nombre","Part"],
-              ["Omnivore", t.tout, pc(t.tout)],
+              ["Sans restriction", t.tout, pc(t.tout)],
               ["Sans porc", t.sansporc, pc(t.sansporc)],
-              ["Végétarien", t.sansviande, pc(t.sansviande)],
+              ["Végétarien (ni viande ni poisson)", t.sansviande, pc(t.sansviande)],
               ["Sans préférence indiquée", t.vide, pc(t.vide)],
               ["TOTAL", t.n, "100 %"]];
     /* Boissons et salé ne figurent PAS ici : ce sont des achats à part, avec
@@ -5292,7 +5292,7 @@
        que le comptage des repas. */
     var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
     if(!XLSX){ telechargerCSV(rows, sanitize(eventName||"proclamation")+"_traiteur.csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
-    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:28},{wch:10},{wch:8}];
+    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:36},{wch:10},{wch:8}];
     var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Commande traiteur");
     XLSX.writeFile(wb, sanitize(eventName||"proclamation")+"_traiteur.xlsx");
     flash("Fichier téléchargé — chiffres uniquement.");
@@ -5394,9 +5394,9 @@
     }
     box.innerHTML =
         '<div class="counter" style="margin-bottom:10px"><b>'+t.n+'</b><span>personnes inscrites</span></div>'
-      + ligne("Omnivore", t.tout, "var(--text)")
+      + ligne("Sans restriction", t.tout, "var(--text)")
       + ligne("Sans porc", t.sansporc, "var(--gold)")
-      + ligne("Végétarien", t.sansviande, "var(--gold)")
+      + ligne("Végétarien (ni viande ni poisson)", t.sansviande, "var(--gold)")
       + (t.vide ? ligne("Sans préférence indiquée", t.vide, "var(--red,#c0392b)") : "")
       + '<p class="hint" style="margin-top:10px">'+c.emis.n+' billet(s) émis · '+c.attente.n+' inscription(s) en attente de validation.</p>'
       + '<p class="hint">Dans un drink, les pièces sont partagées : ces chiffres sont un minimum, prévois large avec le traiteur.</p>';
@@ -5593,9 +5593,9 @@
       }
       z.innerHTML = '<p class="fld" style="margin:0 0 6px">Chiffres figés — '+escapeHtml(quand)+'</p>'
         + '<div class="counter" style="margin:0 0 8px"><b>'+f.n+'</b><span>personnes au moment du figeage</span></div>'
-        + l("Omnivore", f.tout, t.tout)
+        + l("Sans restriction", f.tout, t.tout)
         + l("Sans porc", f.sansporc, t.sansporc)
-        + l("Végétarien", f.sansviande, t.sansviande)
+        + l("Végétarien (ni viande ni poisson)", f.sansviande, t.sansviande)
         + l("Sans préférence", f.vide, t.vide)
         + '<p class="hint" style="margin-top:8px">Écart total : '+((t.n||0)-(f.n||0)>=0?"+":"")+((t.n||0)-(f.n||0))+' personne(s) depuis le figeage. Gardé sur cet appareil uniquement.</p>'
         + boutons;
