@@ -910,7 +910,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v140</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v141</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -935,6 +935,7 @@
   <div class="modal-box" style="max-width:440px">
     <p id="uiModalMsg" style="white-space:pre-wrap;font-size:16px;line-height:1.55;margin:6px 2px 18px;color:var(--text)"></p>
     <input type="text" id="uiModalInput" style="display:none;margin-bottom:16px" autocomplete="off">
+    <textarea id="uiModalArea" style="display:none;margin-bottom:16px;min-height:200px;font-size:14px" spellcheck="false"></textarea>
     <div class="row" style="justify-content:flex-end;gap:10px">
       <button class="btn ghost" id="uiCancel" type="button" style="display:none">Annuler</button>
       <button class="btn gold" id="uiOk" type="button">OK</button>
@@ -3894,10 +3895,25 @@
   /* ---------- Envoi par mail (EmailJS) ---------- */
   function copyText(txt, okMsg){
     if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(txt).then(function(){ flash(okMsg||"Copié."); }, function(){ promptCopy(txt); });
-    } else { promptCopy(txt); }
+      navigator.clipboard.writeText(txt).then(function(){ flash(okMsg||"Copié."); }, function(){ fenetreCopie("Sélectionne le texte puis copie-le :", txt); });
+    } else { fenetreCopie("Sélectionne le texte puis copie-le :", txt); }
   }
-  function promptCopy(txt){ try{ uiPrompt("Copie ce texte (sélectionne puis copie) :", txt); }catch(e){} }
+  /* Texte à copier (texte traiteur, gabarit de mail, liste d'adresses) : il passait
+     par le champ mono-ligne du « prompt », qui avale les retours à la ligne. On le
+     met dans le presse-papiers quand c'est possible, et on l'affiche dans une zone
+     multi-lignes, déjà sélectionnée, pour la copie manuelle. */
+  function fenetreCopie(msg, txt){ try{ uiCopy(msg, String(txt==null?"":txt)); }catch(e){} }
+  function promptCopy(txt){
+    var t = String(txt==null ? "" : txt);
+    try{
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(t).then(function(){ fenetreCopie("Texte copié ✓ — le voici :", t); },
+                                              function(){ fenetreCopie("Sélectionne le texte puis copie-le :", t); });
+        return;
+      }
+    }catch(e){}
+    fenetreCopie("Sélectionne le texte puis copie-le :", t);
+  }
   var EJS_DEFAULT = { s:"service_ip1efy8", t:"template_tfn3p2g", k:"W1-K43Kdko58gQFjN" };
   function mailCfg(){
     var s="",t="",k="";
@@ -6823,18 +6839,24 @@
     return new Promise(function(res){
       _uiResolve=res; _uiMode=mode;
       if($("uiModalMsg")) $("uiModalMsg").textContent = msg==null?"":String(msg);
-      var inp=$("uiModalInput"), cancel=$("uiCancel"), ok=$("uiOk");
+      var inp=$("uiModalInput"), area=$("uiModalArea"), cancel=$("uiCancel"), ok=$("uiOk");
       if(inp){ if(mode==="prompt"){ inp.style.display="block"; inp.value=def==null?"":def; } else { inp.style.display="none"; } }
-      if(cancel) cancel.style.display = (mode==="alert") ? "none" : "inline-flex";
-      if(ok) ok.textContent = (mode==="alert") ? "OK" : "Confirmer";
+      if(area){ if(mode==="copy"){ area.style.display="block"; area.value=def==null?"":def; } else { area.style.display="none"; } }
+      var simple = (mode==="alert" || mode==="copy");     // un seul bouton, rien à confirmer
+      if(cancel) cancel.style.display = simple ? "none" : "inline-flex";
+      if(ok) ok.textContent = simple ? "OK" : "Confirmer";
       if($("uiModal")) $("uiModal").classList.add("on");
-      setTimeout(function(){ try{ (mode==="prompt"&&inp?inp:ok).focus(); }catch(e){} }, 60);
+      setTimeout(function(){ try{
+        if(mode==="copy" && area){ area.focus(); area.setSelectionRange(0, area.value.length); }
+        else (mode==="prompt"&&inp?inp:ok).focus();
+      }catch(e){} }, 60);
     });
   }
   function _uiDone(val){ if($("uiModal")) $("uiModal").classList.remove("on"); var r=_uiResolve; _uiResolve=null; if(r) r(val); }
   window.uiAlert   = function(msg){ return _uiOpen("alert", msg); };
   window.uiConfirm = function(msg){ return _uiOpen("confirm", msg); };
   window.uiPrompt  = function(msg, def){ return _uiOpen("prompt", msg, def); };
+  window.uiCopy    = function(msg, txt){ return _uiOpen("copy", msg, txt); };
   (function(){
     var ok=$("uiOk"), cancel=$("uiCancel"), inp=$("uiModalInput"), modal=$("uiModal");
     if(ok) ok.onclick=function(){ _uiDone(_uiMode==="prompt" ? (inp?inp.value:"") : true); };
