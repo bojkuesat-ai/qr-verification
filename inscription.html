@@ -150,7 +150,7 @@
       <input type="file" id="f_carte_img" accept="image/*" style="display:none">
       <input type="file" id="f_carte_pdf" accept="application/pdf,.pdf" style="display:none">
       <p id="carteNom" class="hint" style="margin-top:8px;display:none"></p>
-      <p class="hint">Recto de votre carte : prenez-la en photo, choisissez une image, ou déposez un PDF. Votre inscription sera validée par l'équipe après vérification.</p>
+      <p class="hint">Photo du recto de votre carte, ou capture d'écran de la carte numérique (app MONULB). Image ou PDF. Validation par l'équipe après vérification.</p>
     </div>
 
     <div id="wrapPreuve" style="display:none">
@@ -511,7 +511,7 @@
         var opts=q("corrCard"); if(opts){ var cos=opts.querySelector(".carte-opts"); if(cos) cos.style.display="none"; }
         return;
       }
-      if(cm) cm.innerHTML="Bonjour <b>"+esc(rec.prenom||rec.name||"")+"</b>, dépose ci-dessous une nouvelle photo ou un PDF <b>lisible</b> de ta carte étudiante."+(rec.motif?'<br><span style="color:#d88">Raison : '+esc(rec.motif)+'</span>':'');
+      if(cm) cm.innerHTML="Bonjour <b>"+esc(rec.prenom||rec.name||"")+"</b>, dépose ci-dessous une photo <b>lisible</b> du recto de ta carte, ou une capture d'écran de ta carte numérique (app MONULB). Image ou PDF."+(rec.motif?'<br><span style="color:#d88">Raison : '+esc(rec.motif)+'</span>':'');
     }catch(e){ if(cm) cm.innerHTML="Erreur de chargement. Réessaie plus tard."; }
   }
   async function renvoyerCarte(){
