@@ -6677,17 +6677,43 @@
       html += '<p class="fld" style="margin-top:12px">Liste d\'attente ('+att.length+')</p>'
         + colonnes(att, function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Accepter</button>'); });
     }
-    if(acc.length){
-      html += '<p class="fld" style="margin-top:12px">Inscrits — billet envoyé ('+acc.length+')</p>'
-        + colonnes(acc, function(x){ return ligne(x,'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>'); });
+    /* Ajouts manuels : mêlés aux inscrits, avec la mention « (ajout manuel) ». */
+    var manList = roster.filter(function(g){ return g && !g.viaFormulaire; }).filter(function(g){
+      if(!_q) return true;
+      return [g.name, g.nom, g.prenom, emailOf(g), g.matricule, g.section]
+        .some(function(v){ return String(v||"").toLowerCase().indexOf(_q)>=0; });
+    });
+    function ligneMan(g){
+      var info=[g.role?roleCourt(g.role):"", g.section||""].filter(Boolean).join(" · ");
+      var etat = g.mailEnvoye ? '<span class="hint" style="color:var(--green,#4caf7d)">✓</span>'
+               : (g.mailEnvoye===0 ? '<span class="hint" style="color:var(--red)">⚠ mail non reçu</span>' : '<span class="hint" style="color:var(--amber)">✉ non envoyé</span>');
+      return '<div class="fiche-clic" data-fiche-g="'+escapeHtml(g.token)+'" title="Voir la fiche">'
+        + '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
+        + '<span style="flex:1;min-width:0"><b>'+escapeHtml(g.name||"?")+'</b> <span class="hint">(ajout manuel)</span><br>'
+        + '<span class="hint">'+escapeHtml(info?info+" — ":"")+escapeHtml(emailOf(g)||"")+'</span></span>'+etat+'</div></div>';
+    }
+    if(acc.length || manList.length){
+      var ligneAcc = function(x){ return '<div class="fiche-clic" data-fiche-su="'+SIGNUPS.indexOf(x)+'" title="Voir la fiche">'
+        + ligne(x,'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>') + '</div>'; };
+      var mix = acc.map(function(x){ return { role:x.role, nom:(x.name||""), html:function(){ return ligneAcc(x); } }; })
+        .concat(manList.map(function(g){ return { role:g.role, nom:(g.name||""), html:function(){ return ligneMan(g); } }; }));
+      var accHtml;
+      if(currentCommId()==="proclamation"){
+        var xE=mix.filter(function(o){ return o.role==="etudiant"; }), xA=mix.filter(function(o){ return o.role!=="etudiant"; });
+        var rendre=function(l){ return l.length ? l.map(function(o){ return o.html(); }).join("") : '<p class="col2-vide">Aucun·e</p>'; };
+        accHtml = '<div class="cols2">'
+          + '<div><p class="col2-t">🎓 Étudiant·e·s ('+xE.length+')</p>'+rendre(xE)+'</div>'
+          + '<div><p class="col2-t">Autres rôles ('+xA.length+')</p>'+rendre(xA)+'</div></div>';
+      } else { accHtml = mix.map(function(o){ return o.html(); }).join(""); }
+      html += '<p class="fld" style="margin-top:12px">Inscrits — billet envoyé ('+mix.length+')</p>' + accHtml;
     }
     if(ref.length){
       html += '<p class="fld" style="margin-top:12px">Refusés ('+ref.length+')</p>'
         + colonnes(ref, function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Valider quand même</button>'); });
     }
-    if(!SIGNUPS.length) html = '<p class="hint" style="margin-top:12px">Aucune inscription pour l\'instant. Partage le lien ci-dessus.</p>';
+    if(!SIGNUPS.length && !manList.length) html = '<p class="hint" style="margin-top:12px">Aucune inscription pour l\'instant. Partage le lien ci-dessus.</p>';
     if(_q){
-      var _nb = apay.length+acc.length+acarte.length+acorriger.length+att.length+ref.length+aconf.length;
+      var _nb = apay.length+acc.length+acarte.length+acorriger.length+att.length+ref.length+aconf.length+manList.length;
       html = '<p class="hint" style="margin:0 0 8px;color:var(--gold)">Recherche « '+escapeHtml(_q)+' » — '
            + _nb + ' résultat(s). Les compteurs ci-dessus portent sur la liste entière.</p>' + html;
       if(!_nb) html += '<p class="empty">Personne ne correspond à cette recherche.</p>';
@@ -7822,5 +7848,6 @@
   }
 })();
 </script>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v144</div>
 </body>
 </html>

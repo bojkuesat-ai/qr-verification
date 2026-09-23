@@ -1,5 +1,5 @@
 /* Service worker — contrôle d'entrée QR (mode hors-ligne) */
-const CACHE = "qrentry-v141";
+const CACHE = "qrentry-v144";
 const PRECACHE = [
   "./",
   "https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js",
@@ -38,7 +38,7 @@ self.addEventListener("fetch", function(e){
   // Navigation (ouverture de la page) : réseau d'abord, puis cache si hors-ligne
   if(req.mode === "navigate"){
     e.respondWith(
-      fetch(req).then(function(r){
+      fetch(req, { cache:"no-store" }).then(function(r){   // toujours la dernière version publiée
         const clone = r.clone();
         caches.open(CACHE).then(function(c){ c.put("./", clone); });
         return r;
