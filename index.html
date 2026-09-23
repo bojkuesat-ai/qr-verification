@@ -3553,6 +3553,7 @@
     try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
     try{ if(typeof renderParrainageQR==="function") renderParrainageQR(); }catch(e){}
     try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
+    try{ if($("suList")) renderSignups(); }catch(e){}
     flash("« "+g.name+" » supprimé·e.");
   };
   async function _appliquerSuppression(tokensSet, libelle){
@@ -3571,6 +3572,7 @@
     try{ if(typeof renderMatching==="function") renderMatching(); }catch(e){}
     try{ if(typeof renderParrainageQR==="function") renderParrainageQR(); }catch(e){}
     try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
+    try{ if($("suList")) renderSignups(); }catch(e){}
     flash(libelle);
   }
   window.deleteNonEntres = async function(){
@@ -6549,6 +6551,17 @@
         acorrigerTous=parStatut("acorriger"), attTous=parStatut("attente"),
         refTous=parStatut("refuse"), aconfTous=parStatut("apreconfirmer");
     var apay=apayTous.filter(_corr);
+    /* Une inscription acceptée dont le billet a été supprimé (liste billets / suivi)
+       ne compte plus : elle disparaît de « Inscrits — billet envoyé » et de son total. */
+    var _billetsForm = {}, _mailsForm = {};
+    roster.forEach(function(g){ if(g && g.viaFormulaire){ if(g.sigKey) _billetsForm[g.sigKey]=1; var m=String(emailOf(g)||"").toLowerCase(); if(m) _mailsForm[m]=1; } });
+    function _billetExiste(x){
+      if(!roster.length) return true;                                   // liste pas encore chargée : on n'efface rien
+      if(_billetsForm[signupKey(x)]) return true;
+      var m=String(x.email||"").toLowerCase();
+      return !!(m && _mailsForm[m]);
+    }
+    accTous = accTous.filter(_billetExiste);
     var acc=accTous.filter(_corr);
     var acarte=acarteTous.filter(_corr);
     var acorriger=acorrigerTous.filter(_corr);
@@ -6556,7 +6569,8 @@
     var ref=refTous.filter(_corr);
     var aconf=aconfTous.filter(_corr);   // n'ont jamais cliqué le lien
     var manuels = roster.filter(function(g){ return !g.viaFormulaire; }).length;
-    var totalInscrits = SIGNUPS.length + manuels;
+    var supprimes = parStatut("accepte").length - accTous.length;   // billets supprimés : plus comptés
+    var totalInscrits = SIGNUPS.length - supprimes + manuels;
     var resume = totalInscrits+" inscription(s)"+(manuels?" (dont "+manuels+" manuelle·s)":"")+" · "+accTous.length+" billet(s) envoyé(s)"
       +(apayTous.length?" · "+apayTous.length+" paiement(s) à vérifier":"")
       +(acarteTous.length?" · "+acarteTous.length+" carte(s) à vérifier":"")
@@ -7875,6 +7889,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v145</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v146</div>
 </body>
 </html>
