@@ -493,6 +493,13 @@
         </select>
         <p class="hint" style="margin-top:4px">Sert uniquement à la commande des boissons. Sans réponse, la personne comptait comme buveuse.</p>
       </div>
+      <div class="bascule" style="border-top:1px solid var(--line);margin-top:10px">
+        <div class="txt"><b>Message personnel</b><span>Ajouté en haut du mail de billet, signé Esat.</span></div>
+        <div class="rail" id="railMsgPerso" role="switch" aria-checked="false" tabindex="0" onclick="basculerMsgPerso()"></div>
+      </div>
+      <div id="msgPersoWrap" style="display:none">
+        <textarea id="g1Msg" rows="4" placeholder="Ton message pour cette personne…" style="width:100%;resize:vertical"></textarea>
+      </div>
       <div style="height:9px"></div>
       <button class="btn gold sm" onclick="addOnePerson()">Ajouter cette personne</button>
 
@@ -1556,6 +1563,21 @@
   }
   window.addCat=function(){ var n=($("catName")&&$("catName").value||"").trim(); var col=($("catColor")&&$("catColor").value)||"#7c5cff"; if(!n) return; var cats=getCats(); cats.push({name:n,color:col}); setCats(cats); if($("catName")) $("catName").value=""; renderCats(); };
   window.delCat=function(i){ var cats=getCats(); cats.splice(i,1); setCats(cats); renderCats(); };
+  /* ---------- Message personnel (ajout manuel), signé Esat ---------- */
+  window.basculerMsgPerso = function(forcer){
+    var r=$("railMsgPerso"), w=$("msgPersoWrap"); if(!r || !w) return;
+    var on = (typeof forcer==="boolean") ? forcer : !r.classList.contains("on");
+    r.classList.toggle("on", on); r.setAttribute("aria-checked", on?"true":"false");
+    w.style.display = on ? "block" : "none";
+    if(on && $("g1Msg")) $("g1Msg").focus();
+  };
+  function blocMsgPerso(g){
+    var t = g && String(g.msgPerso||"").trim();
+    if(!t) return "";
+    return '<div style="background:#f6f4fb;border-left:4px solid #e0b64d;border-radius:8px;padding:14px 16px;margin:14px 0 18px;font-size:14.5px;line-height:1.6;color:#181233">'
+      + mailEsc(t).replace(/\r?\n/g,"<br>")
+      + '<p style="margin:10px 0 0;font-weight:bold">Esat</p></div>';
+  }
   var ADDING_ONE=false;
   window.addOnePerson = async function(){
     if(ADDING_ONE) return;                       // verrou anti double-clic pendant l'envoi
@@ -1575,6 +1597,8 @@
       var tok=genToken(existing);
       var _gc=($("genCat")&&$("genCat").value)||""; var _cc=""; if(_gc){ var _f=getCats().filter(function(c){return c.name===_gc;}); if(_f[0]) _cc=_f[0].color; }
       var g={ token:tok, name:name, prenom:prenom, nom:nom, extra:mail, cat:_gc, cc:_cc, ajoutManuel:true };
+      var _msg = ($("railMsgPerso") && $("railMsgPerso").classList.contains("on") && $("g1Msg")) ? $("g1Msg").value.trim() : "";
+      if(_msg) g.msgPerso = _msg;
       if(currentCommId()==="proclamation" && $("genRole") && $("genRole").value){ g.role=$("genRole").value; }
       if(currentCommId()==="proclamation"){
         g.repas=($("genRepas")&&$("genRepas").value)||"";
@@ -1587,6 +1611,7 @@
       await Store.set("eventName", JSON.stringify(eventName));
       await Store.set("rosterVersion", String(localRosterVersion));
       if($("g1Nom")) $("g1Nom").value=""; if($("g1Prenom")) $("g1Prenom").value=""; if($("g1Mail")) $("g1Mail").value="";
+      if($("g1Msg")) $("g1Msg").value=""; basculerMsgPerso(false);   // message propre à cette personne
       renderTickets(); renderList(); updateCounts();
       if(syncCode){ syncPushFull(); } cloudPushRoster(currentCommId());
       flash("« "+name+" » ajouté·e · envoi du QR…");
@@ -4167,13 +4192,14 @@
     if(lienLunch) h += '<a href="'+lienLunch+'" style="background:#3fae7a;color:#0b2418;'+st+'">Mon billet lunch</a>';
     return h+'</p>';
   }
-  function billetHtml(name, ev, link, code, vous, lienLunch){
+  function billetHtml(name, ev, link, code, vous, lienLunch, blocHaut){
     var titre    = vous ? "Votre billet pour " : "Ton billet pour ";
     var intro    = vous ? "Voici votre billet personnel. Présentez-le à l'entrée :" : "Voici ton billet personnel. Présente-le à l'entrée :";
     var fallback = vous ? "Si le bouton ne marche pas, copiez ce lien :" : "Si le bouton ne marche pas, copie ce lien :";
     return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
       + '<h2 style="margin:0 0 12px">'+titre+mailEsc(ev)+'</h2>'
       + '<p>Bonjour '+mailEsc(name)+',</p>'
+      + (blocHaut||'')
       + '<p>'+intro+'</p>'
       + infosPratiquesHtml()
       + boutonsBillet(link, lienLunch, vous)
@@ -4194,7 +4220,7 @@
     var p = piecesDuBillet(g);
     var coeur = billetHtml(salutNom(g), eventName||"notre événement",
                   ticketLinkFor(g, lunch?"entree":""), g.token, vouvoyerG(g),
-                  lunch ? ticketLinkFor(g,"lunch") : "")
+                  lunch ? ticketLinkFor(g,"lunch") : "", blocMsgPerso(g))
               + p.html
               + blocRepas(g)
               + mentionPerso(g)
@@ -6026,7 +6052,8 @@
       + ficheLigne("Statut", escapeHtml(x ? (STATUT_LBL[p.statut] || p.statut || "") : (b.viaFormulaire ? "Inscription en ligne" : "Ajout manuel")))
       + ficheLigne("Inscrit·e le", escapeHtml(quand))
       + (b.token ? ficheLigne("Billet", escapeHtml(b.token)+(entre ? ' · <span style="color:var(--green)">Entré·e</span>' : ' · <span style="color:var(--muted)">pas encore entré·e</span>')) : "")
-      + (p.motif ? ficheLigne("Motif", escapeHtml(p.motif)) : "");
+      + (p.motif ? ficheLigne("Motif", escapeHtml(p.motif)) : "")
+      + (b.msgPerso ? ficheLigne("Message perso", escapeHtml(b.msgPerso).replace(/\n/g,"<br>")) : "");
     var aCarte = !!(p.carte || p.carteId);
     html += aCarte
       ? '<div class="fiche-carte" id="ficheCarte"><p class="hint" style="margin:14px 0">Chargement de la carte étudiante…</p></div>'
@@ -7848,6 +7875,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v144</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v145</div>
 </body>
 </html>
