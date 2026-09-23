@@ -351,6 +351,27 @@
     .ticket::before,.ticket::after{background:#fff}
     .t-dl{display:none}
   }
+  /* Proclamation : listes en deux colonnes (étudiant·e·s / autres rôles) + fiche au clic */
+  .cols2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+  @media(max-width:700px){.cols2{grid-template-columns:minmax(0,1fr)}}
+  .col2-t{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);margin:8px 0 2px;font-weight:700}
+  .col2-vide{font-size:13px;color:var(--muted2);padding:8px 0}
+  .cols2 .lst{margin-top:6px}
+  .fiche-clic{cursor:pointer;border-radius:8px;transition:background .15s}
+  .fiche-clic:hover{background:rgba(232,176,75,.07)}
+  .cols2 .fiche-clic > div{flex-wrap:wrap}
+  .lst-row.fiche-clic{border-radius:0}
+  .role-tag{display:inline-block;font-size:11px;background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px;margin-left:6px;color:var(--muted);font-weight:500;white-space:nowrap}
+  .qr-filtre{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 12px}
+  #ficheModal{position:fixed;inset:0;z-index:9999;background:rgba(8,6,20,.72);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}
+  #ficheModal.on{display:flex}
+  #ficheModal .fiche-box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);width:100%;max-width:560px;padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  #ficheModal .fiche-l{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+  #ficheModal .fiche-l span:first-child{flex:0 0 120px;color:var(--muted)}
+  #ficheModal .fiche-l span:last-child{flex:1;min-width:0;word-break:break-word}
+  #ficheModal .fiche-carte{margin-top:14px;text-align:center;background:#0d0a1c;border-radius:12px;padding:10px;min-height:60px}
+  #ficheModal .fiche-carte img{max-width:100%;max-height:60vh;border-radius:8px}
+  #ficheModal .fiche-carte embed{width:100%;height:60vh;border-radius:8px}
 </style>
 </head>
 <body>
@@ -2193,10 +2214,33 @@
       wrap.innerHTML = '<p class="empty">Le générateur de QR n\'a pas pu se charger. Vérifie ta connexion et recharge la page.</p>';
       return;
     }
+    var liste = roster;
+    if(currentCommId()==="proclamation"){
+      /* Deux boutons : on n'affiche que les QR du groupe choisi. */
+      if(QR_FILTRE!=="autres") QR_FILTRE="etudiant";
+      var nEtu = roster.filter(function(g){ return g.role==="etudiant"; }).length;
+      var nAut = roster.length - nEtu;
+      var barre = document.createElement("div"); barre.className="qr-filtre";
+      [["etudiant","🎓 QR étudiant·e·s ("+nEtu+")"],["autres","QR autres rôles ("+nAut+")"]].forEach(function(o){
+        var b=document.createElement("button"); b.type="button";
+        b.className = "btn sm "+(QR_FILTRE===o[0] ? "gold" : "ghost");
+        b.textContent=o[1];
+        b.onclick=function(){ QR_FILTRE=o[0]; renderTickets(); };
+        barre.appendChild(b);
+      });
+      wrap.appendChild(barre);
+      liste = roster.filter(function(g){ return QR_FILTRE==="etudiant" ? g.role==="etudiant" : g.role!=="etudiant"; });
+      if(!liste.length){
+        var vide=document.createElement("p"); vide.className="empty";
+        vide.textContent = QR_FILTRE==="etudiant" ? "Aucun QR étudiant pour l'instant." : "Aucun QR pour les autres rôles pour l'instant.";
+        wrap.appendChild(vide); return;
+      }
+    }
     var grid = document.createElement("div"); grid.className = "tickets";
-    roster.forEach(function(g){ grid.appendChild(buildTicketNode(g)); });
+    liste.forEach(function(g){ grid.appendChild(buildTicketNode(g)); });
     wrap.appendChild(grid);
   }
+  var QR_FILTRE = "etudiant";
 
   function buildTicketNode(g){
     var t = document.createElement("div"); t.className = "ticket";
@@ -3288,6 +3332,9 @@
     });
     if(!rows.length){ wrap.innerHTML='<p class="empty">Aucun résultat.</p>'; return; }
     var box=document.createElement("div"); box.className="lst";
+    var procla = (currentCommId()==="proclamation");
+    var boxEtu=null, boxAut=null;
+    if(procla){ boxEtu=document.createElement("div"); boxEtu.className="lst"; boxAut=document.createElement("div"); boxAut.className="lst"; }
     rows.forEach(function(g){
       var isIn=usedSet.has(g.token);
       var when = isIn && usedAt[g.token] ? fmtTime(usedAt[g.token]) : "";
@@ -3306,12 +3353,25 @@
         else etatMail = ' · <span style="color:var(--amber,#d8b45a)">✉ non envoyé</span>';
       }
       var r=document.createElement("div"); r.className="lst-row";
-      r.innerHTML=chk+'<span class="nm">'+escapeHtml(g.name)+'</span>'+
+      if(!scanner){ r.className="lst-row fiche-clic"; r.setAttribute("data-fiche-g", g.token); r.title="Voir la fiche"; }
+      var tagRole = (procla && g.role && g.role!=="etudiant") ? '<span class="role-tag">'+escapeHtml(roleCourt(g.role))+'</span>' : '';
+      r.innerHTML=chk+'<span class="nm">'+escapeHtml(g.name)+tagRole+'</span>'+
         '<span class="cd">'+g.token+(when?' · '+when:'')+etatMail+'</span>'+
         '<span class="badge '+(isIn?"in":"wait")+'">'+(isIn?"Entré":"En attente")+'</span>'+
         '<span class="lst-acts">'+acts+'</span>';
-      box.appendChild(r);
+      if(procla){ (g.role==="etudiant" ? boxEtu : boxAut).appendChild(r); }
+      else box.appendChild(r);
     });
+    if(procla){
+      /* Deux colonnes : étudiant·e·s / autres rôles. */
+      var nE=boxEtu.childNodes.length, nA=boxAut.childNodes.length;
+      box=document.createElement("div"); box.className="cols2";
+      var cE=document.createElement("div"), cA=document.createElement("div");
+      cE.innerHTML='<p class="col2-t">🎓 Étudiant·e·s ('+nE+')</p>'; cA.innerHTML='<p class="col2-t">Autres rôles ('+nA+')</p>';
+      if(nE) cE.appendChild(boxEtu); else cE.insertAdjacentHTML("beforeend",'<p class="col2-vide">Aucun·e</p>');
+      if(nA) cA.appendChild(boxAut); else cA.insertAdjacentHTML("beforeend",'<p class="col2-vide">Aucun·e</p>');
+      box.appendChild(cE); box.appendChild(cA);
+    }
     wrap.innerHTML="";
     if(!scanner){
       var nbEchecs = roster.filter(function(g){ return g.mailEnvoye===0 && emailOf(g); }).length;
@@ -5882,6 +5942,124 @@
     if(b) b.classList.add("on");
     REVUE_POS++; await afficherRevue();
   };
+  /* ---------- Fiche d'une personne (clic sur une ligne) ---------- */
+  function roleCourt(r){
+    var L={ etudiant:"Étudiant·e diplômé·e", academique:"Corps académique", scientifique:"Corps scientifique",
+            patgs:"Personnel adm./technique", doyen:"Doyen·ne", parrain:"Parrain / Marraine", filleul:"Filleul·e", alumni:"Alumni" };
+    return L[r] || r || "";
+  }
+  var STATUT_LBL = { nouveau:"Nouvelle inscription", apreconfirmer:"En attente de confirmation (lien envoyé par mail)",
+    acarte:"Carte étudiante à vérifier", acorriger:"Nouvelle carte demandée", apayer:"Paiement à vérifier",
+    accepte:"Acceptée — billet envoyé", refuse:"Refusée", attente:"Liste d'attente" };
+  async function chargerCarteB64(x){
+    if(!x) return "";
+    if(x.carte) return x.carte;
+    if(!x.carteId) return "";
+    try{
+      var cid=currentCommId();
+      await ensureAuth(cid); var a=loadAuth(cid);
+      if(a && a.idToken){
+        var d=await fsGetDoc("commission_cartes/"+cid+"__c__"+x.carteId, a.idToken);
+        if(d && d.fields && d.fields.carte) return d.fields.carte.stringValue||"";
+      }
+    }catch(e){}
+    return "";
+  }
+  /* Billet -> inscription d'origine (pour retrouver la carte, le matricule…). */
+  async function inscriptionDuBillet(g){
+    function chercher(){
+      var mail=String(emailOf(g)||"").toLowerCase();
+      return SIGNUPS.filter(function(x){ return x && x.statut!=="repas" && g.sigKey && signupKey(x)===g.sigKey; })[0]
+          || SIGNUPS.filter(function(x){ return x && x.statut!=="repas" && mail && String(x.email||"").toLowerCase()===mail
+                                          && (!g.matricule || String(x.matricule||"")===String(g.matricule)); })[0]
+          || null;
+    }
+    var x=chercher();
+    if(x || !g.viaFormulaire || SIGNUPS.length) return x;
+    try{                                            // liste des inscriptions pas encore chargée
+      var cid=currentCommId(); await ensureAuth(cid); var a=loadAuth(cid);
+      if(a && a.idToken){
+        var d=await fsGetDoc(signupDocPath(cid), a.idToken, ["signups"]);
+        if(d && d.fields && d.fields.signups){ SIGNUPS=JSON.parse(d.fields.signups.stringValue||"[]"); }
+      }
+    }catch(e){}
+    return chercher();
+  }
+  function ficheModal(){
+    var m=$("ficheModal");
+    if(!m){
+      m=document.createElement("div"); m.id="ficheModal";
+      m.innerHTML='<div class="fiche-box"><div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+        +'<h2 id="ficheTitre" style="margin:0;flex:1;font-size:19px"></h2>'
+        +'<button class="btn ghost sm" type="button" id="ficheFermer">✕</button></div>'
+        +'<div id="ficheCorps"></div></div>';
+      document.body.appendChild(m);
+      m.addEventListener("click", function(e){ if(e.target===m || (e.target && e.target.id==="ficheFermer")) m.classList.remove("on"); });
+      document.addEventListener("keydown", function(e){ if(e.key==="Escape") m.classList.remove("on"); });
+    }
+    return m;
+  }
+  function ficheLigne(lbl, val){
+    if(val===undefined || val===null || val==="") return "";
+    return '<div class="fiche-l"><span>'+escapeHtml(lbl)+'</span><span>'+val+'</span></div>';
+  }
+  async function ouvrirFiche(x, g){
+    var m=ficheModal();
+    var p = x || {}, b = g || {};
+    var nom = p.nom || b.nom || "", prenom = p.prenom || b.prenom || "";
+    $("ficheTitre").textContent = ((prenom+" "+nom).trim()) || p.name || b.name || "Fiche";
+    var role = p.role || b.role || "";
+    var repas = b.repas || p.repas || "", boisson = b.boisson || p.boisson || "";
+    var entre = b.token && usedSet.has(b.token);
+    var quand = ""; try{ if(p.ts) quand = new Date(p.ts).toLocaleString("fr-BE"); }catch(e){}
+    var html = ""
+      + ficheLigne("Nom", escapeHtml(nom))
+      + ficheLigne("Prénom", escapeHtml(prenom))
+      + ((!nom && !prenom) ? ficheLigne("Nom", escapeHtml(p.name||b.name||"")) : "")
+      + ficheLigne("E-mail", escapeHtml(p.email || emailOf(b) || ""))
+      + ficheLigne("Rôle", escapeHtml(roleCourt(role)))
+      + ficheLigne("Section", escapeHtml(p.section || b.section || ""))
+      + ficheLigne("Année", escapeHtml(p.annee || b.annee || ""))
+      + ficheLigne("Matricule", escapeHtml(p.matricule || b.matricule || ""))
+      + ficheLigne("Régime", escapeHtml(REPAS_LBL[repas] || ""))
+      + ficheLigne("Boisson", escapeHtml(({alcool:"Avec alcool", sansalcool:"Sans alcool"})[boisson] || ""))
+      + ficheLigne("Statut", escapeHtml(x ? (STATUT_LBL[p.statut] || p.statut || "") : (b.viaFormulaire ? "Inscription en ligne" : "Ajout manuel")))
+      + ficheLigne("Inscrit·e le", escapeHtml(quand))
+      + (b.token ? ficheLigne("Billet", escapeHtml(b.token)+(entre ? ' · <span style="color:var(--green)">Entré·e</span>' : ' · <span style="color:var(--muted)">pas encore entré·e</span>')) : "")
+      + (p.motif ? ficheLigne("Motif", escapeHtml(p.motif)) : "");
+    var aCarte = !!(p.carte || p.carteId);
+    html += aCarte
+      ? '<div class="fiche-carte" id="ficheCarte"><p class="hint" style="margin:14px 0">Chargement de la carte étudiante…</p></div>'
+        + '<div style="margin-top:10px;text-align:center"><button class="btn ghost sm" type="button" id="ficheGrand">Ouvrir la carte en grand</button></div>'
+      : (role==="etudiant" ? '<p class="hint" style="margin-top:12px">Aucune carte étudiante enregistrée'+(x?'':' (ajout manuel)')+'.</p>' : '');
+    $("ficheCorps").innerHTML = html;
+    m.classList.add("on");
+    if(aCarte){
+      var gb=$("ficheGrand"); if(gb) gb.onclick=function(){ var i=SIGNUPS.indexOf(x); if(i>=0) voirCarte(i); };
+      var b64 = await chargerCarteB64(p);
+      var zone=$("ficheCarte"); if(!zone || !m.classList.contains("on")) return;
+      if(!b64){ zone.innerHTML='<p class="hint" style="margin:14px 0">Carte introuvable.</p>'; return; }
+      zone.innerHTML = /^data:application\/pdf/i.test(b64)
+        ? '<embed src="'+b64+'" type="application/pdf">'
+        : '<img src="'+b64+'" alt="Carte étudiante">';
+    }
+  }
+  /* Clic sur une ligne (hors boutons et cases à cocher) : ouvre la fiche. */
+  document.addEventListener("click", function(e){
+    var el = e.target && e.target.closest ? e.target.closest("[data-fiche-su],[data-fiche-g]") : null;
+    if(!el) return;
+    if(e.target.closest("button,input,a,select,label,textarea")) return;
+    if(el.hasAttribute("data-fiche-su")){
+      var x = SIGNUPS[parseInt(el.getAttribute("data-fiche-su"),10)]; if(!x) return;
+      var g = null;
+      if(x.statut==="accepte"){ var cle=signupKey(x); g = roster.filter(function(y){ return y.viaFormulaire && y.sigKey===cle; })[0] || null; }
+      ouvrirFiche(x, g);
+    } else {
+      var tok = el.getAttribute("data-fiche-g");
+      var gg = roster.filter(function(y){ return y.token===tok; })[0]; if(!gg) return;
+      inscriptionDuBillet(gg).then(function(xx){ ouvrirFiche(xx, gg); });
+    }
+  });
   window.voirCarte=async function(i){
     var x=SIGNUPS[i]; if(!x) return flash("Aucune carte.");
     var w=window.open("","_blank");
@@ -6409,11 +6587,24 @@
 
     function ligne(x, boutons){
       var i=SIGNUPS.indexOf(x);
-      var info=[x.role?({parrain:"Parrain",filleul:"Filleul",alumni:"Alumni"})[x.role]:"",x.annee||"",x.section||""].filter(Boolean).join(" · ");
+      var info=[x.role?(({parrain:"Parrain",filleul:"Filleul",alumni:"Alumni"})[x.role]||roleCourt(x.role)):"",x.annee||"",x.section||""].filter(Boolean).join(" · ");
       return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
         +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b><br>'
         +'<span class="hint">'+escapeHtml(info?info+" — ":"")+escapeHtml(x.email||"")+'</span></span>'
         + boutons.replace(/@I@/g, String(i)) + '</div>';
+    }
+
+    /* Chaque ligne ouvre la fiche au clic. En proclamation, les listes sont
+       séparées en deux colonnes : étudiant·e·s à gauche, autres rôles à droite. */
+    function colonnes(list, f){
+      function enrober(x){ return '<div class="fiche-clic" data-fiche-su="'+SIGNUPS.indexOf(x)+'" title="Voir la fiche">'+f(x)+'</div>'; }
+      if(currentCommId()!=="proclamation") return list.map(enrober).join("");
+      var etu=list.filter(function(x){ return x.role==="etudiant"; });
+      var aut=list.filter(function(x){ return x.role!=="etudiant"; });
+      return '<div class="cols2">'
+        + '<div><p class="col2-t">🎓 Étudiant·e·s ('+etu.length+')</p>'+(etu.length?etu.map(enrober).join(""):'<p class="col2-vide">Aucun·e</p>')+'</div>'
+        + '<div><p class="col2-t">Autres rôles ('+aut.length+')</p>'+(aut.length?aut.map(enrober).join(""):'<p class="col2-vide">Aucun·e</p>')+'</div>'
+        + '</div>';
     }
 
     var html="";
@@ -6438,14 +6629,14 @@
           + '<span>⏳</span><span>En attente de confirmation</span>'
           + '<span style="background:var(--amber,#d8b45a);color:#241100;border-radius:999px;padding:2px 11px;font-size:15px;font-weight:800">'+aconf.length+'</span></p>'
         + '<p class="hint" style="margin:0 0 10px">Elles ne comptent pas encore : tant qu\'elles n\'ont pas cliqué sur le lien reçu par mail, leur inscription n\'est pas validée. Le lien est peut-être dans leurs spams.</p>'
-        + aconf.map(function(x){ var i=SIGNUPS.indexOf(x);
+        + colonnes(aconf, function(x){ var i=SIGNUPS.indexOf(x);
             var depuis="";
             try{ var j=Math.floor((Date.now()-(x.ts||Date.now()))/86400000); depuis = j>=1 ? (" · depuis "+j+" jour"+(j>1?"s":"")) : " · aujourd'hui"; }catch(e){}
             return '<div style="display:flex;align-items:center;gap:8px;padding:9px 0;border-bottom:1px solid var(--line)">'
               +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b><br>'
               +'<span class="hint">'+escapeHtml(x.email||"")+escapeHtml(depuis)+'</span></span>'
               +'<button class="btn gold xs" data-su="relance" data-i="'+i+'">📧 Renvoyer le lien</button>'
-              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("")
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; })
         + '</div>';
     }
     if(acarteTous.length+acorrigerTous.length){
@@ -6453,7 +6644,7 @@
     }
     if(acarte.length){
       html += '<p class="fld" style="margin-top:12px">Cartes étudiantes à vérifier ('+acarte.length+')</p>'
-        + acarte.map(function(x){ var i=SIGNUPS.indexOf(x);
+        + colonnes(acarte, function(x){ var i=SIGNUPS.indexOf(x);
             var _mat=String(x.matricule||"").trim();
             var _dbl = _mat && SIGNUPS.filter(function(y){ return y!==x && String(y.matricule||"").trim()===_mat && y.statut!=="refuse"; }).length>0;
             var badge = x.corrigee ? ' <span style="background:#1f6f3f;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;white-space:nowrap">🔄 carte corrigée</span>' : '';
@@ -6464,35 +6655,35 @@
               +'<button class="btn ghost xs" data-su="carte" data-i="'+i+'">Carte</button>'
               +'<button class="btn gold xs" data-su="ok" data-i="'+i+'">Valider</button>'
               +'<button class="btn ghost xs" data-su="recarte" data-i="'+i+'">🔄 Nouvelle carte</button>'
-              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; });
     }
     if(acorriger.length){
       html += '<p class="fld" style="margin-top:12px;opacity:.85">En attente d\'une nouvelle carte ('+acorriger.length+')</p>'
-        + acorriger.map(function(x){ var i=SIGNUPS.indexOf(x);
+        + colonnes(acorriger, function(x){ var i=SIGNUPS.indexOf(x);
             return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);opacity:.7">'
               +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b> <span style="font-size:11px;color:var(--amber,#d8b45a)">⏳ carte demandée</span><br>'
               +'<span class="hint">'+escapeHtml(x.section||"")+' — '+escapeHtml(x.email||"")+'</span></span>'
               +'<button class="btn ghost xs" data-su="recarte" data-i="'+i+'">Relancer</button>'
-              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; }).join("");
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; });
     }
     if(apay.length){
       html += '<p class="fld" style="margin-top:12px">Paiements à vérifier ('+apay.length+')</p>'
-        + apay.map(function(x){ return ligne(x,
+        + colonnes(apay, function(x){ return ligne(x,
             '<button class="btn ghost xs" data-su="preuve" data-i="@I@">Preuve</button>'
            +'<button class="btn gold xs" data-su="ok" data-i="@I@">Valider</button>'
-           +'<button class="btn ghost xs" data-su="no" data-i="@I@">Refuser</button>'); }).join("");
+           +'<button class="btn ghost xs" data-su="no" data-i="@I@">Refuser</button>'); });
     }
     if(att.length){
       html += '<p class="fld" style="margin-top:12px">Liste d\'attente ('+att.length+')</p>'
-        + att.map(function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Accepter</button>'); }).join("");
+        + colonnes(att, function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Accepter</button>'); });
     }
     if(acc.length){
       html += '<p class="fld" style="margin-top:12px">Inscrits — billet envoyé ('+acc.length+')</p>'
-        + acc.map(function(x){ return ligne(x,'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>'); }).join("");
+        + colonnes(acc, function(x){ return ligne(x,'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>'); });
     }
     if(ref.length){
       html += '<p class="fld" style="margin-top:12px">Refusés ('+ref.length+')</p>'
-        + ref.map(function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Valider quand même</button>'); }).join("");
+        + colonnes(ref, function(x){ return ligne(x,'<button class="btn ghost xs" data-su="ok" data-i="@I@">Valider quand même</button>'); });
     }
     if(!SIGNUPS.length) html = '<p class="hint" style="margin-top:12px">Aucune inscription pour l\'instant. Partage le lien ci-dessus.</p>';
     if(_q){
