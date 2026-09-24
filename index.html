@@ -5134,7 +5134,7 @@
     });
     var statutSU={apreconfirmer:"À confirmer (e-mail)",acarte:"Carte à vérifier",apayer:"Paiement à vérifier",acorriger:"Nouvelle carte demandée",attente:"Liste d'attente",refuse:"Refusé·e"};
     (SIGNUPS||[]).forEach(function(x){
-      if(x.statut==="accepte" || x.statut==="nouveau") return;
+      if(x.statut==="accepte" || x.statut==="nouveau" || x.statut==="repas" || x.statut==="presence") return;
       rows.push([x.nom||x.name||"", x.prenom||"", x.email||"", roleLbl[x.role]||x.role||"", x.section||"", x.matricule||"", (statutSU[x.statut]||x.statut||""), "", "En ligne", (x.coopt?"OUI":"")]);
     });
     if(!XLSX){                                    // CDN bloqué : repli CSV (s'ouvre dans Excel)
@@ -5154,7 +5154,7 @@
     function add(o,v){ if(REPAS_LBL[v]) o[v]++; else o.vide++; }
     roster.forEach(function(g){ add(emis, g.repas||""); });
     (SIGNUPS||[]).forEach(function(x){
-      if(["accepte","nouveau","refuse","annule","repas"].indexOf(x.statut)>=0) return;
+      if(["accepte","nouveau","refuse","annule","repas","presence"].indexOf(x.statut)>=0) return;
       add(att, x.repas||"");
     });
     var tot={};
@@ -5172,7 +5172,7 @@
     function add(o,v){ if(v==="alcool"||v==="sansalcool") o[v]++; else o.vide++; }
     roster.forEach(function(g){ add(emis, g.boisson||""); });
     (SIGNUPS||[]).forEach(function(x){
-      if(["accepte","nouveau","refuse","annule","repas"].indexOf(x.statut)>=0) return;
+      if(["accepte","nouveau","refuse","annule","repas","presence"].indexOf(x.statut)>=0) return;
       add(att, x.boisson||"");
     });
     var tot={};
@@ -5757,6 +5757,7 @@
       if(d&&d.fields&&d.fields.notifMail && $("suNotif") && !$("suNotif").value){ var _cm=d.fields.notifMail.stringValue||""; if(_cm){ $("suNotif").value=_cm; try{ window.localStorage.setItem(notifKey(), _cm); }catch(e){} } }
       await processSignups();
       await traiterChoixRepas();                      // choix traiteur reçus depuis le formulaire
+      await traiterPresences();                       // réponses « je serai / ne serai pas présent·e »
       await relancerNonConfirmes();                   // relance 48 h après une inscription jamais confirmée
       majPayBadge();
       await alerterNouvellesPreuves();
@@ -5770,6 +5771,7 @@
     // Marqueur « choix traiteur » : un seul par billet, sinon deux clics à la même milliseconde
     // partageraient la même clé et l'un écraserait l'autre à l'enregistrement.
     if(x.statut==="repas") return "repas|"+String(x.repasToken||"");
+    if(x.statut==="presence") return "presence|"+String(x.presToken||"")+"|"+String(x.ts||"");
     return [String(x.confToken||""), String(x.email||"").toLowerCase(),
             String(x.matricule||""), String(x.ts||"")].join("|");
   }
@@ -5997,8 +5999,8 @@
   async function inscriptionDuBillet(g){
     function chercher(){
       var mail=String(emailOf(g)||"").toLowerCase();
-      return SIGNUPS.filter(function(x){ return x && x.statut!=="repas" && g.sigKey && signupKey(x)===g.sigKey; })[0]
-          || SIGNUPS.filter(function(x){ return x && x.statut!=="repas" && mail && String(x.email||"").toLowerCase()===mail
+      return SIGNUPS.filter(function(x){ return x && x.statut!=="repas" && x.statut!=="presence" && g.sigKey && signupKey(x)===g.sigKey; })[0]
+          || SIGNUPS.filter(function(x){ return x && x.statut!=="repas" && x.statut!=="presence" && mail && String(x.email||"").toLowerCase()===mail
                                           && (!g.matricule || String(x.matricule||"")===String(g.matricule)); })[0]
           || null;
     }
@@ -6055,6 +6057,8 @@
       + ficheLigne("Inscrit·e le", escapeHtml(quand))
       + (b.token ? ficheLigne("Billet", escapeHtml(b.token)+(entre ? ' · <span style="color:var(--green)">Entré·e</span>' : ' · <span style="color:var(--muted)">pas encore entré·e</span>')) : "")
       + (p.motif ? ficheLigne("Motif", escapeHtml(p.motif)) : "")
+      + (b.presence ? ficheLigne("Présence", b.presence==="oui" ? '<span style="color:var(--green)">✅ Confirmée</span>' : '<span style="color:var(--red)">❌ Ne sera pas présent·e</span>')
+         : (b.presenceDemandee ? ficheLigne("Présence", "⏳ Demande envoyée, pas encore de réponse") : ""))
       + (b.msgPerso ? ficheLigne("Message perso", escapeHtml(b.msgPerso).replace(/\n/g,"<br>")) : "");
     var aCarte = !!(p.carte || p.carteId);
     html += aCarte
@@ -6294,6 +6298,89 @@
       return !!(r && r.ok);
     }catch(e){ return false; }
   }
+  /* ---------- Confirmation de présence (autres rôles ajoutés à la main) ----------
+     La page publique ne peut écrire que dans « signups » : elle y dépose un marqueur
+     { statut:"presence", presToken, reponse:"oui"|"non" } que l'app recopie sur le billet. */
+  async function traiterPresences(){
+    var cid=currentCommId(); if(cid!=="proclamation") return false;
+    var marques = SIGNUPS.filter(function(x){ return x && x.statut==="presence" && x.presToken && !x.traite; });
+    if(!marques.length) return false;
+    marques.sort(function(a,b){ return (a.ts||0)-(b.ts||0); });      // la dernière réponse l'emporte
+    var change=false;
+    marques.forEach(function(m){
+      var g = roster.filter(function(x){ return x.token===m.presToken; })[0];
+      if(g && (m.reponse==="oui" || m.reponse==="non") && (g.presence!==m.reponse || (g.presenceTs||0) < (m.ts||0))){
+        g.presence=m.reponse; g.presenceTs=m.ts||Date.now(); change=true;
+      }
+      m.traite=true; m.traiteTs=Date.now();
+    });
+    if(change){
+      localRosterVersion=Date.now();
+      await Store.set("roster", JSON.stringify(roster));
+      await Store.set("rosterVersion", String(localRosterVersion));
+      await cloudPushRoster(cid);
+      try{ renderList(); }catch(e){}
+      var non = marques.filter(function(m){ return m.reponse==="non"; }).length;
+      if(non) flash("❌ "+non+" personne(s) ont indiqué qu'elles ne seront pas présentes — voir « Ajoutés manuellement ».");
+    }
+    await saveSignups(marques);
+    return change;
+  }
+  function lienPresence(g){
+    var cid=currentCommId()||""; if(!g || !g.token || !cid) return "";
+    var base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"inscription.html";
+    return base+"?c="+encodeURIComponent(cid)+"&presence="+encodeURIComponent(g.token);
+  }
+  function mailPresenceHtml(g){
+    var lien=lienPresence(g);
+    var oui=lien+"&r=oui", non=lien+"&r=non";
+    return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + '<h2 style="margin:0 0 12px">'+mailEsc(eventName||"Proclamation")+'</h2>'
+      + '<p>Bonjour '+mailEsc(salutNom(g))+',</p>'
+      + '<p>Vous êtes invité·e à la cérémonie et votre billet vous a été envoyé. Afin d\'organiser au mieux l\'accueil, '
+      + 'pourriez-vous nous confirmer votre présence ?</p>'
+      + infosPratiquesHtml()
+      + '<p style="text-align:center;margin:24px 0 10px">'
+      + '<a href="'+oui+'" style="background:#3fae7a;color:#ffffff;padding:13px 22px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;margin:4px">✅ Je confirme ma présence</a> '
+      + '<a href="'+non+'" style="background:#c9463d;color:#ffffff;padding:13px 22px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;margin:4px">❌ Je ne serai pas présent·e</a>'
+      + '</p>'
+      + '<p style="color:#666;font-size:13px">Si les boutons ne fonctionnent pas, ouvrez ce lien :<br><a href="'+lien+'">'+lien+'</a></p>'
+      + '<p style="color:#666;font-size:13px">Votre billet reste valable : conservez-le pour l\'entrée.</p>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+      + '<p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
+  }
+  function ciblesPresence(){
+    return roster.filter(function(g){ return g && !g.viaFormulaire && g.role && g.role!=="etudiant" && emailOf(g) && !g.presence; });
+  }
+  window.demanderPresence = async function(){
+    if(currentCommId()!=="proclamation") return;
+    var cibles = ciblesPresence();
+    if(!cibles.length){ uiAlert("Tout le monde a déjà répondu (ou personne n'a d'adresse e-mail)."); return; }
+    var deja = cibles.filter(function(g){ return g.presenceDemandee; }).length;
+    if(!(await uiConfirm("Envoyer la demande de confirmation de présence à "+cibles.length+" personne(s) ?"
+        +(deja ? "\n\n("+deja+" l'ont déjà reçue sans répondre : ce sera une relance.)" : "")
+        +"\n\nSeuls les autres rôles ajoutés manuellement qui n'ont pas encore répondu la recevront."))) return;
+    var ok=0, ko=0;
+    for(var i=0;i<cibles.length;i++){
+      var g=cibles[i];
+      flash("Envoi "+(i+1)+"/"+cibles.length+"…");
+      try{
+        var r = await fetch(SEND_FN, { method:"POST",
+          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+          body: JSON.stringify({ to:emailOf(g), subject:"Confirmation de présence — "+(eventName||"Proclamation"),
+                                 html:mailPresenceHtml(g), from:expediteurPour(g), reply_to:MAIL_REPONSES }) });
+        if(r && r.ok){ ok++; g.presenceDemandee=Date.now(); } else ko++;
+      }catch(e){ ko++; }
+      if(i<cibles.length-1) await new Promise(function(res){ setTimeout(res,600); });
+    }
+    localRosterVersion=Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    try{ await cloudPushRoster(currentCommId()); }catch(e){}
+    try{ renderSignups(); renderList(); }catch(e){}
+    uiAlert(ok+" demande(s) envoyée(s)."+(ko ? " ⚠️ "+ko+" échec(s) : reclique plus tard pour réessayer." : ""));
+  };
+  window.supprimerAbsent = function(tok){ return deleteGuest(tok); };
   async function traiterChoixRepas(){
     var cid=currentCommId(); if(!cid) return false;
     var marques = SIGNUPS.filter(function(x){ return x && x.statut==="repas" && x.repasToken && !x.traite; });
@@ -6570,7 +6657,8 @@
     var aconf=aconfTous.filter(_corr);   // n'ont jamais cliqué le lien
     var manuels = roster.filter(function(g){ return !g.viaFormulaire; }).length;
     var supprimes = parStatut("accepte").length - accTous.length;   // billets supprimés : plus comptés
-    var totalInscrits = SIGNUPS.length - supprimes + manuels;
+    var marqueurs = SIGNUPS.filter(function(x){ return x && (x.statut==="repas" || x.statut==="presence"); }).length;
+    var totalInscrits = SIGNUPS.length - marqueurs - supprimes + manuels;
     var resume = totalInscrits+" inscription(s)"+(manuels?" (dont "+manuels+" manuelle·s)":"")+" · "+accTous.length+" billet(s) envoyé(s)"
       +(apayTous.length?" · "+apayTous.length+" paiement(s) à vérifier":"")
       +(acarteTous.length?" · "+acarteTous.length+" carte(s) à vérifier":"")
@@ -6726,25 +6814,50 @@
     });
     function ligneMan(g){
       var info=[g.role?roleCourt(g.role):"", g.section||""].filter(Boolean).join(" · ");
+      var autre = currentCommId()==="proclamation" && g.role && g.role!=="etudiant";
+      var pres = "";
+      if(autre){
+        if(g.presence==="oui") pres='<br><span class="hint" style="color:var(--green,#4caf7d)">✅ Présence confirmée</span>';
+        else if(g.presence==="non") pres='<br><span class="hint" style="color:var(--red)"><b>❌ Ne sera pas présent·e</b></span>';
+        else if(g.presenceDemandee) pres='<br><span class="hint" style="color:var(--amber)">⏳ Pas encore répondu</span>';
+      }
       var etat = g.mailEnvoye ? '<span class="hint" style="color:var(--green,#4caf7d)">✓</span>'
                : (g.mailEnvoye===0 ? '<span class="hint" style="color:var(--red)">⚠ mail non reçu</span>' : '<span class="hint" style="color:var(--amber)">✉ non envoyé</span>');
-      return '<div class="fiche-clic" data-fiche-g="'+escapeHtml(g.token)+'" title="Voir la fiche">'
-        + '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
-        + '<span style="flex:1;min-width:0"><b>'+escapeHtml(g.name||"?")+'</b> <span class="hint">(ajout manuel)</span><br>'
-        + '<span class="hint">'+escapeHtml(info?info+" — ":"")+escapeHtml(emailOf(g)||"")+'</span></span>'+etat+'</div></div>';
+      var rouge = autre && g.presence==="non";
+      return '<div class="fiche-clic" data-fiche-g="'+escapeHtml(g.token)+'" title="Voir la fiche"'+(rouge?' style="background:rgba(214,69,69,.12)"':'')+'>'
+        + '<div style="display:flex;align-items:center;gap:8px;padding:8px '+(rouge?'8px':'0')+';border-bottom:1px solid var(--line)">'
+        + '<span style="flex:1;min-width:0"><b>'+escapeHtml(g.name||"?")+'</b>'+(autre?'':' <span class="hint">(ajout manuel)</span>')+'<br>'
+        + '<span class="hint">'+escapeHtml(info?info+" — ":"")+escapeHtml(emailOf(g)||"")+'</span>'+pres+'</span>'
+        + (autre && g.presence==="non" ? '<button class="btn ghost xs" type="button" style="color:var(--red);border-color:var(--red)" onclick="supprimerAbsent(\''+escapeHtml(g.token)+'\')">✕ Supprimer</button>' : etat)
+        + '</div></div>';
     }
     if(acc.length || manList.length){
       var ligneAcc = function(x){ return '<div class="fiche-clic" data-fiche-su="'+SIGNUPS.indexOf(x)+'" title="Voir la fiche">'
         + ligne(x,'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>') + '</div>'; };
       var mix = acc.map(function(x){ return { role:x.role, nom:(x.name||""), html:function(){ return ligneAcc(x); } }; })
-        .concat(manList.map(function(g){ return { role:g.role, nom:(g.name||""), html:function(){ return ligneMan(g); } }; }));
+        .concat(manList.map(function(g){ return { role:g.role, nom:(g.name||""), man:true, g:g, html:function(){ return ligneMan(g); } }; }));
       var accHtml;
       if(currentCommId()==="proclamation"){
-        var xE=mix.filter(function(o){ return o.role==="etudiant"; }), xA=mix.filter(function(o){ return o.role!=="etudiant"; });
+        var xE=mix.filter(function(o){ return o.role==="etudiant"; }), xA=mix.filter(function(o){ return o.role!=="etudiant" && !o.man; });
+        var xM=mix.filter(function(o){ return o.role!=="etudiant" && o.man; });
         var rendre=function(l){ return l.length ? l.map(function(o){ return o.html(); }).join("") : '<p class="col2-vide">Aucun·e</p>'; };
+        /* Colonne de droite : les autres rôles inscrits en ligne, puis « Ajoutés
+           manuellement » avec le suivi des confirmations de présence. */
+        var blocMan = "";
+        if(xM.length){
+          var gm = xM.map(function(o){ return o.g; });
+          var nOui=gm.filter(function(g){ return g.presence==="oui"; }).length;
+          var nNon=gm.filter(function(g){ return g.presence==="non"; }).length;
+          var nAtt=gm.length-nOui-nNon;
+          var nCib=ciblesPresence().length;
+          blocMan = '<p class="col2-t" style="margin-top:16px">✍️ Ajoutés manuellement ('+gm.length+')</p>'
+            + '<p class="hint" style="margin:2px 0 8px">✅ '+nOui+' confirmé·e·s · <span style="color:var(--red)">❌ '+nNon+' absent·e·s</span> · ⏳ '+nAtt+' sans réponse</p>'
+            + (nCib ? '<button class="btn gold xs" type="button" onclick="demanderPresence()" style="margin-bottom:8px">📨 Demander la confirmation de présence ('+nCib+')</button>' : '')
+            + rendre(xM);
+        }
         accHtml = '<div class="cols2">'
           + '<div><p class="col2-t">🎓 Étudiant·e·s ('+xE.length+')</p>'+rendre(xE)+'</div>'
-          + '<div><p class="col2-t">Autres rôles ('+xA.length+')</p>'+rendre(xA)+'</div></div>';
+          + '<div><p class="col2-t">Autres rôles ('+(xA.length+xM.length)+')</p>'+(xA.length||!xM.length?rendre(xA):'')+blocMan+'</div></div>';
       } else { accHtml = mix.map(function(o){ return o.html(); }).join(""); }
       html += '<p class="fld" style="margin-top:12px">Inscrits — billet envoyé ('+mix.length+')</p>' + accHtml;
     }
@@ -7889,6 +8002,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v146</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v147</div>
 </body>
 </html>
