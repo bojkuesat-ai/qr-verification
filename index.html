@@ -6057,7 +6057,7 @@
       + ficheLigne("Inscrit·e le", escapeHtml(quand))
       + (b.token ? ficheLigne("Billet", escapeHtml(b.token)+(entre ? ' · <span style="color:var(--green)">Entré·e</span>' : ' · <span style="color:var(--muted)">pas encore entré·e</span>')) : "")
       + (p.motif ? ficheLigne("Motif", escapeHtml(p.motif)) : "")
-      + (b.presence ? ficheLigne("Présence", b.presence==="oui" ? '<span style="color:var(--green)">✅ Confirmée</span>' : '<span style="color:var(--red)">❌ Ne sera pas présent·e</span>')
+      + (b.presence ? ficheLigne("Présence", b.presence==="oui" ? '<span style="color:var(--green)">✅ Confirmée '+(b.presenceVia==="mail"?"par mail":"par lien")+'</span>' : '<span style="color:var(--red)">❌ Ne sera pas présent·e</span>')
          : (b.presenceDemandee ? ficheLigne("Présence", "⏳ Demande envoyée, pas encore de réponse") : ""))
       + (b.msgPerso ? ficheLigne("Message perso", escapeHtml(b.msgPerso).replace(/\n/g,"<br>")) : "");
     var aCarte = !!(p.carte || p.carteId);
@@ -6310,7 +6310,7 @@
     marques.forEach(function(m){
       var g = roster.filter(function(x){ return x.token===m.presToken; })[0];
       if(g && (m.reponse==="oui" || m.reponse==="non") && (g.presence!==m.reponse || (g.presenceTs||0) < (m.ts||0))){
-        g.presence=m.reponse; g.presenceTs=m.ts||Date.now(); change=true;
+        g.presence=m.reponse; g.presenceTs=m.ts||Date.now(); g.presenceVia="lien"; change=true;
       }
       m.traite=true; m.traiteTs=Date.now();
     });
@@ -6349,6 +6349,34 @@
       + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
       + '<p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
   }
+  async function envoyerDemandePresence(g){
+    try{
+      var r = await fetch(SEND_FN, { method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+        body: JSON.stringify({ to:emailOf(g), subject:"Confirmation de présence — "+(eventName||"Proclamation"),
+                               html:mailPresenceHtml(g), from:expediteurPour(g), reply_to:MAIL_REPONSES }) });
+      if(r && r.ok){ g.presenceDemandee=Date.now(); return true; }
+    }catch(e){}
+    return false;
+  }
+  async function enregistrerDemandesPresence(){
+    localRosterVersion=Date.now();
+    await Store.set("roster", JSON.stringify(roster));
+    await Store.set("rosterVersion", String(localRosterVersion));
+    try{ await cloudPushRoster(currentCommId()); }catch(e){}
+    try{ renderSignups(); renderList(); }catch(e){}
+  }
+  /* Envoi à une seule personne (bouton 📨 sur sa ligne). */
+  window.demanderPresenceUn = async function(tok){
+    var g = roster.filter(function(x){ return x.token===tok; })[0]; if(!g) return;
+    if(!emailOf(g)){ uiAlert("Pas d'adresse e-mail pour "+(g.name||"cette personne")+"."); return; }
+    if(!(await uiConfirm((g.presenceDemandee ? "Relancer " : "Envoyer la demande de confirmation de présence à ")
+        +(g.name||"cette personne")+" ("+emailOf(g)+") ?"))) return;
+    flash("Envoi…");
+    var ok = await envoyerDemandePresence(g);
+    await enregistrerDemandesPresence();
+    flash(ok ? ("Demande envoyée à "+(g.name||"")+" ✓") : "⚠️ Échec de l'envoi — réessaie.");
+  };
   function ciblesPresence(){
     return roster.filter(function(g){ return g && !g.viaFormulaire && g.role && g.role!=="etudiant" && emailOf(g) && !g.presence; });
   }
@@ -6364,23 +6392,27 @@
     for(var i=0;i<cibles.length;i++){
       var g=cibles[i];
       flash("Envoi "+(i+1)+"/"+cibles.length+"…");
-      try{
-        var r = await fetch(SEND_FN, { method:"POST",
-          headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
-          body: JSON.stringify({ to:emailOf(g), subject:"Confirmation de présence — "+(eventName||"Proclamation"),
-                                 html:mailPresenceHtml(g), from:expediteurPour(g), reply_to:MAIL_REPONSES }) });
-        if(r && r.ok){ ok++; g.presenceDemandee=Date.now(); } else ko++;
-      }catch(e){ ko++; }
+      if(await envoyerDemandePresence(g)) ok++; else ko++;
       if(i<cibles.length-1) await new Promise(function(res){ setTimeout(res,600); });
     }
-    localRosterVersion=Date.now();
-    await Store.set("roster", JSON.stringify(roster));
-    await Store.set("rosterVersion", String(localRosterVersion));
-    try{ await cloudPushRoster(currentCommId()); }catch(e){}
-    try{ renderSignups(); renderList(); }catch(e){}
+    await enregistrerDemandesPresence();
     uiAlert(ok+" demande(s) envoyée(s)."+(ko ? " ⚠️ "+ko+" échec(s) : reclique plus tard pour réessayer." : ""));
   };
   window.supprimerAbsent = function(tok){ return deleteGuest(tok); };
+  /* La personne a répondu directement par e-mail : on la marque confirmée à la main. */
+  window.confirmerParMail = async function(tok){
+    var g = roster.filter(function(x){ return x.token===tok; })[0]; if(!g) return;
+    if(!(await uiConfirm("Marquer "+(g.name||"cette personne")+" comme confirmé·e par mail ?"))) return;
+    g.presence="oui"; g.presenceVia="mail"; g.presenceTs=Date.now();
+    await enregistrerDemandesPresence();
+    flash("✅ "+(g.name||"")+" confirmé·e par mail.");
+  };
+  window.annulerConfirmation = async function(tok){
+    var g = roster.filter(function(x){ return x.token===tok; })[0]; if(!g) return;
+    if(!(await uiConfirm("Annuler la confirmation de "+(g.name||"cette personne")+" ?"))) return;
+    delete g.presence; delete g.presenceVia; g.presenceTs=Date.now();
+    await enregistrerDemandesPresence();
+  };
   async function traiterChoixRepas(){
     var cid=currentCommId(); if(!cid) return false;
     var marques = SIGNUPS.filter(function(x){ return x && x.statut==="repas" && x.repasToken && !x.traite; });
@@ -6817,7 +6849,7 @@
       var autre = currentCommId()==="proclamation" && g.role && g.role!=="etudiant";
       var pres = "";
       if(autre){
-        if(g.presence==="oui") pres='<br><span class="hint" style="color:var(--green,#4caf7d)">✅ Présence confirmée</span>';
+        if(g.presence==="oui") pres='<br><span class="hint" style="color:var(--green,#4caf7d)">✅ Confirmé·e '+(g.presenceVia==="mail"?"par mail":"par lien")+'</span>';
         else if(g.presence==="non") pres='<br><span class="hint" style="color:var(--red)"><b>❌ Ne sera pas présent·e</b></span>';
         else if(g.presenceDemandee) pres='<br><span class="hint" style="color:var(--amber)">⏳ Pas encore répondu</span>';
       }
@@ -6828,7 +6860,11 @@
         + '<div style="display:flex;align-items:center;gap:8px;padding:8px '+(rouge?'8px':'0')+';border-bottom:1px solid var(--line)">'
         + '<span style="flex:1;min-width:0"><b>'+escapeHtml(g.name||"?")+'</b>'+(autre?'':' <span class="hint">(ajout manuel)</span>')+'<br>'
         + '<span class="hint">'+escapeHtml(info?info+" — ":"")+escapeHtml(emailOf(g)||"")+'</span>'+pres+'</span>'
-        + (autre && g.presence==="non" ? '<button class="btn ghost xs" type="button" style="color:var(--red);border-color:var(--red)" onclick="supprimerAbsent(\''+escapeHtml(g.token)+'\')">✕ Supprimer</button>' : etat)
+        + (autre && g.presence==="non" ? '<button class="btn ghost xs" type="button" style="color:var(--red);border-color:var(--red)" onclick="supprimerAbsent(\''+escapeHtml(g.token)+'\')">✕ Supprimer</button>'
+           : (autre && !g.presence && emailOf(g) ? '<button class="btn ghost xs" type="button" title="Demander la confirmation de présence" onclick="demanderPresenceUn(\''+escapeHtml(g.token)+'\')">📨 '+(g.presenceDemandee?'Relancer':'Demander')+'</button>' : '')
+             + (autre && !g.presence ? '<button class="btn ghost xs" type="button" style="color:var(--green,#4caf7d)" onclick="confirmerParMail(\''+escapeHtml(g.token)+'\')">✅ Confirmé par mail</button>' : '')
+             + (autre && g.presence==="oui" && g.presenceVia==="mail" ? '<button class="btn ghost xs" type="button" title="Annuler la confirmation" onclick="annulerConfirmation(\''+escapeHtml(g.token)+'\')">↩</button>' : '')
+             + etat)
         + '</div></div>';
     }
     if(acc.length || manList.length){
@@ -6850,10 +6886,20 @@
           var nNon=gm.filter(function(g){ return g.presence==="non"; }).length;
           var nAtt=gm.length-nOui-nNon;
           var nCib=ciblesPresence().length;
+          var sousTitre = function(t, l, coul){
+            return l.length ? '<p class="hint" style="margin:12px 0 2px;font-weight:700;'+(coul?'color:'+coul:'')+'">'+t+' ('+l.length+')</p>'+rendre(l) : '';
+          };
+          var gA = xM.filter(function(o){ return !o.g.presence && !o.g.presenceDemandee; });   // demande pas encore envoyée
+          var gP = xM.filter(function(o){ return !o.g.presence && o.g.presenceDemandee; });    // envoyée, sans réponse
+          var gC = xM.filter(function(o){ return o.g.presence==="oui"; });
+          var gN = xM.filter(function(o){ return o.g.presence==="non"; });
           blocMan = '<p class="col2-t" style="margin-top:16px">✍️ Ajoutés manuellement ('+gm.length+')</p>'
             + '<p class="hint" style="margin:2px 0 8px">✅ '+nOui+' confirmé·e·s · <span style="color:var(--red)">❌ '+nNon+' absent·e·s</span> · ⏳ '+nAtt+' sans réponse</p>'
             + (nCib ? '<button class="btn gold xs" type="button" onclick="demanderPresence()" style="margin-bottom:8px">📨 Demander la confirmation de présence ('+nCib+')</button>' : '')
-            + rendre(xM);
+            + sousTitre("📝 À confirmer", gA)
+            + sousTitre("⏳ Pas encore confirmé", gP, "var(--amber)")
+            + sousTitre("✅ Confirmé", gC, "var(--green,#4caf7d)")
+            + sousTitre("❌ Ne sera pas présent·e", gN, "var(--red)");
         }
         accHtml = '<div class="cols2">'
           + '<div><p class="col2-t">🎓 Étudiant·e·s ('+xE.length+')</p>'+rendre(xE)+'</div>'
@@ -8002,6 +8048,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v147</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v149</div>
 </body>
 </html>
