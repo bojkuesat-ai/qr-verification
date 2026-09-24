@@ -3844,6 +3844,14 @@
   };
   window.newEvent = async function(){
     if(!(await uiConfirm("Terminer l'événement actuel et repartir de zéro ? La liste, les entrées et les inscriptions en ligne (y compris les paiements en attente) seront effacées."))) return;
+    if(currentCommId()==="proclamation"){
+      /* Sécurité proclamation : il faut taper RESET pour tout effacer. */
+      var nIn = roster.filter(function(g){ return usedSet.has(g.token); }).length;
+      var nAtt = (SIGNUPS||[]).filter(function(x){ return x && ["apreconfirmer","acarte","acorriger","apayer","attente"].indexOf(x.statut)>=0; }).length;
+      var tape = await uiPrompt("⚠️ Action irréversible.\n\nSeront effacés : "+roster.length+" billet(s), "+nIn+" entrée(s), "+nAtt+" inscription(s) en attente.\n\nPour confirmer, tape le mot :  RESET", "");
+      if(tape===null) return;
+      if(String(tape).trim()!=="RESET"){ uiAlert("Mot incorrect : rien n'a été effacé."); return; }
+    }
     await proposerExportCooptes();
     flash("Archivage du bilan…");
     try{ await archiverEvenement(); }catch(e){}      // résumé conservé dans les Archives
@@ -8048,6 +8056,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v149</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v150</div>
 </body>
 </html>
