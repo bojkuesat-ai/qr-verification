@@ -4820,8 +4820,11 @@
     var w=$("wrapJauge"); if(!w) return;
     w.style.display = jaugeActive() ? "" : "none";
     if(!jaugeActive()) return;
-    var inp=$("suPlaces"); if(inp && !inp.__init){ inp.__init=1; var v=getPlaces(); if(v) inp.value=String(v); }
-    var ic2=$("capTable"); if(ic2 && !ic2.__init){ ic2.__init=1; var c2=getCapacite(); if(c2) ic2.value=String(c2); }
+    var cidJ=currentCommId();
+    var inp=$("suPlaces");
+    if(inp && inp.__cid!==cidJ && document.activeElement!==inp){ inp.__cid=cidJ; inp.value=String(getPlaces()||""); }
+    var ic2=$("capTable");
+    if(ic2 && ic2.__cid!==cidJ && document.activeElement!==ic2){ ic2.__cid=cidJ; ic2.value=String(getCapacite()||""); }
     var max=getPlaces(), info=$("jaugeInfo"); if(!info) return;
     if(!max){ info.textContent="Aucune limite : le formulaire accepte tout le monde."; info.style.color=""; return; }
     var pris=placesPrises(), reste=max-pris;
@@ -5763,12 +5766,23 @@
     var _nomActuel = eventName || ($("pEvName")&&$("pEvName").value.trim()) || ($("evName")&&$("evName").value.trim()) || "";
     if($("suEvName") && document.activeElement!==$("suEvName") && _nomActuel) $("suEvName").value=_nomActuel;
     var ok=await ensureAuth(cid);
-    if(!ok){ flash("Connexion requise pour voir les inscriptions."); return; }
+    if(!ok){
+      // Si l'authentification échoue, on ne doit pas laisser affichée la liste
+      // de la commission précédemment consultée : elle n'a plus rien à voir
+      // avec "cid" et donnerait l'impression que ces inscriptions lui appartiennent.
+      SIGNUPS=[]; renderSignups();
+      flash("Connexion requise pour voir les inscriptions.");
+      return;
+    }
     var a=loadAuth(cid);
-    if(!a||!a.idToken){ flash("Session expirée — reconnecte-toi."); return; }
+    if(!a||!a.idToken){
+      SIGNUPS=[]; renderSignups();
+      flash("Session expirée — reconnecte-toi.");
+      return;
+    }
+    SIGNUPS=[];   // vidé AVANT l'appel réseau : si celui-ci échoue, on ne garde pas la liste d'une autre commission
     try{
       var d=await fsGetDoc(signupDocPath(cid), a.idToken);
-      SIGNUPS=[];
       if(d&&d.fields&&d.fields.signups){ try{ SIGNUPS=JSON.parse(d.fields.signups.stringValue||"[]"); }catch(e){} }
       if(d&&d.fields&&d.fields.notifMail && $("suNotif") && !$("suNotif").value){ var _cm=d.fields.notifMail.stringValue||""; if(_cm){ $("suNotif").value=_cm; try{ window.localStorage.setItem(notifKey(), _cm); }catch(e){} } }
       await processSignups();
@@ -6613,7 +6627,7 @@
     brancherBoutonsSignup();
   }
   function brancherBoutonsSignup(){
-    var b;
+    var b, cid=currentCommId();
     b=$("btnSaveEv");    if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ saveEvName(); }; }
     b=$("btnRappel");    if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ envoyerRappel(false); }; }
     b=$("btnResetInsc"); if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ resetInscriptions(); }; }
@@ -6634,9 +6648,16 @@
                       : "Jauge retirée : plus aucune limite.")
                  : "PROBLEME : la jauge n'a pas pu être publiée.");
     }; }
-    var cl=$("suCloture"); if(cl && !cl.__ok){ cl.__ok=1; if(getCloture()) cl.value=getCloture(); }
-    var dd=$("suEvDate"); if(dd && !dd.__ok){ dd.__ok=1;
-      if(getEvDate()) dd.value=getEvDate();
+    /* Champs partagés entre commissions (même DOM réutilisé) : on ne les
+       repeuple pas à chaque appel — ça écraserait une saisie en cours pendant
+       un auto-rafraîchissement — mais on DOIT les repeupler dès que la
+       commission affichée change, sinon la clôture (ou la date) d'une autre
+       commission reste affichée, et « Enregistrer » l'écrirait dans celle-ci. */
+    var cl=$("suCloture");
+    if(cl && cl.__cid!==cid && document.activeElement!==cl){ cl.__cid=cid; cl.value=getCloture()||""; }
+    var dd=$("suEvDate");
+    if(dd && dd.__cid!==cid && document.activeElement!==dd){ dd.__cid=cid; dd.value=getEvDate()||""; }
+    if(dd && !dd.__ok){ dd.__ok=1;
       dd.onchange=function(){
         try{ window.localStorage.setItem(dateKey(), dd.value); }catch(e){}
         if(dd.value){
