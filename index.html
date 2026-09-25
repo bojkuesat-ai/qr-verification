@@ -4986,7 +4986,7 @@
   function getSeen(){ try{ return parseInt(window.localStorage.getItem(seenKey())||"0",10)||0; }catch(e){ return 0; } }
   function setSeen(n){ try{ window.localStorage.setItem(seenKey(), String(n)); }catch(e){} }
   function majPayBadge(){
-    var n=SIGNUPS.filter(function(x){return x.statut==="apayer"||x.statut==="acarte";}).length;
+    var n=SIGNUPS.filter(function(x){return x.statut==="apayer"||x.statut==="acarte"||x.statut==="avalider";}).length;
     var b=$("payBadge");
     if(b){ b.textContent=String(n); b.style.display = n>0 ? "inline-block" : "none"; }
     return n;
@@ -5067,7 +5067,7 @@
   function demarrerAutoSignups(){
     arreterAutoSignups();
     var cid=currentCommId();
-    if(!cid || ["parrainage","festif","culture","aca","proclamation"].indexOf(cid)<0) return;
+    if(!cid || ["parrainage","festif","culture","aca","proclamation","crimino"].indexOf(cid)<0) return;
     if(CURRENT_ROLE!=="admin") return;
     TIMER_SIGNUPS=setInterval(function(){
       if(document.hidden) return;                 // pas d'appels inutiles si l'app est en arrière-plan
@@ -5140,7 +5140,7 @@
       var h=""; if(usedSet.has(g.token) && usedAt[g.token]){ try{ h=new Date(usedAt[g.token]).toLocaleString("fr-BE"); }catch(e){} }
       rows.push([g.nom||g.name||"", g.prenom||"", g.extra||emailOf(g)||"", roleLbl[g.role]||g.role||"", g.section||"", g.matricule||"", (usedSet.has(g.token)?"Entré·e":"Billet émis"), h, (g.viaFormulaire?"En ligne":"Manuel"), (estCoopt(g)?"OUI":"")]);
     });
-    var statutSU={apreconfirmer:"À confirmer (e-mail)",acarte:"Carte à vérifier",apayer:"Paiement à vérifier",acorriger:"Nouvelle carte demandée",attente:"Liste d'attente",refuse:"Refusé·e"};
+    var statutSU={apreconfirmer:"À confirmer (e-mail)",acarte:"Carte à vérifier",apayer:"Paiement à vérifier",avalider:"Inscription à vérifier",acorriger:"Nouvelle carte demandée",attente:"Liste d'attente",refuse:"Refusé·e"};
     (SIGNUPS||[]).forEach(function(x){
       if(x.statut==="accepte" || x.statut==="nouveau" || x.statut==="repas" || x.statut==="presence") return;
       rows.push([x.nom||x.name||"", x.prenom||"", x.email||"", roleLbl[x.role]||x.role||"", x.section||"", x.matricule||"", (statutSU[x.statut]||x.statut||""), "", "En ligne", (x.coopt?"OUI":"")]);
@@ -5744,7 +5744,15 @@
   window.refreshSignups=async function(auto){
     silencieuxRefresh = (auto===true);
     var cid=currentCommId(); if(!cid) return;
-    if(["parrainage","festif","culture","aca","proclamation"].indexOf(cid)<0) return;
+    if(["parrainage","festif","culture","aca","proclamation","crimino"].indexOf(cid)<0){
+      // Commission sans inscriptions en ligne : on vide tout, sinon l'affichage
+      // d'une autre commission déjà consultée (ex. proclamation) reste visible par erreur.
+      SIGNUPS=[];
+      if($("signupHostG")) $("signupHostG").innerHTML="";
+      if($("signupHostP")) $("signupHostP").innerHTML="";
+      if($("payBadge")) $("payBadge").style.display="none";
+      return;
+    }
     monterSignupCard();
     try{ renderLunchUI(); lunchSyncDepuisDoc(cid); }catch(e){}
     if($("suLink")) $("suLink").value=signupLink(false);
@@ -5988,6 +5996,7 @@
   }
   var STATUT_LBL = { nouveau:"Nouvelle inscription", apreconfirmer:"En attente de confirmation (lien envoyé par mail)",
     acarte:"Carte étudiante à vérifier", acorriger:"Nouvelle carte demandée", apayer:"Paiement à vérifier",
+    avalider:"Inscription à vérifier",
     accepte:"Acceptée — billet envoyé", refuse:"Refusée", attente:"Liste d'attente" };
   async function chargerCarteB64(x){
     if(!x) return "";
@@ -6145,9 +6154,11 @@
   window.refuserInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
     var estCarte = (x.statut==="acarte"||x.statut==="acorriger") || (currentCommId()==="proclamation" && x.role==="etudiant");
-    var suggestion = estCarte
-      ? "La carte étudiante ne correspond pas / inscription non éligible."
-      : "La preuve de paiement ne correspond pas / inscription non éligible.";
+    var suggestion = (x.statut==="avalider")
+      ? "Matricule / inscription non éligible."
+      : (estCarte
+        ? "La carte étudiante ne correspond pas / inscription non éligible."
+        : "La preuve de paiement ne correspond pas / inscription non éligible.");
     var motif = await uiPrompt("Motif du refus DÉFINITIF (visible par la personne) :", suggestion);
     if(motif===null) return;
     if(!(await uiConfirm("Refuser DÉFINITIVEMENT l'inscription de "+x.name+" ? (pour juste demander une nouvelle carte, utilise plutôt « Nouvelle carte »)"))) return;
@@ -6676,8 +6687,9 @@
     function parStatut(st0){ return SIGNUPS.filter(function(x){ return x.statut===st0; }); }
     var apayTous=parStatut("apayer"), accTous=parStatut("accepte"), acarteTous=parStatut("acarte"),
         acorrigerTous=parStatut("acorriger"), attTous=parStatut("attente"),
-        refTous=parStatut("refuse"), aconfTous=parStatut("apreconfirmer");
+        refTous=parStatut("refuse"), aconfTous=parStatut("apreconfirmer"), avalTous=parStatut("avalider");
     var apay=apayTous.filter(_corr);
+    var aval=avalTous.filter(_corr);
     /* Une inscription acceptée dont le billet a été supprimé (liste billets / suivi)
        ne compte plus : elle disparaît de « Inscrits — billet envoyé » et de son total. */
     var _billetsForm = {}, _mailsForm = {};
@@ -6701,6 +6713,7 @@
     var totalInscrits = SIGNUPS.length - marqueurs - supprimes + manuels;
     var resume = totalInscrits+" inscription(s)"+(manuels?" (dont "+manuels+" manuelle·s)":"")+" · "+accTous.length+" billet(s) envoyé(s)"
       +(apayTous.length?" · "+apayTous.length+" paiement(s) à vérifier":"")
+      +(avalTous.length?" · "+avalTous.length+" inscription(s) à vérifier":"")
       +(acarteTous.length?" · "+acarteTous.length+" carte(s) à vérifier":"")
       +(acorrigerTous.length?" · "+acorrigerTous.length+" en attente de nouvelle carte":"")
       +(aconfTous.length?" · "+aconfTous.length+" en attente de confirmation":"")
@@ -6835,6 +6848,20 @@
               +'<button class="btn ghost xs" data-su="recarte" data-i="'+i+'">Relancer</button>'
               +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>'; });
     }
+    if(aval.length){
+      html += '<p class="fld" style="margin-top:12px">Inscriptions à vérifier ('+aval.length+')</p>'
+        + colonnes(aval, function(x){
+            var _mat=String(x.matricule||"").trim();
+            var _dbl = _mat && SIGNUPS.filter(function(y){ return y!==x && String(y.matricule||"").trim()===_mat && y.statut!=="refuse"; }).length>0;
+            var i=SIGNUPS.indexOf(x);
+            return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)">'
+              +'<span style="flex:1;min-width:0"><b>'+escapeHtml(x.name||"?")+'</b>'
+              +(_dbl?' <span style="background:#8a2b2b;color:#fff;border-radius:6px;padding:1px 7px;font-size:11px;white-space:nowrap">⚠ matricule en double</span>':'')+'<br>'
+              +'<span class="hint">Matricule '+escapeHtml(x.matricule||"—")+(x.section?' · '+escapeHtml(x.section):'')+' — '+escapeHtml(x.email||"")+'</span></span>'
+              +'<button class="btn gold xs" data-su="ok" data-i="'+i+'">Valider</button>'
+              +'<button class="btn ghost xs" data-su="no" data-i="'+i+'">Refuser</button></div>';
+          });
+    }
     if(apay.length){
       html += '<p class="fld" style="margin-top:12px">Paiements à vérifier ('+apay.length+')</p>'
         + colonnes(apay, function(x){ return ligne(x,
@@ -6921,7 +6948,7 @@
     }
     if(!SIGNUPS.length && !manList.length) html = '<p class="hint" style="margin-top:12px">Aucune inscription pour l\'instant. Partage le lien ci-dessus.</p>';
     if(_q){
-      var _nb = apay.length+acc.length+acarte.length+acorriger.length+att.length+ref.length+aconf.length+manList.length;
+      var _nb = apay.length+aval.length+acc.length+acarte.length+acorriger.length+att.length+ref.length+aconf.length+manList.length;
       html = '<p class="hint" style="margin:0 0 8px;color:var(--gold)">Recherche « '+escapeHtml(_q)+' » — '
            + _nb + ' résultat(s). Les compteurs ci-dessus portent sur la liste entière.</p>' + html;
       if(!_nb) html += '<p class="empty">Personne ne correspond à cette recherche.</p>';
@@ -8056,6 +8083,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v150</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v151</div>
 </body>
 </html>
