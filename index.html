@@ -4785,6 +4785,7 @@
     var cid=currentCommId();
     if(cid==="proclamation") return "Délégation étudiante de la Faculté de Droit et de Criminologie <proclamation@bureauetuidant.xyz>";
     if(cid==="parrainage") return FROM_PARR;
+    if(cid==="crimino") return FROM_PARR;   // BE + Délégation étudiante, comme demandé
     return undefined;
   }
   // Expéditeur déterminé par le RÔLE (pas par l'onglet courant) : garantit le même expéditeur
@@ -5014,6 +5015,29 @@
       }
     }
     setSeen(n);
+  }
+  /* Alerte dédiée aux inscriptions Crimino en attente de validation manuelle
+     (statut "avalider"). Destinataire fixe demandé par l'équipe, indépendant
+     du réglage général de notification (suNotif) de la commission. */
+  function seenAvalKey(){ return "qrentry:seenaval:"+(currentCommId()||""); }
+  function getSeenAval(){ try{ return parseInt(window.localStorage.getItem(seenAvalKey())||"0",10)||0; }catch(e){ return 0; } }
+  function setSeenAval(n){ try{ window.localStorage.setItem(seenAvalKey(), String(n)); }catch(e){} }
+  async function alerterNouvellesAValider(){
+    var aval=SIGNUPS.filter(function(x){return x.statut==="avalider";});
+    var n=aval.length, vus=getSeenAval();
+    if(n>vus){
+      var nouveaux=n-vus;
+      var to="lamia.zerouali@ulb.be";
+      var lien=location.origin+location.pathname;
+      var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#1a1a2e">'
+        +'<h2 style="margin:0 0 10px">Nouvelle(s) inscription(s) à vérifier</h2>'
+        +'<p><b>'+nouveaux+'</b> nouvelle(s) inscription(s) attendent votre vérification pour <b>'+escapeHtml(commName(currentCommId())||"")+'</b>.</p>'
+        +'<p>Total en attente : <b>'+n+'</b></p>'
+        +'<p style="text-align:center;margin:22px 0"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:9px;text-decoration:none;font-weight:bold;display:inline-block">Ouvrir l\'application</a></p></div>';
+      try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
+        body:JSON.stringify({to:to,subject:"["+(commName(currentCommId())||"QR")+"] "+nouveaux+" inscription(s) à vérifier",html:html,from:expediteur(),reply_to:MAIL_REPONSES})}); }catch(e){}
+    }
+    setSeenAval(n);
   }
   window.afficheInscription = function(){
     if(typeof QRious==="undefined"){ flash("Librairie QR non chargée (vérifie la connexion)."); return; }
@@ -5791,6 +5815,7 @@
       await relancerNonConfirmes();                   // relance 48 h après une inscription jamais confirmée
       majPayBadge();
       await alerterNouvellesPreuves();
+      await alerterNouvellesAValider();
       if(!silencieuxRefresh) flash(SIGNUPS.length ? (SIGNUPS.length+" inscription(s) chargée(s).") : "Aucune inscription pour l'instant.");
     }catch(e){ flash("Erreur de chargement : "+(e.message||e)); }
     renderSignups();
@@ -8104,6 +8129,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v151</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v153</div>
 </body>
 </html>
