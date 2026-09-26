@@ -148,6 +148,15 @@
   #traiteurBoissons input.cmd-prix{width:108px;background:var(--bg);border:1.5px solid var(--gold-dim);color:var(--gold-soft);color-scheme:dark;
             border-radius:9px;padding:9px 10px;font-family:inherit;font-size:16px;font-weight:700;text-align:right}
   #traiteurBoissons input.cmd-prix:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(232,176,75,.20)}
+  /* Réglages présentés comme des questions : une question, une phrase d'aide, les champs. */
+  #traiteurBoissons .q-bloc{background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:13px 15px;margin:10px 0}
+  #traiteurBoissons .q-titre{color:var(--text);font-size:16.5px;font-weight:700;margin:0}
+  #traiteurBoissons .q-aide{color:var(--muted);font-size:14px;margin:3px 0 10px;line-height:1.45}
+  #traiteurBoissons .q-champs{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+  #traiteurBoissons .q-champ{display:inline-flex;align-items:center;gap:8px;color:var(--text);font-size:15.5px}
+  #traiteurBoissons .q-res{color:var(--gold);font-size:15.5px;font-weight:700;margin-top:9px}
+  #traiteurBoissons .q-res.ko{color:var(--red,#c0392b)}
+  #traiteurBoissons .q-sect{color:var(--gold);font-size:18px;font-weight:700;margin:18px 0 4px}
   #traiteurBoissons td{color:var(--text)}
   #traiteurBoissons td b{font-size:18px}
 
@@ -5578,35 +5587,54 @@
       return '<input type="number" class="cmd-num" min="0" step="'+(pas||1)+'" value="'+val+'" inputmode="decimal" '
         + 'onchange="majReglageBoisson(\''+champ+'\', this.value)">';
     }
-    var reglages =
-        '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:10px 0 4px">'
-      + '<label class="cmd-lbl">Durée (h) '+nb("duree", r.duree, 0.5)+'</label>'
-      + '<label class="cmd-lbl">Verres/pers./h '+nb("verresParHeure", r.verresParHeure, 0.5)+'</label>'
-      + '<label class="cmd-lbl">Marge (%) '+nb("marge", r.marge, 5)+'</label>'
-      + '<label class="cmd-lbl">Verres d\'eau/pers. '+nb("eauVerresParPersonne", r.eauVerresParPersonne, 1)+'</label>'
-      + '</div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0 10px">'
-      + '<label class="cmd-lbl">Alcool : cava '+nb("partCava", r.partCava, 5)+' % · vin '+nb("partVin", r.partVin, 5)+' % · bière '+nb("partBiere", r.partBiere, 5)+' %</label>'
-      + '</div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0 10px">'
-      + '<label class="cmd-lbl">Sans alcool : cola '+nb("partCola", r.partCola, 5)+' % · autre soft '+nb("partSoft", r.partSoft, 5)+' % · jus orange '+nb("partJusOrange", r.partJusOrange, 5)+' % · jus pomme '+nb("partJusPomme", r.partJusPomme, 5)+' %</label>'
-      + '</div>'
-      + '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:4px 0 10px">'
-      + '<label class="cmd-lbl">Bière — format '
-      +   '<select class="cmd-sel" onchange="majReglageBoisson(\'formatBiere\', this.value)">'
-      +   FORMATS_BIERE.map(function(f){ return '<option value="'+f.cle+'"'+(r.formatBiere===f.cle?" selected":"")+'>'+escapeHtml(f.nom)+'</option>'; }).join("")
-      +   '</select></label>'
-      + '<label class="cmd-lbl">Verre de bière (cl) '+nb("verreBiereCl", r.verreBiereCl, 5)+'</label>'
-      + '</div>'
-      + '<label class="cmd-lbl" style="margin-bottom:10px">Les sans-réponse comptent comme '
-      + '<select class="cmd-sel" onchange="majReglageBoisson(\'sansReponseBuveurs\', this.value)">'
-      + '<option value="1"'+(r.sansReponseBuveurs?" selected":"")+'>buveurs (prudent)</option>'
-      + '<option value="0"'+(r.sansReponseBuveurs?"":" selected")+'>non-buveurs</option>'
-      + '</select></label>';
+    /* Chaque réglage est présenté comme la question à laquelle il répond,
+       avec une phrase d'aide et le résultat qui en découle. Calculs inchangés. */
+    function champ(lbl, html, apres){ return '<span class="q-champ">'+lbl+' '+html+(apres?' '+apres:'')+'</span>'; }
+    function bloc(titre, aide, champs, res, ko){
+      return '<div class="q-bloc"><p class="q-titre">'+titre+'</p><p class="q-aide">'+aide+'</p>'
+        + '<div class="q-champs">'+champs+'</div>'
+        + (res ? '<p class="q-res'+(ko?' ko':'')+'">'+res+'</p>' : '') + '</div>';
+    }
     var somAl=r.partCava+r.partVin+r.partBiere, somSo=r.partCola+r.partSoft+r.partJusOrange+r.partJusPomme;
+    var okAl=(Math.round(somAl)===100), okSo=(Math.round(somSo)===100);
+    var vpp=String(e.verresParPers).replace(".",",");
+    var reglages =
+        '<p class="q-sect">1. Tes réglages</p>'
+      + bloc("Combien de verres boit une personne ?",
+          "Nombre d'heures de réception × verres bus par heure. La durée sert aussi au calcul du salé.",
+          champ("Durée (heures)", nb("duree", r.duree, 0.5)) + champ("× Verres par heure", nb("verresParHeure", r.verresParHeure, 0.5)),
+          "= "+vpp+" verre(s) par personne")
+      + bloc("Que boivent ceux qui prennent de l'alcool ?",
+          "Comment se partagent les verres des <b>"+e.buveurs+"</b> buveurs. Le total doit faire 100 %.",
+          champ("Cava", nb("partCava", r.partCava, 5), "%") + champ("Vin", nb("partVin", r.partVin, 5), "%") + champ("Bière", nb("partBiere", r.partBiere, 5), "%"),
+          okAl ? "Total : 100 % ✓" : "⚠️ Total : "+Math.round(somAl)+" % au lieu de 100 %", !okAl)
+      + bloc("Que boivent ceux qui ne prennent pas d'alcool ?",
+          "Comment se partagent les verres des <b>"+e.sobres+"</b> non-buveurs. Le total doit faire 100 %.",
+          champ("Cola", nb("partCola", r.partCola, 5), "%") + champ("Autre soft", nb("partSoft", r.partSoft, 5), "%")
+          + champ("Jus d'orange", nb("partJusOrange", r.partJusOrange, 5), "%") + champ("Jus de pomme", nb("partJusPomme", r.partJusPomme, 5), "%"),
+          okSo ? "Total : 100 % ✓" : "⚠️ Total : "+Math.round(somSo)+" % au lieu de 100 %", !okSo)
+      + bloc("Combien d'eau ?",
+          "Pour tout le monde, buveurs compris. Moitié plate, moitié pétillante.",
+          champ("Verres d'eau par personne", nb("eauVerresParPersonne", r.eauVerresParPersonne, 1)))
+      + bloc("La bière : en fût ou en bouteilles ?",
+          "Choisis le contenant acheté et la taille d'un verre servi.",
+          champ("Contenant",
+            '<select class="cmd-sel" onchange="majReglageBoisson(\'formatBiere\', this.value)">'
+            + FORMATS_BIERE.map(function(f){ return '<option value="'+f.cle+'"'+(r.formatBiere===f.cle?" selected":"")+'>'+escapeHtml(f.nom)+'</option>'; }).join("")
+            + '</select>')
+          + champ("Taille d'un verre", nb("verreBiereCl", r.verreBiereCl, 5), "cl"))
+      + bloc("Ceux qui n'ont pas répondu, on les compte comment ?",
+          c.vide ? ("<b>"+c.vide+"</b> personne(s) n'ont pas dit si elles boivent de l'alcool.")
+                 : "Tout le monde a répondu : ce réglage ne change rien pour l'instant.",
+          champ("Les compter comme",
+            '<select class="cmd-sel" onchange="majReglageBoisson(\'sansReponseBuveurs\', this.value)">'
+            + '<option value="1"'+(r.sansReponseBuveurs?" selected":"")+'>buveurs (prudent)</option>'
+            + '<option value="0"'+(r.sansReponseBuveurs?"":" selected")+'>non-buveurs</option>'
+            + '</select>'))
+      + bloc("Combien en plus, par sécurité ?",
+          "On achète ce pourcentage en plus pour ne pas manquer. S'applique aussi au salé.",
+          champ("Marge", nb("marge", r.marge, 5), "%"));
     var avert="";
-    if(Math.round(somAl)!==100) avert += '<p class="hint" style="color:var(--red,#c0392b)">⚠️ Les parts « alcool » font '+Math.round(somAl)+' % au lieu de 100 %.</p>';
-    if(Math.round(somSo)!==100) avert += '<p class="hint" style="color:var(--red,#c0392b)">⚠️ Les parts « sans alcool » font '+Math.round(somSo)+' % au lieu de 100 %.</p>';
     var lignes = e.lignes.map(function(l){
       return '<tr>'
         + '<td style="padding:7px 6px;border-bottom:1px solid var(--line)">'+escapeHtml(l.nom)+'</td>'
@@ -5625,12 +5653,13 @@
       +   '<span class="hint">Sans alcool : <b>'+c.sansalcool+'</b></span>'
       +   (c.vide ? '<span class="hint" style="color:var(--red,#c0392b)">Sans réponse : <b>'+c.vide+'</b></span>' : "")
       + '</div>'
-      + '<p class="hint">Base de calcul : '+e.buveurs+' buveur(s), '+e.sobres+' non-buveur(s), '+e.verresParPers+' verre(s) par personne.</p>'
       + reglages + avert
+      + '<p class="q-sect">2. Ce qu\'il faut acheter</p>'
+      + '<p class="hint" style="margin:0 0 8px">Calculé automatiquement à partir de tes réglages. Le prix est facultatif : remplis-le pour connaître le coût total.</p>'
       + '<div class="tbl-scroll"><table style="width:100%;border-collapse:collapse;font-size:14px">'
       +   '<tr><th style="text-align:left;padding:6px;font-size:12px;color:var(--muted)">Produit</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">À acheter</th>'
-      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Verres / contenant</th>'
+      +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Verres par contenant</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Prix unité</th>'
       +   '<th style="text-align:right;padding:6px;font-size:12px;color:var(--muted)">Coût</th></tr>'
       +   lignes
@@ -7880,7 +7909,9 @@
         d = await fbCall("signInWithPassword", {email:email, password:pwd, returnSecureToken:true});
       }catch(e1){
         var m1 = e1.message||"";
-        var isFixed = !!(FIXED_ACCOUNTS[id] && email===FIXED_ACCOUNTS[id].email);
+        // Création automatique du compte réservée aux comptes fixes avec mot de passe connu
+        // (parrainage, salle) : pour proclamation, jamais de second compte créé par erreur.
+        var isFixed = !!(FIXED_ACCOUNTS[id] && FIXED_ACCOUNTS[id].pwd && email===FIXED_ACCOUNTS[id].email);
         if(isFixed && (m1.indexOf("EMAIL_NOT_FOUND")>=0 || m1.indexOf("INVALID_LOGIN_CREDENTIALS")>=0)){
           try{ d = await fbCall("signUp", {email:email, password:pwd, returnSecureToken:true}); }
           catch(e2){ if((e2.message||"").indexOf("EMAIL_EXISTS")>=0){ showAuthErr("Mot de passe incorrect pour ce compte."); return; } showAuthErr(cleanFbErr(e2.message||"")); return; }
@@ -7899,9 +7930,9 @@
       showAuthErr(cleanFbErr(e.message||""));
     }
   };
-  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" }, salle: { email:"com@gmail.com", pwd:"123456" }, proclamation: { email:"procla@gmail.com", pwd:"123456" } };
+  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" }, salle: { email:"com@gmail.com", pwd:"123456" }, proclamation: { email:"bojkuesat@gmail.com" } };   // plus de mot de passe en clair pour proclamation
   async function autoLoginFixed(id){
-    var acc = FIXED_ACCOUNTS[id]; if(!acc) return false;
+    var acc = FIXED_ACCOUNTS[id]; if(!acc || !acc.pwd) return false;   // sans mot de passe connu : aucune tentative
     try{
       var d;
       try{ d = await fbCall("signInWithPassword", {email:acc.email, password:acc.pwd, returnSecureToken:true}); }
@@ -7970,21 +8001,45 @@
     var ok = await ensureAuth(cid);
     var a = loadAuth(cid);
     if(!ok || !a || !a.idToken){ $("acctErr").textContent="Session expirée — reconnecte-toi puis réessaie."; $("acctErr").style.display="block"; return; }
-    var payload = { idToken:a.idToken, returnSecureToken:true };
-    if(wantEmail) payload.email = newEmail;
-    if(wantPwd) payload.password = p1;
+    /* Mot de passe et adresse sont changés en DEUX étapes : si Google exige une
+       confirmation pour la nouvelle adresse, le mot de passe est quand même changé. */
+    var tok=a.idToken, pwdFait=false, info=[];
+    function erreurCompte(msg){
+      msg=String(msg||"");
+      if(msg.indexOf("EMAIL_EXISTS")>=0) return "Cette adresse est déjà utilisée par un autre compte.";
+      if(msg.indexOf("CREDENTIAL_TOO_OLD")>=0 || msg.indexOf("TOKEN_EXPIRED")>=0)
+        return "Pour des raisons de sécurité, Google demande une connexion récente : clique sur « Se déconnecter », reconnecte-toi, puis refais le changement tout de suite.";
+      if(msg.indexOf("INVALID_EMAIL")>=0) return "Adresse mail invalide.";
+      if(msg.indexOf("WEAK_PASSWORD")>=0) return "Mot de passe trop court (6 caractères minimum).";
+      if(msg.indexOf("TOO_MANY_ATTEMPTS")>=0) return "Trop d'essais — réessaie dans quelques minutes.";
+      return "Erreur Google : "+(msg||"inconnue");          // code réel affiché, pour pouvoir diagnostiquer
+    }
     try{
-      var d = await fbCall("update", payload);
-      var finalEmail = wantEmail ? newEmail : a.email;
-      saveAuthTok(cid, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:a.uid, email:finalEmail });
-      if(wantEmail) saveEmailFor(cid, finalEmail);
-      $("acctOk").textContent = wantEmail && wantPwd ? "Adresse et mot de passe changés avec succès." : (wantEmail ? "Adresse mail changée avec succès." : "Mot de passe changé avec succès.");
+      if(wantPwd){
+        var dP = await fbCall("update", { idToken:tok, password:p1, returnSecureToken:true });
+        tok = dP.idToken;
+        saveAuthTok(cid, { idToken:dP.idToken, refreshToken:dP.refreshToken, expiresAt: Date.now()+parseInt(dP.expiresIn,10)*1000, uid:a.uid, email:a.email });
+        pwdFait=true; info.push("Mot de passe changé.");
+      }
+      if(wantEmail){
+        try{
+          var dE = await fbCall("update", { idToken:tok, email:newEmail, returnSecureToken:true });
+          saveAuthTok(cid, { idToken:dE.idToken, refreshToken:dE.refreshToken, expiresAt: Date.now()+parseInt(dE.expiresIn,10)*1000, uid:a.uid, email:newEmail });
+          saveEmailFor(cid, newEmail);
+          info.push("Adresse changée : "+newEmail+".");
+        }catch(eE){
+          if(String(eE.message||"").indexOf("OPERATION_NOT_ALLOWED")<0) throw eE;
+          // Google exige de confirmer la nouvelle adresse : il envoie un lien, l'adresse change au clic.
+          await fbCall("sendOobCode", { requestType:"VERIFY_AND_CHANGE_EMAIL", idToken:tok, newEmail:newEmail });
+          saveEmailFor(cid, newEmail);
+          info.push("Un lien de confirmation a été envoyé à "+newEmail+" : ouvre-le pour valider la nouvelle adresse, puis reconnecte-toi avec elle.");
+        }
+      }
+      $("acctOk").textContent = info.join(" ");
       $("acctOk").style.display="block";
-      setTimeout(closeAccount, 1400);
+      if(!wantEmail) setTimeout(closeAccount, 1400);
     }catch(e){
-      var msg=(e.message||"");
-      if(msg.indexOf("EMAIL_EXISTS")>=0){ $("acctErr").textContent="Cette adresse est déjà utilisée par un autre compte."; }
-      else{ $("acctErr").textContent=cleanFbErr(msg); }
+      $("acctErr").textContent = (pwdFait ? "Mot de passe changé, mais l'adresse n'a pas pu l'être. " : "") + erreurCompte(e.message);
       $("acctErr").style.display="block";
     }
   };
@@ -8129,6 +8184,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v153</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v158</div>
 </body>
 </html>
