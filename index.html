@@ -3911,9 +3911,8 @@
   window.exportXLSX = async function(){
     if(!roster.length){ flash("Rien à exporter."); return; }
     flash("Préparation du fichier Excel…");
-    var XLSX;
-    try{ XLSX = await import("https://esm.sh/xlsx@0.18.5"); }
-    catch(e){ flash("Module Excel indisponible (vérifie la connexion)."); return; }
+    var XLSX = await chargerXLSX();
+    if(!XLSX){ flash("Module Excel indisponible (vérifie la connexion)."); return; }
     var entres = 0;
     var aoa = [["Nom","Code","Statut","Heure d'entrée","Info"]];
     roster.forEach(function(g){
@@ -5117,6 +5116,15 @@
     }, 30000);
   }
   function arreterAutoSignups(){ if(TIMER_SIGNUPS){ clearInterval(TIMER_SIGNUPS); TIMER_SIGNUPS=null; } }
+  /* Bibliothèque Excel chargée à la demande. Si elle arrive incomplète (réseau
+     saturé, service indisponible), on renvoie null : chaque export bascule alors
+     sur un CSV au lieu de planter. */
+  async function chargerXLSX(){
+    var X=null;
+    try{ X=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ X=null; }
+    if(X && !(X.utils && X.writeFile) && X.default && X.default.utils) X=X.default;
+    return (X && X.utils && typeof X.utils.aoa_to_sheet==="function" && typeof X.writeFile==="function") ? X : null;
+  }
   function telechargerCSV(rows, filename){
     var csv=rows.map(function(r){ return r.map(function(c){ return '"'+String(c==null?"":c).replace(/"/g,'""')+'"'; }).join(";"); }).join("\n");
     downloadBlob(new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"}), filename);
@@ -5175,7 +5183,7 @@
   window.exportInscriptionsXLSX = async function(){
     flash("Préparation de l'Excel des inscriptions…");
     await syncAvantExport();
-    var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
+    var XLSX=null; XLSX=await chargerXLSX();
     var roleLbl={etudiant:"Étudiant·e",academique:"Corps académique",scientifique:"Corps scientifique",patgs:"Personnel",doyen:"Doyen·ne",parrain:"Parrain/Marraine",filleul:"Filleul·e",alumni:"Alumni"};
     var rows=[["Nom","Prénom","E-mail","Type","Section","Matricule","Statut","Heure d'entrée","Origine","Coopté·e"]];
     roster.forEach(function(g){
@@ -5537,7 +5545,7 @@
     /* Boissons et salé ne figurent PAS ici : ce sont des achats à part, avec
        leur propre fichier (bouton « Liste de courses »). Le traiteur ne reçoit
        que le comptage des repas. */
-    var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
+    var XLSX=null; XLSX=await chargerXLSX();
     if(!XLSX){ telechargerCSV(rows, sanitize(eventName||"proclamation")+"_traiteur.csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
     var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:36},{wch:10},{wch:8}];
     var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Commande traiteur");
@@ -5626,7 +5634,7 @@
       eS.lignes.forEach(function(l){ det.push([l.nom, l.qte, l.unite, Math.round(l.grammes), l.pieces||""]); });
     }
 
-    var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
+    var XLSX=null; XLSX=await chargerXLSX();
     var nom = sanitize(eventName||currentCommId()||"evenement")+"_courses";
     if(!XLSX){ telechargerCSV(courses.concat([[]]).concat(det), nom+".csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
     var wb=XLSX.utils.book_new();
@@ -5805,7 +5813,7 @@
     if(!lignes.length){ uiAlert("Aucune personne avec un billet pour l'instant."); return; }
     var rows = [["Prénom","Régime alimentaire"]].concat(lignes);
     var nom = sanitize(eventName||"proclamation")+"_choix_repas";
-    var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
+    var XLSX=null; XLSX=await chargerXLSX();
     if(!XLSX){ telechargerCSV(rows, nom+".csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
     var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:32},{wch:36}];
     var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Choix repas");
@@ -8590,6 +8598,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v167</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v168</div>
 </body>
 </html>
