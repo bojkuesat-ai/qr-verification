@@ -7594,7 +7594,7 @@
   async function loadFromHash(){
     var h = location.hash || "";
     var sm = h.match(/[#&]sync=([^&]+)/);
-    if(sm){ try{ history.replaceState(null,"",location.pathname); }catch(e){} await syncConnect(decodeURIComponent(sm[1])); return; }
+    if(sm){ try{ history.replaceState(null,"",location.pathname); }catch(e){} return; }   // ancien lien de synchro : ignoré
     var m = h.match(/[#&]roster=([^&]+)/);
     if(!m) return;
     var data;
@@ -7613,7 +7613,11 @@
   /* ---------- Synchro temps réel (plusieurs téléphones, via jsonblob) ---------- */
   var syncCode=null, syncStatus="off", syncTimer=null, syncBusy=false, syncDirty=false, localRosterVersion=0;
   function syncSaveCode(c){ try{ if(c) window.localStorage.setItem("qrentry:synccode",c); else window.localStorage.removeItem("qrentry:synccode"); }catch(e){} }
-  function syncLoadCode(){ try{ return window.localStorage.getItem("qrentry:synccode")||null; }catch(e){ return null; } }
+  /* Ancienne synchro jsonblob DÉSACTIVÉE : elle remplaçait la liste de la commission
+     ouverte, quelle qu'elle soit, par celle d'un espace commun (mélange entre commissions).
+     La synchronisation passe uniquement par Firestore, un document par commission.
+     Un ancien code resté sur l'appareil est effacé. */
+  function syncLoadCode(){ try{ window.localStorage.removeItem("qrentry:synccode"); }catch(e){} return null; }
   function parseSyncCode(raw){
     if(!raw) return null; raw=String(raw).trim();
     var m = raw.match(/jsonBlob\/([A-Za-z0-9\-]+)/i) || raw.match(/jsonblob\.com\/([A-Za-z0-9\-]+)/i);
@@ -7691,6 +7695,7 @@
   }
   function syncStartLoop(){ if(syncTimer) clearInterval(syncTimer); syncTimer=setInterval(function(){ if(syncCode && (currentTab==="scan"||currentTab==="list")) syncPull(); }, 5000); }
   async function syncConnect(code){
+    flash("Ancienne synchronisation désactivée : tout passe par la synchro en ligne de chaque commission."); return;
     var c=parseSyncCode(code); if(!c){ flash("Adresse de synchro non reconnue."); return; }
     var hadRoster = roster.length>0, myVer=localRosterVersion;
     syncCode=c; syncSaveCode(c); setSyncStatus("..."); updateSyncUI();
@@ -7701,6 +7706,7 @@
   window.syncConnectFromInput=function(){ syncConnect($("syncInput").value); };
   window.syncOpenBlob=function(){ window.open("https://jsonblob.com","_blank"); };
   window.syncCreate=async function(){
+    flash("Ancienne synchronisation désactivée."); return;
     setSyncStatus("...");
     try{
       if(!localRosterVersion) localRosterVersion=Date.now();
@@ -8584,6 +8590,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v166</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v167</div>
 </body>
 </html>
