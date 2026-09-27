@@ -7832,8 +7832,17 @@
 
   /* ---------- Authentification par commission (Firebase Auth REST) ---------- */
   var FIREBASE_API_KEY = "AIzaSyBLmGXcSQHQsba-Rw5CtUhuD-UpCuWKSQA";
-  function savedEmailFor(id){ try{ return window.localStorage.getItem("qrentry:authemail:"+id)||""; }catch(e){ return ""; } }
-  function saveEmailFor(id,email){ try{ window.localStorage.setItem("qrentry:authemail:"+id, email); }catch(e){} }
+  /* Proclamation : l'adresse de connexion n'est jamais pré-remplie ni mémorisée sur
+     l'appareil (quiconque ouvre l'écran de connexion la verrait). L'ancienne valeur
+     éventuellement mémorisée est effacée. Les autres commissions ne changent pas. */
+  function savedEmailFor(id){
+    if(id==="proclamation"){ try{ window.localStorage.removeItem("qrentry:authemail:proclamation"); }catch(e){} return ""; }
+    try{ return window.localStorage.getItem("qrentry:authemail:"+id)||""; }catch(e){ return ""; }
+  }
+  function saveEmailFor(id,email){
+    if(id==="proclamation") return;
+    try{ window.localStorage.setItem("qrentry:authemail:"+id, email); }catch(e){}
+  }
   function validEmail(s){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
   function loadAuth(id){ try{ var v=window.localStorage.getItem("qrentry:auth:"+id); return v?JSON.parse(v):null; }catch(e){ return null; } }
   function saveAuthTok(id,d){ try{ window.localStorage.setItem("qrentry:auth:"+id, JSON.stringify(d)); }catch(e){} }
@@ -8238,7 +8247,7 @@
     authPendingId=id;
     $("authCommName").textContent=commName(id);
     $("authTitle2").textContent="Adresse mail et mot de passe du responsable";
-    $("authEmailInput").value = savedEmailFor(id) || (FIXED_ACCOUNTS[id] ? FIXED_ACCOUNTS[id].email : "");
+    $("authEmailInput").value = savedEmailFor(id) || ((FIXED_ACCOUNTS[id] && FIXED_ACCOUNTS[id].email) || "");
     $("authPwd").value=""; $("authPwd2").value="";
     $("authConfirmWrap").style.display="none";
     $("authErr").style.display="none";
@@ -8298,7 +8307,7 @@
       showAuthErr(cleanFbErr(e.message||""));
     }
   };
-  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" }, salle: { email:"com@gmail.com", pwd:"123456" }, proclamation: { email:"bojkuesat@gmail.com" } };   // plus de mot de passe en clair pour proclamation
+  var FIXED_ACCOUNTS = { parrainage: { email:"parrainage@gmail.com", pwd:"123456" }, salle: { email:"com@gmail.com", pwd:"123456" }, proclamation: {} };   // proclamation : ni mot de passe ni adresse dans le code
   async function autoLoginFixed(id){
     var acc = FIXED_ACCOUNTS[id]; if(!acc || !acc.pwd) return false;   // sans mot de passe connu : aucune tentative
     try{
@@ -8346,7 +8355,7 @@
     var cid=currentCommId(); if(!cid) return;
     var a=loadAuth(cid);
     $("acctComm").textContent=commName(cid);
-    $("acctCurrentEmail").textContent=(a&&a.email)||"—";
+    $("acctCurrentEmail").textContent = (cid==="proclamation") ? "••••" : ((a&&a.email)||"—");   // adresse proclamation jamais affichée
     $("acctEmail").value=""; $("acctPwd1").value=""; $("acctPwd2").value="";
     $("acctErr").style.display="none";
     $("acctOk").style.display="none";
@@ -8552,6 +8561,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v164</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v165</div>
 </body>
 </html>
