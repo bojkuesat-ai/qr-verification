@@ -440,6 +440,7 @@
         <button class="btn ghost sm" type="button" onclick="renderTraiteurTab(true)">↻ Rafraîchir</button>
         <button class="btn gold sm procla-seul" type="button" onclick="commandeTraiteur()">⬇ Fichier pour le traiteur</button>
         <button class="btn ghost sm procla-seul" type="button" onclick="copierTexteTraiteur()">📋 Copier le texte du mail</button>
+        <button class="btn ghost sm procla-seul" type="button" onclick="exportChoixRepas()">🍽️ Choix repas par prénom (Excel)</button>
       </div>
       <div id="traiteurRelance" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"></div>
       <div id="traiteurVege" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px"></div>
@@ -5774,6 +5775,43 @@
       uiAlert("⚠️ L'envoi a échoué. Vérifie la connexion et réessaie.");
     }
   };
+  /* Liste « choix repas » : toutes les personnes avec un billet, triées par prénom.
+     Le nom de famille n'est ajouté que si le prénom existe en double. */
+  function sansAccents(s){ return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().trim(); }
+  function nomDeFamille(g){
+    if(g && g.nom) return g.nom;
+    var n=String((g&&g.name)||"").trim(), p=String((g&&g.prenom)||"").trim();
+    return (p && n.toLowerCase().indexOf(p.toLowerCase())===0) ? n.slice(p.length).trim() : "";
+  }
+  function lignesChoixRepas(){
+    var gens = roster.filter(function(g){ return g && g.token; });
+    var compte = {};
+    gens.forEach(function(g){ var k=sansAccents(prenomDe(g)); compte[k]=(compte[k]||0)+1; });
+    gens.sort(function(a,b){
+      return prenomDe(a).localeCompare(prenomDe(b), "fr", {sensitivity:"base"})
+          || nomDeFamille(a).localeCompare(nomDeFamille(b), "fr", {sensitivity:"base"});
+    });
+    return gens.map(function(g){
+      var p=prenomDe(g), doublon = compte[sansAccents(p)]>1;
+      var pM = p ? (p.charAt(0).toUpperCase()+p.slice(1)) : p;          // « amina » → « Amina »
+      var affiche = (doublon && nomDeFamille(g)) ? (pM+" "+nomDeFamille(g)) : pM;
+      return [affiche, REPAS_LBL[g.repas||""]||"Sans préférence indiquée"];
+    });
+  }
+  window.exportChoixRepas = async function(){
+    if(currentCommId()!=="proclamation"){ uiAlert("Disponible pour la proclamation."); return; }
+    flash("Synchronisation…"); await syncAvantExport();
+    var lignes = lignesChoixRepas();
+    if(!lignes.length){ uiAlert("Aucune personne avec un billet pour l'instant."); return; }
+    var rows = [["Prénom","Régime alimentaire"]].concat(lignes);
+    var nom = sanitize(eventName||"proclamation")+"_choix_repas";
+    var XLSX=null; try{ XLSX=await import("https://esm.sh/xlsx@0.18.5"); }catch(e){ XLSX=null; }
+    if(!XLSX){ telechargerCSV(rows, nom+".csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
+    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:32},{wch:36}];
+    var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Choix repas");
+    XLSX.writeFile(wb, nom+".xlsx");
+    flash(lignes.length+" personne(s) exportée(s).");
+  };
   /* Commissions qui ont l'onglet Traiteur : proclamation (tout) et crimino (boissons + salé). */
   function traiteurActif(){ var c=currentCommId(); return c==="proclamation" || c==="crimino"; }
   /* Onglet Traiteur : chiffres à l'écran + relance des personnes sans choix. */
@@ -8514,6 +8552,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v163</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v164</div>
 </body>
 </html>
