@@ -372,9 +372,13 @@
   .lst-row.fiche-clic{border-radius:0}
   .role-tag{display:inline-block;font-size:11px;background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px;margin-left:6px;color:var(--muted);font-weight:500;white-space:nowrap}
   .qr-filtre{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 12px}
-  #ficheModal{position:fixed;inset:0;z-index:9999;background:rgba(8,6,20,.72);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}
-  #ficheModal.on{display:flex}
-  #ficheModal .fiche-box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);width:100%;max-width:560px;padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  #ficheModal,#halalModal{position:fixed;inset:0;z-index:9999;background:rgba(8,6,20,.72);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}
+  #ficheModal.on,#halalModal.on{display:flex}
+  #halalModal textarea{width:100%;min-height:230px;background:var(--bg);border:1.5px solid var(--line);color:var(--text);border-radius:10px;padding:11px;font:inherit;font-size:15px;line-height:1.5}
+  #halalModal textarea:focus{outline:none;border-color:var(--gold)}
+  #traiteurVege .vg-l{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+  #traiteurVege .vg-l .nm{flex:1;min-width:0;font-size:15px}
+  #ficheModal .fiche-box,#halalModal .fiche-box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);width:100%;max-width:560px;padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
   #ficheModal .fiche-l{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
   #ficheModal .fiche-l span:first-child{flex:0 0 120px;color:var(--muted)}
   #ficheModal .fiche-l span:last-child{flex:1;min-width:0;word-break:break-word}
@@ -438,6 +442,7 @@
         <button class="btn ghost sm procla-seul" type="button" onclick="copierTexteTraiteur()">📋 Copier le texte du mail</button>
       </div>
       <div id="traiteurRelance" style="margin-top:20px;border-top:1px solid var(--line);padding-top:14px"></div>
+      <div id="traiteurVege" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px"></div>
       <div id="traiteurFige" style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px"></div>
     </div>
   </section>
@@ -5631,6 +5636,111 @@
     XLSX.writeFile(wb, nom+".xlsx");
     flash("Liste de courses téléchargée.");
   };
+  /* ---------- Végétarien·ne·s : informer que la viande est halal (proclamation) ----------
+     Un mail par personne, texte modifiable, avec le lien de changement de régime qui
+     existe déjà (?choix=). Si la personne change, traiterChoixRepas met le billet à jour
+     et le renvoie automatiquement ; ici on ne fait qu'afficher le suivi. */
+  function fmtQuand(ts){ try{ var d=new Date(ts); return d.toLocaleDateString("fr-BE",{day:"2-digit",month:"2-digit"})+" à "+d.toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } }
+  function renderVegetariens(){
+    var z=$("traiteurVege"); if(!z) return;
+    if(currentCommId()!=="proclamation"){ z.innerHTML=""; return; }
+    var vege = roster.filter(function(g){ return g && g.repas==="sansviande"; });
+    var chg  = roster.filter(function(g){ return g && g.regimeAvant==="sansviande" && g.repas!=="sansviande"; });
+    if(!vege.length && !chg.length){ z.innerHTML='<p class="hint">Aucune personne avec un menu végétarien.</p>'; return; }
+    var nInf = vege.filter(function(g){ return g.infoHalalTs; }).length;
+    function ligneV(g){
+      var mail=emailOf(g), etat, bouton="";
+      if(g.repas!=="sansviande"){
+        etat = '<span style="color:var(--green,#4caf7d)">✅ A changé : <b>'+escapeHtml(REPAS_LBL[g.repas]||g.repas||"")+'</b>'
+          + (g.regimeBilletTs ? ' · nouveau billet envoyé' : (g.regimeBilletTs===0 ? '</span> <span style="color:var(--red)">· ⚠ billet non renvoyé' : ''))+'</span>';
+      } else {
+        etat = g.infoHalalTs ? ('✉ Informé·e le '+escapeHtml(fmtQuand(g.infoHalalTs))+' · pas de changement') : 'Pas encore informé·e';
+        bouton = mail ? '<button class="btn '+(g.infoHalalTs?'ghost':'gold')+' xs" type="button" onclick="ouvrirMailHalal(\''+escapeHtml(g.token)+'\')">📨 '+(g.infoHalalTs?'Relancer':'Informer')+'</button>'
+                      : '<span class="hint">pas d\'e-mail</span>';
+      }
+      var role = (g.role && g.role!=="etudiant") ? ' <span class="hint">('+escapeHtml(roleCourt(g.role))+')</span>' : '';
+      return '<div class="vg-l"><span class="nm"><b>'+escapeHtml(g.name||"?")+'</b>'+role+'<br>'
+        + '<span class="hint">'+escapeHtml(mail||"")+'</span><br><span class="hint">'+etat+'</span></span>'+bouton+'</div>';
+    }
+    z.innerHTML = '<p class="fld" style="margin:0 0 4px">🥗 Menu végétarien ('+vege.length+')</p>'
+      + '<p class="hint" style="margin:0 0 8px">Informe chaque personne que la viande est halal : elle peut garder son choix ou le changer. '
+      + 'Si elle change, son billet à jour (entrée + repas) lui est renvoyé automatiquement.</p>'
+      + '<p class="hint" style="margin:0 0 6px">'+nInf+' informé·e·s sur '+vege.length+(chg.length?' · <span style="color:var(--green,#4caf7d)">'+chg.length+(chg.length>1?' ont changé':' a changé')+'</span>':'')+'</p>'
+      + vege.map(ligneV).join("") + chg.map(ligneV).join("");
+  }
+  function texteHalalDefaut(g){
+    var vous=vouvoyerG(g), nom=salutNom(g);
+    return vous
+      ? "Bonjour "+nom+",\n\nLors de votre inscription, vous avez choisi le menu végétarien (ni viande ni poisson).\n\n"
+        + "Nous tenons à vous informer que la viande servie lors du drink sera halal.\n\n"
+        + "Si vous le souhaitez, vous pouvez modifier votre choix grâce au bouton ci-dessous. Si votre choix vous convient, vous n'avez rien à faire."
+      : "Bonjour "+nom+",\n\nLors de ton inscription, tu as choisi le menu végétarien (ni viande ni poisson).\n\n"
+        + "Nous tenons à t'informer que la viande servie lors du drink sera halal.\n\n"
+        + "Si tu le souhaites, tu peux modifier ton choix grâce au bouton ci-dessous. Si ton choix te convient, tu n'as rien à faire.";
+  }
+  function mailHalalHtml(g, texte){
+    var vous=vouvoyerG(g), lien=lienRepas(g);
+    var corps = String(texte||"").trim().split(/\n\s*\n/).map(function(p){
+      return '<p>'+mailEsc(p).replace(/\n/g,"<br>")+'</p>'; }).join("");
+    return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + '<h2 style="margin:0 0 12px">'+mailEsc(eventName||"Proclamation")+'</h2>'
+      + corps
+      + '<p style="text-align:center;margin:24px 0 10px"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block">'
+      +   (vous?'Modifier mon choix de menu':'Modifier mon choix de menu')+'</a></p>'
+      + '<p style="color:#666;font-size:13px">'+(vous?'Si le bouton ne fonctionne pas, ouvrez ce lien :':'Si le bouton ne fonctionne pas, ouvre ce lien :')+'<br><a href="'+lien+'">'+lien+'</a></p>'
+      + '<p style="color:#666;font-size:13px">'+(vous
+          ? 'Après un changement, vous recevrez automatiquement votre billet à jour. Votre billet actuel reste valable en attendant.'
+          : 'Après un changement, tu recevras automatiquement ton billet à jour. Ton billet actuel reste valable en attendant.')+'</p>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+      + '<p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
+  }
+  var _halalTok=null;
+  window.ouvrirMailHalal = function(tok){
+    var g=roster.filter(function(x){ return x.token===tok; })[0]; if(!g) return;
+    if(!emailOf(g)){ uiAlert("Pas d'adresse e-mail pour "+(g.name||"cette personne")+"."); return; }
+    _halalTok=tok;
+    var m=$("halalModal");
+    if(!m){
+      m=document.createElement("div"); m.id="halalModal";
+      m.innerHTML='<div class="fiche-box"><div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">'
+        + '<h2 id="halalTitre" style="margin:0;flex:1;font-size:18px"></h2>'
+        + '<button class="btn ghost sm" type="button" onclick="fermerMailHalal()">✕</button></div>'
+        + '<p class="hint" id="halalA" style="margin:0 0 10px"></p>'
+        + '<textarea id="halalTexte"></textarea>'
+        + '<p class="hint" style="margin:8px 0 12px">Le bouton « Modifier mon choix de menu » et la signature sont ajoutés automatiquement sous ce texte.</p>'
+        + '<div class="row" style="gap:8px"><button class="btn gold sm" type="button" id="halalEnvoyer" onclick="envoyerMailHalal()">📨 Envoyer</button>'
+        + '<button class="btn ghost sm" type="button" onclick="fermerMailHalal()">Annuler</button></div></div>';
+      document.body.appendChild(m);
+      m.addEventListener("click", function(e){ if(e.target===m) fermerMailHalal(); });
+    }
+    $("halalTitre").textContent = "Mail à "+(g.name||"");
+    $("halalA").textContent = "À : "+emailOf(g)+(vouvoyerG(g)?" · vouvoiement":" · tutoiement");
+    $("halalTexte").value = texteHalalDefaut(g);
+    $("halalEnvoyer").disabled=false; $("halalEnvoyer").textContent="📨 Envoyer";
+    m.classList.add("on");
+  };
+  window.fermerMailHalal = function(){ var m=$("halalModal"); if(m) m.classList.remove("on"); _halalTok=null; };
+  window.envoyerMailHalal = async function(){
+    var g=roster.filter(function(x){ return x.token===_halalTok; })[0]; if(!g) return;
+    var texte=($("halalTexte")&&$("halalTexte").value)||"";
+    if(!texte.trim()){ uiAlert("Le message est vide."); return; }
+    var b=$("halalEnvoyer"); if(b){ b.disabled=true; b.textContent="Envoi…"; }
+    var sujet=(vouvoyerG(g)?"Votre menu — ":"Ton menu — ")+(eventName||"Proclamation");
+    var ok=await sendMailQR(emailOf(g), sujet, mailHalalHtml(g, texte), expediteurPour(g));
+    if(ok){
+      g.infoHalalTs=Date.now();
+      localRosterVersion=Date.now();
+      await Store.set("roster", JSON.stringify(roster));
+      await Store.set("rosterVersion", String(localRosterVersion));
+      try{ await cloudPushRoster(currentCommId()); }catch(e){}
+      fermerMailHalal();
+      flash("Mail envoyé à "+(g.name||"")+" ✓");
+      try{ renderVegetariens(); }catch(e){}
+    } else {
+      if(b){ b.disabled=false; b.textContent="📨 Envoyer"; }
+      uiAlert("⚠️ L'envoi a échoué. Vérifie la connexion et réessaie.");
+    }
+  };
   /* Commissions qui ont l'onglet Traiteur : proclamation (tout) et crimino (boissons + salé). */
   function traiteurActif(){ var c=currentCommId(); return c==="proclamation" || c==="crimino"; }
   /* Onglet Traiteur : chiffres à l'écran + relance des personnes sans choix. */
@@ -5643,7 +5753,7 @@
     if($("traiteurTitre")) $("traiteurTitre").textContent = crim ? "Boissons et salé" : "Commande traiteur";
     if($("traiteurSub")) $("traiteurSub").style.display = crim ? "none" : "";
     Array.prototype.forEach.call(document.querySelectorAll("#tab-traiteur .procla-seul"), function(b){ b.style.display = crim ? "none" : ""; });
-    ["traiteurRelance","traiteurFige"].forEach(function(id){ var el=$(id); if(el) el.style.display = crim ? "none" : ""; });
+    ["traiteurRelance","traiteurFige","traiteurVege"].forEach(function(id){ var el=$(id); if(el) el.style.display = crim ? "none" : ""; });
     if(crim){
       if(resync){ flash("Synchronisation…"); await syncAvantExport(); }
       box.innerHTML = "";
@@ -5652,7 +5762,7 @@
     }
     if(resync){ flash("Synchronisation…"); await syncAvantExport(); }
     var c=comptageTraiteur(), t=c.total;
-    if(!t.n){ box.innerHTML='<p class="empty">Aucune inscription pour l\'instant.</p>'; if($("traiteurRelance")) $("traiteurRelance").innerHTML=""; renderTraiteurFige(t); return; }
+    if(!t.n){ box.innerHTML='<p class="empty">Aucune inscription pour l\'instant.</p>'; if($("traiteurRelance")) $("traiteurRelance").innerHTML=""; try{ renderVegetariens(); }catch(e){} renderTraiteurFige(t); return; }
     function pc(x){ return t.n ? Math.round(x/t.n*100) : 0; }
     function ligne(lbl, v, coul){
       return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)">'
@@ -5674,6 +5784,7 @@
       ? '<p class="hint">'+sans.length+' personne(s) sans régime alimentaire — inscriptions faites avant que le choix ne devienne obligatoire, ou collées depuis une liste.</p>'
       : '<p class="hint">✓ Toutes les personnes ayant un billet ont un régime alimentaire.</p>';
     renderTraiteurFige(t);
+    try{ renderVegetariens(); }catch(e){}
     try{ await renderBoissons(); }catch(e){}
   };
   /* Bloc Boissons : comptage, réglages modifiables et estimation de la commande.
@@ -6681,7 +6792,10 @@
     var change=false, aPrevenir=[];
     marques.forEach(function(m){
       var g = roster.filter(function(x){ return x.token===m.repasToken; })[0];
-      if(g && REPAS_LBL[m.repas] && g.repas!==m.repas){ g.repas=m.repas; change=true; aPrevenir.push(g); }
+      if(g && REPAS_LBL[m.repas] && g.repas!==m.repas){
+        g.regimeAvant=g.repas||""; g.regimeChangeTs=Date.now();      // suivi affiché dans l'onglet Traiteur
+        g.repas=m.repas; change=true; aPrevenir.push(g);
+      }
       m.traite=true; m.traiteTs=Date.now();
     });
     if(change){
@@ -6699,10 +6813,19 @@
         var gP=aPrevenir[iP];
         try{
           var envoye = await confirmerChangementRegime(gP);
+          gP.regimeBilletTs = envoye ? Date.now() : 0;
           flash(envoye ? ("Billet à jour renvoyé à "+(gP.name||"")+" ✓")
                        : ("⚠️ Régime modifié pour "+(gP.name||"")+" mais le renvoi du billet a échoué."));
         }catch(e){}
         if(iP < aPrevenir.length-1) await new Promise(function(r){ setTimeout(r,600); });
+      }
+      if(aPrevenir.length){                         // mémorise « billet renvoyé » pour le suivi
+        try{
+          localRosterVersion=Date.now();
+          await Store.set("roster", JSON.stringify(roster));
+          await Store.set("rosterVersion", String(localRosterVersion));
+          await cloudPushRoster(cid);
+        }catch(e){}
       }
     }
     return change;
@@ -8358,6 +8481,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v160</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v162</div>
 </body>
 </html>
