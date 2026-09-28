@@ -2664,7 +2664,7 @@
     if(!silent) gStatus("Chargement des commissions…", false);
     var ancien=gIndex;                                  // dernier index connu : réutilisé pour toute commission injoignable
     var enAttente={}; gQueue.forEach(function(it){ enAttente[it.cid+"|"+it.token]=it.at; });   // validées ici, pas encore synchronisées
-    var idx={}, total=0, used=0, okC=0, failC=0;
+    var idx={}, total=0, used=0, okC=0, failC=0, usedParCid={};
     function reprendreAncien(cid){                       // réseau en échec : on garde ce qu'on savait de cette commission
       Object.keys(ancien).forEach(function(k){
         (ancien[k]||[]).forEach(function(e){ if(e.cid===cid){ (idx[k]=idx[k]||[]).push(e); total++; if(e.usedAt) used++; } });
@@ -2688,6 +2688,7 @@
           gCache[c.id]={rv:rv, roster:roster};
         }
         var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+        usedParCid[c.id]=usedMap;
         okC++; chargee=true;
         for(var j=0;j<roster.length;j++){
           var g=roster[j]; if(!g||!g.token) continue;
@@ -2700,6 +2701,21 @@
     }
     gIndex=idx; gTotal=total; gUsed=used; gUpdateCounts();
     if(failC && okC===0){ gStatutHorsLigne(); return false; }
+    /* Rattrapage : une entrée validée sur CE téléphone mais absente du serveur (réseau
+       coupé au mauvais moment, écriture perdue) est renvoyée sans attendre un autre scan.
+       Pour chaque commission bien chargée, et seulement pour des billets qui existent. */
+    try{
+      for(var cr in gMiennes){
+        var u0=usedParCid[cr]; if(!u0) continue;
+        var existe=function(tk){ return (idx[normalize(tk)]||[]).some(function(e){ return e.cid===cr; }); };
+        if(!Object.keys(gMiennes[cr]||{}).some(function(tk){ return !u0[tk] && existe(tk); })) continue;
+        await gCommitUsed(cr, function(usedMap){
+          var map=Object.assign({}, usedMap), ajout=0;
+          Object.keys(gMiennes[cr]||{}).forEach(function(tk){ if(!map[tk] && existe(tk)){ map[tk]=gMiennes[cr][tk]; ajout++; } });
+          return ajout ? {map:map} : {stop:{etat:"ok"}};
+        });
+      }
+    }catch(e){}
     if(!failC){
       // Purge (seulement après un chargement complet) : après un « nouvel événement », les anciens jetons
       // n'existent plus — on les oublie pour ne pas les réécrire indéfiniment dans le cloud.
@@ -2837,9 +2853,40 @@
     gStat(kindHL,"Validé (hors-ligne) — "+m.cname, guest.name||"", "Sera synchronisé au retour du réseau"+fam, guest, gFamille(cid, guest));
     gFlash(true); beep(true); gShowPending();
   }
+  /* Écriture PROTÉGÉE des entrées : plusieurs téléphones à la porte écrivent le même
+     champ « used ». Lire puis réécrire tout le champ laissait un téléphone effacer
+     l'entrée d'un autre (perdue sur le serveur), et deux téléphones pouvaient accepter
+     le même billet à la même seconde. On écrit donc SOUS CONDITION (le document n'a
+     pas bougé depuis notre lecture), et en cas de conflit on relit et on recommence —
+     comme le stand repas. Si le serveur refuse ce mode pour une autre raison, on
+     retombe sur l'écriture simple d'avant.
+     preparer(usedMap, champs) renvoie {map} à écrire, ou {stop:{...}} pour s'arrêter. */
+  async function gCommitUsed(cid, preparer){
+    var lu=false;
+    for(var essai=0; essai<8; essai++){
+      var data=await fsGetDoc(ticketDocPath(cid), gAuth.idToken);
+      if(!data) return {etat:"echec", lu:lu};
+      lu=true;
+      var f=data.fields||{}, usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+      var p=preparer(usedMap, f);
+      if(p.stop) return Object.assign({f:f, lu:true}, p.stop);
+      var champs={ used: fsField(JSON.stringify(p.map)), updatedAt: fsField(new Date().toISOString()) };
+      var res=await fsCommitSiInchange(ticketDocPath(cid), champs, data.updateTime, gAuth.idToken);
+      if(res==="ok") return {etat:"ok", f:f, lu:true};
+      if(res!=="conflit"){
+        var r=await fsPatchFields(ticketDocPath(cid), champs, gAuth.idToken);
+        return (r&&r.ok) ? {etat:"ok", f:f, lu:true} : {etat:"echec", lu:true};
+      }
+      await new Promise(function(r){ setTimeout(r, 80+Math.floor(Math.random()*320)); });
+    }
+    return {etat:"echec", lu:lu};
+  }
   async function gAdmit(token, m){
     hideGAmbig();
-    var cid=m.cid, guest=m.guest, tkStored=guest.token||token, at=Date.now();
+    /* Heure du scan avec une fraction aléatoire de milliseconde : elle sert de signature.
+       Un téléphone reconnaît ainsi SES propres écritures (y compris celles emportées par
+       un autre de ses scans), sans pouvoir confondre deux téléphones. */
+    var cid=m.cid, guest=m.guest, tkStored=guest.token||token, at=Date.now()+Math.round(Math.random()*998+1)/1000;
     // Déjà validé sur ce téléphone mais pas encore synchronisé : le cloud ne peut pas le savoir
     for(var qi=0; qi<gQueue.length; qi++){
       if(gQueue[qi].cid===cid && gQueue[qi].token===tkStored){ if(!m.usedAt) m.usedAt=gQueue[qi].at; _gQueueAdmit(m, token, at, false); return; }
@@ -2848,22 +2895,33 @@
     var fam=gParrainInfo(cid, guest);
     var cloudLibre=false;
     try{
-      // Re-vérification EN DIRECT dans le cloud : empêche la double-entrée entre plusieurs téléphones
-      var data=await fsGetDoc(ticketDocPath(cid), gAuth.idToken);
-      var f=(data&&data.fields)||{}; var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+      // Re-vérification EN DIRECT + écriture protégée : empêche la double-entrée entre téléphones
+      var dejaAvant = (gMiennes[cid]&&gMiennes[cid][tkStored]) || null;   // déjà validé par CE téléphone ?
+      await _gNoterMienne(cid, tkStored, at);                          // mémoire locale d'abord
+      var res = await gCommitUsed(cid, function(usedMap){
+        var deja = usedMap[tkStored] || usedMap[token];
+        if(deja && deja===at) return {stop:{etat:"ok"}};                // notre propre scan, déjà parti avec un autre de nos scans
+        if(deja) return {stop:{etat:"deja", deja:deja}};                // entré ailleurs, ou lors d'un scan précédent
+        var map=_gFusionMiennes(cid, usedMap); map[tkStored]=at; return {map:map};
+      });
+      var f=res.f||{};
       try{ if(f.coorg) setCoorgLocal(cid, JSON.parse(f.coorg.stringValue||"{}")); }catch(e){}   // partenaires publiés
-      var already = usedMap[tkStored] || usedMap[token];
-      if(already){
-        var w=""; try{ w=fmtTime(already); }catch(e){}
+      if(res.etat==="deja"){
+        /* Ce n'est pas notre entrée : on l'ôte de la mémoire du téléphone (sinon on la
+           réécrirait avec notre heure), sauf si c'était déjà la nôtre avant ce scan. */
+        try{
+          if(gMiennes[cid]){
+            if(dejaAvant) gMiennes[cid][tkStored]=dejaAvant;          // rescan ici : on garde l'heure d'origine
+            else delete gMiennes[cid][tkStored];
+            _gEcrireCle(GMIENNES_CLE, gMiennes);
+          }
+        }catch(e){}
+        var already=res.deja, w=""; try{ w=fmtTime(already); }catch(e){}
         m.usedAt=already; gStat("used","Déjà scanné", guest.name||"", (w?("Entré à "+w):"Déjà entré")+" · "+m.cname+fam, guest, gFamille(cid, guest));
         gFlash(false); alertUsed(); return;
       }
-      cloudLibre=true;                                                 // le cloud vient de confirmer : pas encore entré
-      await _gNoterMienne(cid, tkStored, at);                          // mémoire locale d'abord
-      usedMap = _gFusionMiennes(cid, usedMap);                         // + toutes mes entrées précédentes
-      usedMap[tkStored]=at;
-      var r=await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
-      if(!(r&&r.ok)){ _gQueueAdmit(m, token, at, true); return; }      // échec écriture -> file d'attente
+      cloudLibre = !!res.lu;
+      if(res.etat!=="ok"){ _gQueueAdmit(m, token, at, cloudLibre); return; }      // échec écriture -> file d'attente
       if(!m.usedAt){ gUsed++; } m.usedAt=at; gUpdateCounts();
       try{ envoyerBienvenue(guest, cid, (f.event&&f.event.stringValue)||""); }catch(e){}
       // Proclamation : vert pour les étudiant·e·s diplômé·e·s, bleu pour les autres (profs, doyen, PATGS…)
@@ -2885,14 +2943,14 @@
     for(var i=0;i<gQueue.length;i++){
       var it=gQueue[i];
       try{
-        var data=await fsGetDoc(ticketDocPath(it.cid), gAuth.idToken);
-        var f=(data&&data.fields)||{}; var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
-        if(usedMap[it.token]){ continue; }                             // déjà enregistré -> on retire de la file
         await _gNoterMienne(it.cid, it.token, it.at);
-        usedMap = _gFusionMiennes(it.cid, usedMap);
-        usedMap[it.token]=it.at;
-        var r=await fsPatchFields(ticketDocPath(it.cid), { used: fsField(JSON.stringify(usedMap)), updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
-        if(!(r&&r.ok)){ rest.push(it); continue; }
+        var resF = await gCommitUsed(it.cid, function(usedMap){
+          if(usedMap[it.token]) return {stop:{etat:"deja"}};           // déjà enregistré -> on retire de la file
+          var map=_gFusionMiennes(it.cid, usedMap); map[it.token]=it.at; return {map:map};
+        });
+        var f=resF.f||{};
+        if(resF.etat==="deja") continue;
+        if(resF.etat!=="ok"){ rest.push(it); continue; }
         if(it.cid==="parrainage"){                                     // mail table (best-effort) une fois en ligne
           var pl=gIndex[normalize(it.token)], gg=null;
           if(pl){ for(var k=0;k<pl.length;k++){ if(pl[k].cid===it.cid){ gg=pl[k].guest; break; } } }
@@ -3128,7 +3186,7 @@
       Object.keys(marques||{}).forEach(function(k){ map[k]=marques[k]; });
       return map;
     }
-    for(var essai=0; essai<4; essai++){
+    for(var essai=0; essai<10; essai++){
       var lu=null;
       try{ lu = await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]); }catch(e){ lu=null; }
       if(!lu || !lu.updateTime) break;                       // pas de date de version : repli
@@ -3141,7 +3199,10 @@
       if(res!=="conflit") break;                             // refus inattendu : repli
       await new Promise(function(r){ setTimeout(r, 120+Math.floor(Math.random()*300)); });
     }
-    // Repli : exactement le comportement des versions précédentes.
+    /* Conflits à répétition (heure de pointe) : on n'écrase SURTOUT pas. Les repas restent
+       mémorisés sur ce téléphone et repartent au prochain rechargement (toutes les 25 s). */
+    if(essai>=10) return null;
+    // Repli (serveur qui refuse l'écriture protégée) : comportement des versions précédentes.
     try{
       var data=await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]);
       var m2={}; try{ m2=JSON.parse(((data&&data.fields&&data.fields.used)||{}).stringValue||"{}"); }catch(e){}
@@ -4831,7 +4892,33 @@
     }).length;
     return billets + enCours;
   }
+  /* ---------- Limite d'inscriptions (proclamation uniquement) ----------
+     Même règle que le formulaire : toutes les inscriptions en ligne sauf refusées
+     (hors marqueurs régime / présence). Les ajouts manuels ne comptent pas. */
+  function maxInscActive(){ return currentCommId()==="proclamation"; }
+  function maxInscKey(){ return "qrentry:maxInsc:"+(currentCommId()||""); }
+  function getMaxInsc(){ try{ return parseInt(window.localStorage.getItem(maxInscKey())||"0",10)||0; }catch(e){ return 0; } }
+  function nbInscritsLimite(){
+    return (SIGNUPS||[]).filter(function(x){
+      return x && ["refuse","repas","presence","attente"].indexOf(x.statut)<0;
+    }).length;
+  }
+  function majMaxInscUI(){
+    var w=$("wrapMaxInsc"); if(!w) return;
+    w.style.display = maxInscActive() ? "" : "none";
+    if(!maxInscActive()) return;
+    var cidM=currentCommId(), inp=$("suMaxInsc");
+    if(inp && inp.__cid!==cidM && document.activeElement!==inp){ inp.__cid=cidM; inp.value=String(getMaxInsc()||""); }
+    var max=getMaxInsc(), info=$("maxInscInfo"); if(!info) return;
+    if(!max){ info.textContent="Aucune limite : le formulaire reste ouvert (jusqu'à la date de clôture)."; info.style.color=""; return; }
+    var n=nbInscritsLimite(), reste=max-n;
+    info.innerHTML = reste>0
+      ? "<b>"+n+"</b> inscription(s) sur "+max+" — encore <b>"+reste+"</b> possible(s)."
+      : "<b>COMPLET</b> — "+n+"/"+max+". Le formulaire n'accepte plus d'inscription.";
+    info.style.color = reste>0 ? "" : "var(--amber,#d8b45a)";
+  }
   function majJaugeUI(){
+    try{ majMaxInscUI(); }catch(e){}
     var w=$("wrapJauge"); if(!w) return;
     w.style.display = jaugeActive() ? "" : "none";
     if(!jaugeActive()) return;
@@ -6212,6 +6299,13 @@
         var _clE=$("suCloture");
         if(_suFrais && _clE && document.activeElement!==_clE){ _clE.value=_clS; _clE.__cid=cid; }
       }
+      /* Limite d'inscriptions (proclamation) : la valeur du serveur fait foi. */
+      if(d&&d.fields&&cid==="proclamation"){
+        var _mx=(d.fields.maxInscrits && d.fields.maxInscrits.stringValue)||"0";
+        try{ window.localStorage.setItem("qrentry:maxInsc:proclamation", String(parseInt(_mx,10)||0)); }catch(e){}
+        var _mxE=$("suMaxInsc");
+        if(_mxE && document.activeElement!==_mxE){ _mxE.value = (parseInt(_mx,10)||"") ? String(parseInt(_mx,10)) : ""; _mxE.__cid=cid; }
+      }
       /* E-mail de notification : sur une carte neuve, celui enregistré sur le serveur pour CETTE commission fait foi. */
       var _nfE=$("suNotif");
       if(d&&d.fields&&d.fields.notifMail && _nfE && document.activeElement!==_nfE){
@@ -6245,40 +6339,62 @@
      ou beaucoup plus si l'écran était éteint) => les inscriptions et confirmations arrivées
      entre-temps étaient effacées. */
   async function saveSignups(modifs){
-    var cid=currentCommId(); if(!cid) return false;
+    var r = await ecrireSignups(modifs, null);
+    return !!(r && r.ok);
+  }
+  /* « Réservation » : n'applique MA modification que si, sur le serveur, l'inscription est
+     encore dans l'état attendu (garde). Deux appareils admin qui traitent la même personne au
+     même moment : un seul l'obtient, l'autre ne renvoie ni billet ni mail en double.
+     Rend la liste de MES objets effectivement pris, ou null si l'écriture a échoué. */
+  async function reserverSignups(modifs, garde){
+    var r = await ecrireSignups(modifs, garde);
+    return (r && r.ok) ? r.pris : null;
+  }
+  async function ecrireSignups(modifs, garde){
+    var cid=currentCommId(); if(!cid) return {ok:false,pris:[]};
     var okAuth = await ensureAuth(cid);
-    if(!okAuth){ flash("⚠️ Session expirée — reconnecte-toi à la commission."); return false; }
-    var a=loadAuth(cid); if(!a || !a.idToken){ flash("⚠️ Session expirée — reconnecte-toi."); return false; }
+    if(!okAuth){ flash("⚠️ Session expirée — reconnecte-toi à la commission."); return {ok:false,pris:[]}; }
+    var a=loadAuth(cid); if(!a || !a.idToken){ flash("⚠️ Session expirée — reconnecte-toi."); return {ok:false,pris:[]}; }
 
     var listeModifs = modifs ? (Array.isArray(modifs) ? modifs : [modifs]) : null;
-    var out=null;
-    try{
-      var d = await fsGetDoc(signupDocPath(cid), a.idToken);
-      var frais=[];
+    /* Écriture PROTÉGÉE : un autre appareil admin (ou le formulaire public) peut écrire la
+       même liste au même moment. On n'écrit que si la liste n'a pas bougé depuis notre
+       lecture ; sinon on relit, on réapplique NOS changements et on recommence. Avant, la
+       dernière écriture gagnait : une validation faite ailleurs pouvait être annulée. */
+    var pris=[];
+    function appliquer(frais){
+      pris=[];
+      if(!listeModifs){ pris=SIGNUPS.slice(); return SIGNUPS.slice(); }
+      var parCle={}; listeModifs.forEach(function(x){ var k=sigId(x); if(k) parCle[k]=x; });
+      var vus={};
+      var res = frais.map(function(y){
+        var k=sigId(y); vus[k]=1;
+        if(!Object.prototype.hasOwnProperty.call(parCle,k)) return y;
+        if(garde && !garde(y, parCle[k])) return y;                                          // déjà traitée ailleurs : on n'y touche pas
+        pris.push(parCle[k]); return parCle[k];                                   // ma version pour CE qui a changé
+      });
+      listeModifs.forEach(function(x){                                            // modifiée mais absente du cloud
+        var k=sigId(x); if(k && !vus[k] && !garde){ res.push(x); pris.push(x); }
+      });
+      return res;
+    }
+    for(var essai=0; essai<8; essai++){
+      var d=null, frais=[];
+      try{ d = await fsGetDoc(signupDocPath(cid), a.idToken); }catch(e){ d=null; }
+      if(!d && listeModifs){ flash("⚠️ Enregistrement impossible (réseau) — réessaie."); return {ok:false,pris:[]}; }
       if(d && d.fields && d.fields.signups){ try{ frais=JSON.parse(d.fields.signups.stringValue||"[]"); }catch(e){} }
-      if(listeModifs){
-        var parCle={}; listeModifs.forEach(function(x){ var k=sigId(x); if(k) parCle[k]=x; });
-        var vus={};
-        out = frais.map(function(y){
-          var k=sigId(y); vus[k]=1;
-          return Object.prototype.hasOwnProperty.call(parCle,k) ? parCle[k] : y;   // ma version pour CE qui a changé
-        });
-        listeModifs.forEach(function(x){                                            // modifiée mais absente du cloud
-          var k=sigId(x); if(k && !vus[k]) out.push(x);
-        });
-      } else {
-        out = SIGNUPS.slice();
-      }
-    }catch(e){ out = listeModifs ? null : SIGNUPS.slice(); }
-
-    if(!out){ flash("⚠️ Enregistrement impossible (réseau) — réessaie."); return false; }
-
-    var r=null;
-    try{ r = await fsPatchFields(signupDocPath(cid), { signups: fsField(JSON.stringify(out)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
-    catch(e){ r=null; }
-    if(r && r.ok){ SIGNUPS = out; return true; }
+      var out = appliquer(frais);
+      var champs = { signups: fsField(JSON.stringify(out)), updatedAt: fsField(new Date().toISOString()) };
+      var res = (d && d.updateTime) ? await fsCommitSiInchange(signupDocPath(cid), champs, d.updateTime, a.idToken) : "refus";
+      if(res==="ok"){ if(currentCommId()===cid) SIGNUPS = out; return {ok:true, pris:pris}; }
+      if(res==="conflit"){ await new Promise(function(r){ setTimeout(r, 80+Math.floor(Math.random()*320)); }); continue; }
+      var r=null;                                                                 // mode protégé refusé : écriture simple d'avant
+      try{ r = await fsPatchFields(signupDocPath(cid), champs, a.idToken); }catch(e){ r=null; }
+      if(r && r.ok){ if(currentCommId()===cid) SIGNUPS = out; return {ok:true, pris:pris}; }
+      break;
+    }
     flash("⚠️ Enregistrement NON pris en compte (réseau/session) — réessaie.");
-    return false;
+    return {ok:false, pris:[]};
   }
   var PROCESSING_SIGNUPS=false;
   async function processSignups(){
@@ -6287,13 +6403,17 @@
     try{
       var nouveaux=SIGNUPS.filter(function(x){ return x.statut==="nouveau"; });   // "apayer"/"acarte"/"attente" = validation manuelle
       if(!nouveaux.length) return;
-      var changed=false, cidDepart=currentCommId();
-      for(var i=0;i<nouveaux.length;i++){
+      var cidDepart=currentCommId();
+      /* D'abord RÉSERVER (statut « accepte » écrit seulement si encore « nouveau » sur le
+         serveur), ENSUITE créer le billet : deux appareils admin ouverts n'envoient plus
+         deux billets à la même personne. */
+      nouveaux.forEach(function(x){ x.statut="accepte"; });
+      var pris = await reserverSignups(nouveaux, function(y){ return y.statut==="nouveau"; });
+      if(!pris){ nouveaux.forEach(function(x){ x.statut="nouveau"; }); return; }
+      for(var i=0;i<pris.length;i++){
         if(currentCommId()!==cidDepart) break;       // commission changée : ne jamais créer de billet dans l'autre
-        await creerBilletDepuisInscription(nouveaux[i]); nouveaux[i].statut="accepte"; changed=true;
+        await creerBilletDepuisInscription(pris[i]);
       }
-      if(currentCommId()!==cidDepart) return;
-      if(changed){ await saveSignups(nouveaux); }
     } finally { PROCESSING_SIGNUPS=false; }
   }
   async function envoyerBilletMail(g){
@@ -6417,10 +6537,9 @@
   window.revueValider=async function(){
     var x=REVUE[REVUE_POS]; if(!x) return;
     var b=$("revueBody"); if(b) b.innerHTML='<p class="hint" style="text-align:center">Envoi du billet…</p>';
-    await creerBilletDepuisInscription(x); x.statut="accepte";
-    var ok=await saveSignups(x);
-    if(!ok){ x.statut="acarte"; flash("⚠️ Statut non enregistré — réessaie."); }
-    else flash("Billet envoyé à "+x.name+".");
+    var r = await reserverStatut(x, "accepte");
+    if(r==="pris"){ await creerBilletDepuisInscription(x); flash("Billet envoyé à "+x.name+"."); }
+    else if(r==="echec") flash("⚠️ Validation NON enregistrée — aucun billet envoyé, réessaie.");
     REVUE_POS++; await afficherRevue();
   };
   window.revueNouvelleCarte=async function(){
@@ -6613,10 +6732,7 @@
     var motif = await uiPrompt("Motif du refus DÉFINITIF (visible par la personne) :", suggestion);
     if(motif===null) return;
     if(!(await uiConfirm("Refuser DÉFINITIVEMENT l'inscription de "+x.name+" ? (pour juste demander une nouvelle carte, utilise plutôt « Nouvelle carte »)"))) return;
-    var _avant=x.statut;
-    x.statut="refuse"; x.motif=motif;
-    var _okSave = await saveSignups(x);
-    if(!_okSave){ x.statut=_avant; renderSignups(); return; }   // rien d'enregistré : on rétablit l'affichage
+    if((await reserverStatut(x, "refuse", {motif:motif}))!=="pris") return;   // rien d'enregistré / déjà traité ailleurs
     renderSignups();
     if(x.email){
       var cid=currentCommId()||"";
@@ -6643,10 +6759,7 @@
     if(motif===null) return;
     if(!(await uiConfirm("Demander une nouvelle carte à "+x.name+" ? Un lien de renvoi lui sera envoyé."))) return;
     if(!x.corrToken){ x.corrToken="K"+Date.now().toString(36)+aleaSuite(8); }
-    var _avant=x.statut;
-    x.statut="acorriger"; x.motif=motif; x.corrigee=false;
-    var _okSave = await saveSignups(x);
-    if(!_okSave){ x.statut=_avant; renderSignups(); return; }    // pas de mail avec un lien mort
+    if((await reserverStatut(x, "acorriger", {motif:motif, corrigee:false}))!=="pris") return;   // pas de mail avec un lien mort
     renderSignups();
     if(x.email){
       var cid=currentCommId()||"";
@@ -6711,15 +6824,13 @@
         && x.ts && (Date.now()-x.ts) > DELAI_RELANCE;
     });
     if(!aRelancer.length) return;
-    var faits=[];
-    for(var i=0;i<aRelancer.length;i++){
-      var x=aRelancer[i];
-      if(await envoyerLienConfirmation(x)){ x.relanceTs=Date.now(); faits.push(x); }
-    }
-    if(faits.length){
-      await saveSignups(faits);
-      flash("🔔 Relance automatique envoyée à "+faits.length+" personne(s) qui n'avaient pas confirmé.");
-    }
+    /* Réservées d'abord (un seul appareil admin relance), envoyées ensuite. */
+    aRelancer.forEach(function(x){ x.relanceTs=Date.now(); });
+    var pris = await reserverSignups(aRelancer, function(y){ return y.statut==="apreconfirmer" && !y.relanceTs; });
+    if(!pris){ aRelancer.forEach(function(x){ x.relanceTs=0; }); return; }
+    var faits=0;
+    for(var i=0;i<pris.length;i++){ if(await envoyerLienConfirmation(pris[i])) faits++; }
+    if(faits) flash("🔔 Relance automatique envoyée à "+faits+" personne(s) qui n'avaient pas confirmé.");
   }
   /* ---------- Annulation en ligne : dispositif entièrement retiré le 03/09/2026 ----------
      Plus de lien dans les mails, plus de page publique, plus de traitement. Un empêchement
@@ -6887,6 +6998,12 @@
     var cid=currentCommId(); if(!cid) return false;
     var marques = SIGNUPS.filter(function(x){ return x && x.statut==="repas" && x.repasToken && !x.traite; });
     if(!marques.length) return false;
+    /* Réservés d'abord : si deux appareils admin sont ouverts, un seul applique le
+       changement et renvoie le billet (sinon la personne recevait deux mails). */
+    marques.forEach(function(m){ m.traite=true; m.traiteTs=Date.now(); });
+    var marquesPrises = await reserverSignups(marques, function(y, m){ return !y.traite && y.repas===m.repas && (y.ts||0)===(m.ts||0); });
+    if(!marquesPrises){ marques.forEach(function(m){ m.traite=false; m.traiteTs=0; }); return false; }
+    marques = marquesPrises;
     var change=false, aPrevenir=[];
     marques.forEach(function(m){
       var g = roster.filter(function(x){ return x.token===m.repasToken; })[0];
@@ -6903,10 +7020,9 @@
       await cloudPushRoster(cid);
       try{ renderList(); }catch(e){}
     }
-    var enregistre = await saveSignups(marques);
-    /* Le renvoi n'a lieu qu'une fois les marqueurs publiés comme traités. Sinon un
-       second appareil admin, qui sonde la même liste, renverrait le même billet. */
-    if(enregistre!==false){
+    /* Les marqueurs sont déjà publiés comme traités (réservation ci-dessus) : un second
+       appareil admin ne renverra pas le même billet. */
+    {
       for(var iP=0; iP<aPrevenir.length; iP++){
         var gP=aPrevenir[iP];
         try{
@@ -6938,19 +7054,37 @@
                       : ("⚠️ Il n'y a AUCUNE place libre ("+placesPrises()+"/"+max+").\n\nRepêcher quand même "+x.name+" ? Tu dépasseras la jauge.");
     if(sansPaiement) msg += "\n\n💶 Cette personne n'a PAS encore fourni de preuve de paiement (normal : on ne fait pas payer la liste d'attente). Réclame-lui le paiement avant ou après l'envoi du billet.";
     if(!(await uiConfirm(msg))) return;
-    var avant=x.statut;
-    await creerBilletDepuisInscription(x); x.statut="accepte";
-    var ok=await saveSignups(x);
-    if(!ok){ x.statut=avant; }
+    var r = await reserverStatut(x, "accepte");
+    if(r!=="pris"){ if(r==="echec") flash("⚠️ Repêchage NON enregistré (réseau/session) — aucun billet envoyé, réessaie."); return; }
+    await creerBilletDepuisInscription(x);
     renderSignups();
-    flash(ok ? ("Billet envoyé à "+x.name+".") : "Billet envoyé mais statut NON enregistré — actualise et revérifie.");
+    flash("Billet envoyé à "+x.name+".");
   };
+  /* Passe x de son statut actuel à « nouveauStatut » SEULEMENT si, sur le serveur, il est
+     encore dans ce statut (sinon un autre appareil l'a déjà traité). "pris" | "deja" | "echec". */
+  async function reserverStatut(x, nouveauStatut, extra){
+    var avant=x.statut, sauve={};
+    var cles=Object.keys(extra||{}); cles.forEach(function(k){ sauve[k]=x[k]; x[k]=extra[k]; });
+    x.statut=nouveauStatut;
+    var pris = await reserverSignups(x, function(y){ return y.statut===avant; });
+    if(pris && pris.length) return "pris";
+    x.statut=avant; cles.forEach(function(k){ x[k]=sauve[k]; });
+    if(pris){                                             // refusé par la garde : déjà traité ailleurs
+      flash("ℹ️ "+(x.name||"Cette inscription")+" a déjà été traitée sur un autre appareil — liste actualisée.");
+      try{ await window.refreshSignups(true); }catch(e){}
+      return "deja";
+    }
+    renderSignups();
+    return "echec";
+  }
   window.accepterInscrit=async function(i){
     var x=SIGNUPS[i]; if(!x) return;
-    await creerBilletDepuisInscription(x); x.statut="accepte";
-    var _okSave = await saveSignups(x); renderSignups();
-    flash(_okSave ? ("Billet envoyé à "+x.name+".")
-                  : ("Billet envoyé à "+x.name+", mais le statut n'a PAS pu être enregistré — actualise et revalide."));
+    var r = await reserverStatut(x, "accepte");
+    if(r!=="pris"){ if(r==="echec") flash("⚠️ Validation NON enregistrée (réseau/session) — aucun billet envoyé, réessaie."); return; }
+    renderSignups();
+    await creerBilletDepuisInscription(x);
+    renderSignups();
+    flash("Billet envoyé à "+x.name+".");
   };
   var SIGNUP_HTML = `    <div class="card gen-card" id="signupCard">
       <div class="gen-head"><h2>Inscriptions en ligne</h2><button class="btn ghost sm" id="btnRefreshSu" type="button">Actualiser</button></div>
@@ -6992,6 +7126,15 @@
           <button class="btn ghost sm" id="btnPlaces" type="button">Enregistrer</button>
         </div>
         <div id="jaugeInfo" class="hint" style="margin-top:6px"></div>
+      </div>
+      <div id="wrapMaxInsc" style="display:none">
+        <div style="height:10px"></div>
+        <label class="fld" for="suMaxInsc">Inscriptions maximum (0 ou vide = aucune limite)</label>
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="number" id="suMaxInsc" min="0" step="1" placeholder="Ex. 120" style="flex:1">
+          <button class="btn ghost sm" id="btnMaxInsc" type="button">Enregistrer</button>
+        </div>
+        <div id="maxInscInfo" class="hint" style="margin-top:6px"></div>
       </div>
       <div style="height:12px"></div>
       <details class="menu zone">
@@ -7091,6 +7234,20 @@
       uiAlert(ok ? (v ? ("CLOTURE ENREGISTREE : "+v+"\n\nLe formulaire se fermera automatiquement après cette date.")
                     : "Clôture retirée : le formulaire reste ouvert.")
                : "PROBLEME : la clôture n'a pas pu être publiée.");
+    }; }
+    b=$("btnMaxInsc");   if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
+      var cidM=currentCommId(); if(cidM!=="proclamation") return;
+      var n=parseInt(($("suMaxInsc")&&$("suMaxInsc").value)||"0",10); if(isNaN(n)||n<0) n=0;
+      var ok=false;
+      try{
+        if(await ensureAuth(cidM)){ var a=loadAuth(cidM);
+          if(a && a.idToken){ var r=await fsPatchFields(ticketDocPath(cidM), { maxInscrits: fsField(String(n)) }, a.idToken); ok=!!(r&&r.ok); } }
+      }catch(e){ ok=false; }
+      if(ok){ try{ window.localStorage.setItem("qrentry:maxInsc:"+cidM, String(n)); }catch(e){} }
+      majMaxInscUI();
+      uiAlert(ok ? (n ? ("LIMITE ENREGISTREE : "+n+" inscriptions maximum.\n\nUne fois atteinte, le formulaire affiche « inscriptions complètes ».")
+                      : "Limite retirée : le formulaire reste ouvert.")
+                 : "PROBLEME : la limite n'a pas pu être enregistrée.");
     }; }
     b=$("btnPlaces");    if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
       var n=parseInt(($("suPlaces")&&$("suPlaces").value)||"0",10); if(isNaN(n)||n<0) n=0;
@@ -7987,22 +8144,37 @@
       var lf = leger.fields||{};
       var rvLeger = parseInt((lf.rosterVersion&&lf.rosterVersion.stringValue)||"0",10);
       var data;
-      if(rvLeger > localRosterVersion){ data = await fsGetDoc(ticketDocPath(cid), a.idToken); }
+      /* Version DIFFÉRENTE (et non « plus grande ») : les versions sont des heures prises
+         sur chaque appareil. Une horloge un peu en retard, ou une modification locale
+         juste après, faisait ignorer pour toujours les ajouts d'un autre appareil. */
+      if(rvLeger !== localRosterVersion){ data = await fsGetDoc(ticketDocPath(cid), a.idToken); }
       else { data = leger; }
       if(!data) return;
+      if(currentCommId()!==cid || _pushEnCours>0) return;     // commission changée, ou envoi en cours : on relira au prochain passage
       var f = data.fields||{};
       var remoteRV = parseInt((f.rosterVersion&&f.rosterVersion.stringValue)||"0",10);
-      if(remoteRV > localRosterVersion){
-        var remoteRoster=[], remoteUsed={};
+      if(remoteRV !== localRosterVersion && f.roster){
+        var remoteRoster=[], remoteUsed={}, remoteTombs={};
         try{ remoteRoster = JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e1){}
         try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e2){}
-        roster = remoteRoster; eventName = (f.event&&f.event.stringValue)||""; localRosterVersion = remoteRV;
+        try{ remoteTombs = JSON.parse((f.tombs&&f.tombs.stringValue)||"{}"); }catch(e4){}
+        /* Fusion par billet : la version en ligne fait foi pour les billets connus des deux
+           côtés ; les billets créés ici et pas encore envoyés sont gardés (puis renvoyés) ;
+           un billet supprimé sur un autre appareil ne revient pas. */
+        var tombes = Object.assign({}, remoteTombs, TOMBES);
+        var vus = {}, fusion = [], ajoutsLocaux = 0;
+        remoteRoster.forEach(function(g){ if(!g || !g.token || tombes[g.token]) return; vus[g.token]=1; fusion.push(g); });
+        roster.forEach(function(g){ if(g && g.token && !vus[g.token] && !tombes[g.token]){ fusion.push(g); ajoutsLocaux++; } });
+        roster = fusion; eventName = (f.event&&f.event.stringValue)||eventName||""; localRosterVersion = remoteRV;
         try{ if(f.eventMeta&&f.eventMeta.stringValue){ eventMeta = JSON.parse(f.eventMeta.stringValue); await Store.set("eventMeta", JSON.stringify(eventMeta)); } }catch(e){}
-        await clearLocalUsedKeys(); usedSet=new Set(); usedAt={};
-        for(var tok in remoteUsed){ if(Object.prototype.hasOwnProperty.call(remoteUsed,tok)){ usedSet.add(tok); usedAt[tok]=remoteUsed[tok]; await Store.set("used:"+tok, JSON.stringify({at:remoteUsed[tok]})); } }
+        /* Entrées : union — un scan enregistré ici ou ailleurs n'est jamais perdu. */
+        for(var tok in remoteUsed){ if(Object.prototype.hasOwnProperty.call(remoteUsed,tok) && !usedSet.has(tok)){ usedSet.add(tok); usedAt[tok]=remoteUsed[tok]; await Store.set("used:"+tok, JSON.stringify({at:remoteUsed[tok]})); } }
         await Store.set("roster", JSON.stringify(roster)); await Store.set("eventName", JSON.stringify(eventName)); await Store.set("rosterVersion", String(localRosterVersion));
         if($("evName")) $("evName").value = eventName;
         renderTickets(); renderList(); updateCounts();
+        try{ renderSignups(); }catch(e){}                        // ajouts manuels visibles dans « Inscriptions en ligne »
+        try{ if(currentTab==="traiteur") renderTraiteurTab(); }catch(e){}
+        if(ajoutsLocaux) cloudPushRoster(cid);                   // renvoie ce qui n'était pas encore en ligne
       } else if(remoteRV === localRosterVersion){
         var remoteUsed2={}; try{ remoteUsed2 = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e3){}
         var changed=false;
@@ -8025,8 +8197,11 @@
 
   /* ---------- Poussée du roster : relecture-fusion (deux appareils admin ne s'écrasent plus) ---------- */
   var _fileRoster = Promise.resolve();               // sérialise les poussées successives
+  var _pushEnCours = 0;    // pendant un envoi, la relecture périodique attend (sinon elle pourrait écraser une modif pas encore partie)
   function cloudPushRoster(cid, remplacer){
-    _fileRoster = _fileRoster.then(function(){ return _cloudPushRoster(cid, remplacer); }).catch(function(){});
+    _pushEnCours++;
+    _fileRoster = _fileRoster.then(function(){ return _cloudPushRoster(cid, remplacer); }).catch(function(){})
+      .then(function(){ _pushEnCours=Math.max(0,_pushEnCours-1); });
     return _fileRoster;
   }
   async function _cloudPushRoster(cid, remplacer){
@@ -8034,65 +8209,83 @@
     var ok = await ensureAuth(cid); if(!ok){ flash("⚠️ Session expirée — les billets ne sont PAS enregistrés en ligne."); return false; }
     var a = loadAuth(cid); if(!a || !a.idToken || !a.uid) return false;
     try{
-      // 1) relire le distant et fusionner par token (sauf remise à zéro : on écrase volontairement)
-      var distant = [], tombesDistantes = {};
-      if(!remplacer){
-        var d = await fsGetDoc(ticketDocPath(cid), a.idToken, ["roster","tombs"]);
-        if(d && d.fields){
-          try{ distant = JSON.parse((d.fields.roster && d.fields.roster.stringValue)||"[]"); }catch(e){}
-          try{ tombesDistantes = JSON.parse((d.fields.tombs && d.fields.tombs.stringValue)||"{}"); }catch(e){}
+      if(remplacer){ await oublierTombes(); }
+      /* Écriture PROTÉGÉE : deux appareils admin qui valident chacun une inscription au
+         même moment relisaient la même liste ; le second effaçait le billet du premier
+         (billet reçu par mail mais inconnu du scanner). On n'écrit que si le document
+         n'a pas bougé depuis notre lecture ; sinon on refait la fusion sur la version
+         fraîche. Une remise à zéro volontaire (remplacer) écrase, comme avant. */
+      var essai=0, ajoutsDistants=false, usedFusion={}, jsonUsed="{}", r=null;
+      while(true){
+        // 1) relire le distant et fusionner par token
+        var distant = [], tombesDistantes = {}, majDistante = null;
+        if(!remplacer){
+          var d = await fsGetDoc(ticketDocPath(cid), a.idToken, ["roster","tombs"]);
+          if(d){
+            majDistante = d.updateTime || null;
+            if(d.fields){
+              try{ distant = JSON.parse((d.fields.roster && d.fields.roster.stringValue)||"[]"); }catch(e){}
+              try{ tombesDistantes = JSON.parse((d.fields.tombs && d.fields.tombs.stringValue)||"{}"); }catch(e){}
+            }
+          }
         }
-      } else { await oublierTombes(); }
-      var tombes = remplacer ? {} : Object.assign({}, tombesDistantes, TOMBES);
-      TOMBES = tombes;
-      try{ await Store.set("rosterTombs", JSON.stringify(TOMBES)); }catch(e){}
+        var tombes = remplacer ? {} : Object.assign({}, tombesDistantes, TOMBES);
+        TOMBES = tombes;
+        try{ await Store.set("rosterTombs", JSON.stringify(TOMBES)); }catch(e){}
 
-      var local = {}; roster.forEach(function(g){ if(g && g.token) local[g.token]=g; });
-      var fusion = [], vus = {};
-      distant.forEach(function(g){
-        if(!g || !g.token || tombes[g.token]) return;                 // supprimé quelque part
-        vus[g.token]=1;
-        fusion.push(Object.prototype.hasOwnProperty.call(local,g.token) ? local[g.token] : g);
-      });
-      roster.forEach(function(g){                                      // mes ajouts absents du distant
-        if(g && g.token && !vus[g.token] && !tombes[g.token]) fusion.push(g);
-      });
+        var local = {}; roster.forEach(function(g){ if(g && g.token) local[g.token]=g; });
+        var fusion = [], vus = {};
+        distant.forEach(function(g){
+          if(!g || !g.token || tombes[g.token]) return;                 // supprimé quelque part
+          vus[g.token]=1;
+          fusion.push(Object.prototype.hasOwnProperty.call(local,g.token) ? local[g.token] : g);
+        });
+        roster.forEach(function(g){                                      // mes ajouts absents du distant
+          if(g && g.token && !vus[g.token] && !tombes[g.token]) fusion.push(g);
+        });
 
-      // 2) l'état local devient l'état fusionné (les deux appareils convergent)
-      var ajoutsDistants = fusion.length !== roster.length;
-      roster = fusion;
-      localRosterVersion = Date.now();
-      await Store.set("roster", JSON.stringify(roster));
-      await Store.set("rosterVersion", String(localRosterVersion));
+        // 2) l'état local devient l'état fusionné (les appareils convergent)
+        ajoutsDistants = ajoutsDistants || (fusion.length !== roster.length);
+        roster = fusion;
+        localRosterVersion = Date.now();
+        await Store.set("roster", JSON.stringify(roster));
+        await Store.set("rosterVersion", String(localRosterVersion));
 
-      var jsonRoster = JSON.stringify(roster);
-      /* Les entrées et les repas peuvent avoir été scannés par un AUTRE téléphone
-         depuis notre dernière relecture. Écrire notre seule vue les effacerait :
-         on relit et on fusionne, comme le fait déjà cloudPushUsed. Seule une
-         remise à zéro volontaire (remplacer) écrase. */
-      var usedFusion = localUsedMapObj();
-      if(!remplacer){
-        try{
-          var du = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used"]);
-          var distantUsed = {};
-          try{ distantUsed = JSON.parse((du && du.fields && du.fields.used && du.fields.used.stringValue)||"{}"); }catch(e){}
-          usedFusion = Object.assign({}, distantUsed, usedFusion);
-        }catch(e){}
+        var jsonRoster = JSON.stringify(roster);
+        usedFusion = localUsedMapObj();
+        if(!remplacer){
+          try{
+            var du = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used"]);
+            var distantUsed = {};
+            try{ distantUsed = JSON.parse((du && du.fields && du.fields.used && du.fields.used.stringValue)||"{}"); }catch(e){}
+            usedFusion = Object.assign({}, distantUsed, usedFusion);
+          }catch(e){}
+        }
+        jsonUsed = JSON.stringify(usedFusion);
+        alerteTailleDoc(tailleOctets(jsonRoster)+tailleOctets(jsonUsed), "Liste des billets");
+
+        var fields = {
+          adminUid: fsField(a.uid),
+          event: fsField(eventName||""),
+          eventMeta: fsField(JSON.stringify(eventMeta||{date:"",heure:"",lieu:""})),
+          roster: fsField(jsonRoster),
+          rosterVersion: fsField(String(localRosterVersion)),
+          tombs: fsField(JSON.stringify(tombes)),
+          updatedAt: fsField(new Date().toISOString())
+        };
+        /* Les entrées ne sont pas réécrites avec la liste (un téléphone de la porte a pu en
+           ajouter entre-temps) : seule une remise à zéro les écrase ; sinon fusion protégée après. */
+        if(remplacer) fields.used = fsField(jsonUsed);
+
+        if(!remplacer && majDistante){
+          var res = await fsCommitSiInchange(ticketDocPath(cid), fields, majDistante, a.idToken);
+          if(res==="ok"){ r={ok:true}; break; }
+          if(res==="conflit" && ++essai<8){ await new Promise(function(x){ setTimeout(x, 80+Math.floor(Math.random()*320)); }); continue; }
+          // conflits à répétition ou mode protégé refusé : écriture simple (liste seulement, jamais les entrées)
+        }
+        r = await fsPatchFields(ticketDocPath(cid), fields, a.idToken);
+        break;
       }
-      var jsonUsed = JSON.stringify(usedFusion);
-      alerteTailleDoc(tailleOctets(jsonRoster)+tailleOctets(jsonUsed), "Liste des billets");
-
-      var fields = {
-        adminUid: fsField(a.uid),
-        event: fsField(eventName||""),
-        eventMeta: fsField(JSON.stringify(eventMeta||{date:"",heure:"",lieu:""})),
-        roster: fsField(jsonRoster),
-        rosterVersion: fsField(String(localRosterVersion)),
-        tombs: fsField(JSON.stringify(tombes)),
-        used: fsField(jsonUsed),
-        updatedAt: fsField(new Date().toISOString())
-      };
-      var r = await fsPatchFields(ticketDocPath(cid), fields, a.idToken);
       if(!(r && r.ok)){
         var msg = (r && r.data && r.data.error && r.data.error.message) || "";
         flash(/larger than|exceeds|too large|1048576/i.test(msg)
@@ -8100,9 +8293,32 @@
           : "❌ Billets NON enregistrés en ligne (réseau/droits) — vérifie ta connexion.");
         return false;
       }
+      if(!remplacer){
+        try{ await fsModifierUsed(cid, a.idToken, function(map){
+          var ajout=0; for(var k in usedFusion){ if(Object.prototype.hasOwnProperty.call(usedFusion,k) && !map[k]){ map[k]=usedFusion[k]; ajout++; } }
+          return ajout ? map : null;
+        }); }catch(e){}
+      }
       if(ajoutsDistants){ try{ renderTickets(); renderList(); updateCounts(); }catch(e){} }
       return true;
     }catch(e){ flash("❌ Billets NON enregistrés en ligne — vérifie ta connexion."); return false; }
+  }
+  /* Modification PROTÉGÉE du champ « used » (entrées + repas), partagé par tous les
+     téléphones : écriture acceptée seulement si personne n'a écrit depuis notre lecture,
+     sinon on relit et on recommence. modifier(map) renvoie la nouvelle map, ou null. */
+  async function fsModifierUsed(cid, idToken, modifier){
+    for(var essai=0; essai<10; essai++){
+      var data=await fsGetDoc(ticketDocPath(cid), idToken, ["used"]);
+      if(!data) return false;
+      var map={}; try{ map=JSON.parse(((data.fields||{}).used||{}).stringValue||"{}"); }catch(e){}
+      var nouv=modifier(map); if(!nouv) return true;
+      var champs={ used: fsField(JSON.stringify(nouv)), updatedAt: fsField(new Date().toISOString()) };
+      var res = data.updateTime ? await fsCommitSiInchange(ticketDocPath(cid), champs, data.updateTime, idToken) : "refus";
+      if(res==="ok") return true;
+      if(res!=="conflit"){ var r=await fsPatchFields(ticketDocPath(cid), champs, idToken); return !!(r&&r.ok); }
+      await new Promise(function(r){ setTimeout(r, 80+Math.floor(Math.random()*320)); });
+    }
+    return false;
   }
   // Poussée légère : uniquement les entrées scannées — utilisable par l'admin OU le compte scanner
   async function cloudPushUsed(cid){
@@ -8110,20 +8326,13 @@
     var ok = await ensureAuth(cid); if(!ok){ flash("⚠️ Entrée enregistrée sur ce téléphone mais PAS en ligne (session)."); return false; }
     var a = loadAuth(cid); if(!a || !a.idToken) return false;
     try{
-      var remoteUsed = {};
-      var data = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used"]);
-      /* On fusionne TOUJOURS avec ce qui est en ligne. Avant, la fusion était
-         conditionnée à l'égalité des versions de liste : pendant les 6 s qui
-         suivent un ajout par l'admin (le temps du sondage), ce téléphone écrasait
-         les entrées enregistrées par tous les autres postes. Fusionner ne peut
-         qu'ajouter des entrées, jamais en retirer. */
-      if(data){
-        var f=data.fields||{};
-        try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e0){}
-      }
-      var mergedUsed = Object.assign({}, remoteUsed, localUsedMapObj());
-      var r = await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(mergedUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
-      if(!(r && r.ok)){ flash("⚠️ Entrée validée ici mais PAS synchronisée — les autres téléphones ne la voient pas."); return false; }
+      /* Fusion avec ce qui est en ligne (n'ajoute jamais que des entrées), en écriture protégée. */
+      var okU = await fsModifierUsed(cid, a.idToken, function(map){
+        var loc=localUsedMapObj(), ajout=0;
+        for(var k in loc){ if(Object.prototype.hasOwnProperty.call(loc,k) && !map[k]){ map[k]=loc[k]; ajout++; } }
+        return ajout ? map : null;
+      });
+      if(!okU){ flash("⚠️ Entrée validée ici mais PAS synchronisée — les autres téléphones ne la voient pas."); return false; }
       return true;
     }catch(e){ flash("⚠️ Entrée validée ici mais PAS synchronisée (réseau)."); return false; }
   }
@@ -8132,12 +8341,10 @@
     var ok = await ensureAuth(cid); if(!ok) return false;
     var a = loadAuth(cid); if(!a || !a.idToken) return false;
     try{
-      var remoteUsed = {};
-      var data = await fsGetDoc(ticketDocPath(cid), a.idToken, ["used"]);
-      if(data){ var f=data.fields||{}; try{ remoteUsed = JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e0){} }
-      delete remoteUsed[token];
-      var r = await fsPatchFields(ticketDocPath(cid), { used: fsField(JSON.stringify(remoteUsed)), updatedAt: fsField(new Date().toISOString()) }, a.idToken);
-      if(!(r && r.ok)){ flash("⚠️ Annulation faite ici mais PAS synchronisée en ligne."); return false; }
+      var okR = await fsModifierUsed(cid, a.idToken, function(map){
+        if(!map[token]) return null; delete map[token]; return map;
+      });
+      if(!okR){ flash("⚠️ Annulation faite ici mais PAS synchronisée en ligne."); return false; }
       return true;
     }catch(e){ flash("⚠️ Annulation faite ici mais PAS synchronisée (réseau)."); return false; }
   }
@@ -8199,7 +8406,9 @@
     if(cloudPollTimer) clearInterval(cloudPollTimer);
     cloudPollTimer = setInterval(function(){
       var cid=currentCommId();
-      if(cid && (currentTab==="scan" || currentTab==="list")) cloudPull(cid);
+      /* Tous les onglets de gestion : un ajout manuel fait sur un autre appareil doit
+         apparaître aussi dans Invités et Traiteur, pas seulement dans Suivi et Scanner. */
+      if(cid && ["scan","list","guests","traiteur","parrainage","coopt"].indexOf(currentTab)>=0) cloudPull(cid);
     }, 6000);
   }
 
@@ -8598,6 +8807,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v168</div>
+<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v172</div>
 </body>
 </html>

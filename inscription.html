@@ -470,6 +470,26 @@
     return billets + enCours;
   }
   function completJauge(){ return PLACES>0 && PRIS>=PLACES; }
+  /* ---------- Limite d'inscriptions (proclamation uniquement) ----------
+     Réglée dans l'app (champ « maxInscrits »). Comptées : toutes les inscriptions en ligne
+     sauf les refusées (et hors marqueurs régime / présence). Une fois atteinte, le formulaire
+     est fermé. Les liens déjà envoyés (confirmation, carte, régime, présence) restent actifs. */
+  function nbInscritsLimite(liste){
+    return (liste||[]).filter(function(x){
+      return x && ["refuse","repas","presence","attente"].indexOf(x.statut)<0;
+    }).length;
+  }
+  function maxInscritsDoc(f){
+    if(CID!=="proclamation") return 0;
+    return parseInt((f && f.maxInscrits && f.maxInscrits.stringValue)||"0",10)||0;
+  }
+  function afficherComplet(){
+    cacherEcranRole();
+    q("form").style.display="none";
+    q("msg").innerHTML = '<div class="card"><p class="big">🔒</p><p><b>Les inscriptions sont complètes</b></p>'
+      + '<p class="hint">Le nombre maximum d\'inscriptions a été atteint. Il n\'est plus possible de s\'inscrire.</p>'
+      + '<p class="hint">Pour toute question, contactez les délégués.</p></div>';
+  }
   function majBandeauJauge(){
     var el=q("jaugeBox"), btn=q("btn");
     if(!el) return;
@@ -1003,6 +1023,14 @@
            la fin des inscriptions ne doit pas masquer leur contenu. */
         var pageLien = !!(par("confirm") || par("choix") || par("repas") || par("presence"));
         if(cl){ CLOTURE = cl; if(!pageLien && inscriptionsFermees(CLOTURE)) afficherFermeture(CLOTURE); }
+        // limite d'inscriptions (proclamation) : formulaire fermé une fois atteinte
+        try{
+          var _max = maxInscritsDoc(f);
+          if(_max>0 && !pageLien && !par("corriger")){
+            var _l = JSON.parse((f.signups && f.signups.stringValue)||"[]");
+            if(nbInscritsLimite(_l) >= _max) afficherComplet();
+          }
+        }catch(e){}
         // jauge de places (festif / aca / culture) : affichage du restant ou du mode liste d'attente
         if(COMM_JAUGE.indexOf(CID)>=0){
           PLACES = parseInt((f && f.places && f.places.stringValue)||"0",10)||0;
@@ -1184,6 +1212,12 @@
         }
       }
 
+      // limite d'inscriptions (proclamation) : revérifiée sur le document relu juste avant d'enregistrer
+      var _maxI = maxInscritsDoc(cur && cur.fields);
+      if(_maxI>0 && nbInscritsLimite(list) >= _maxI){
+        btn.disabled=false; btn.textContent="Je m'inscris";
+        afficherComplet(); return;
+      }
       // jauge : recalcul sur le document qu'on vient de relire (évite de dépasser à cause d'un affichage périmé)
       var enAttente=false;
       if(COMM_JAUGE.indexOf(CID)>=0 && cur && cur.fields){
