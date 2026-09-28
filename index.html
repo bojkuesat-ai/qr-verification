@@ -7252,7 +7252,9 @@
       if(!r || r.ok!==true){
         var err=(r&&r.data&&r.data.error)||{};
         var raison = !r ? "réseau" : (r.status===0 ? "réseau (pas de réponse)" : ("HTTP "+r.status+" "+(err.status||"")+" — "+(err.message||"refus inconnu")));
-        gros("PROBLEME : la limite n'a pas pu être enregistrée.\n\nRaison du serveur : "+raison, false);
+        if(r && estRefusDroits(r.status, err.status||"")){ _dernierPushRefuse=true; syncRefusee(cidM, "enregistrement refusé"); }
+        gros("PROBLEME : la limite n'a pas pu être enregistrée.\n\nRaison du serveur : "+raison
+          + ((r && estRefusDroits(r.status, err.status||"")) ? "\n\nLe compte connecté sur cet appareil n'a pas le droit de modifier la commission : déconnectez-vous et reconnectez-vous avec le compte de la proclamation." : ""), false);
         return;
       }
       try{ window.localStorage.setItem("qrentry:maxInsc:"+cidM, String(n)); }catch(e){}
@@ -8130,19 +8132,36 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v174" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v175" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
+       de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
+    var top=$("syncTop");
+    if(top){
+      var bloqueT = $("syncAlert") && $("syncAlert").style.display!=="none";
+      if(!currentCommId()){ top.style.display="none"; }
+      else {
+        top.style.display="";
+        top.style.background = bloqueT ? "#7a1f1f" : (t ? "#1f5f3a" : "#3a3560");
+        top.style.color = "#fff";
+        top.style.border = "2px solid " + (bloqueT ? "#e05555" : (t ? "#5fd08a" : "#8a84c0"));
+        top.textContent = bloqueT ? "⛔ SYNCHRO BLOQUÉE — voir le message rouge"
+          : (t ? ("☁️ Synchro "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : ""))
+               : "☁️ Synchronisation…");
+      }
+    }
     var e=$("syncEtat");
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v174"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v174") : ("☁️ Synchronisation… · v174"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v175"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v175") : ("☁️ Synchronisation… · v175"));
     }
   }
   function syncReussie(cid){
     if(cid!==currentCommId()) return;
-    SYNC_OK_TS = Date.now(); majMarqueSync();
+    SYNC_OK_TS = Date.now();
     var al=$("syncAlert"); if(al && al.__cid===cid && al.style.display!=="none"){ al.style.display="none"; al.innerHTML=""; }
+    majMarqueSync();
   }
   /* Refus du serveur (compte sans droit sur CETTE commission) : alerte rouge permanente. */
   function syncRefusee(cid, quoi){
@@ -8169,6 +8188,16 @@
       + '<button class="btn gold sm" type="button" style="margin-top:8px" onclick="commLogout()">Se reconnecter</button>';
     al.style.display="";
     try{ majMarqueSync(); }catch(e){}
+  }
+  /* Test d'écriture minimal (updatedAt, écrit à chaque enregistrement de toute façon).
+     Un compte qui peut LIRE la commission mais pas y ÉCRIRE n'est pas le sien :
+     tout ce qu'il ajoute resterait sur l'appareil. "ok" | "refus" | "reseau". */
+  async function testEcriture(cid, idToken){
+    var r=null;
+    try{ r = await fsPatchFields(ticketDocPath(cid), { updatedAt: fsField(new Date().toISOString()) }, idToken); }catch(e){ r=null; }
+    if(r && r.ok) return "ok";
+    if(r && estRefusDroits(r.status, (r.data && r.data.error && r.data.error.status)||"")) return "refus";
+    return "reseau";
   }
   function estRefusDroits(status, code){ return status===401 || status===403 || code==="PERMISSION_DENIED" || code==="UNAUTHENTICATED"; }
   /* Taille du document : Firestore refuse toute écriture au-delà de 1 Mo.
@@ -8234,7 +8263,10 @@
       else { data = leger; }
       if(!data) return;
       if(currentCommId()!==cid || _pushEnCours>0) return;     // commission changée, ou envoi en cours : on relira au prochain passage
-      try{ if(data.fields && data.fields.roster){ SYNC_NB = JSON.parse(data.fields.roster.stringValue||"[]").length; } }catch(e){}
+      try{
+        if(data.fields && data.fields.roster){ SYNC_NB = JSON.parse(data.fields.roster.stringValue||"[]").length; }
+        else if(rvLeger === localRosterVersion){ SYNC_NB = roster.length; }       // même version : la liste locale = celle du serveur
+      }catch(e){}
       if(!_dernierPushRefuse) syncReussie(cid);
       var f = data.fields||{};
       var remoteRV = parseInt((f.rosterVersion&&f.rosterVersion.stringValue)||"0",10);
@@ -8658,6 +8690,10 @@
           showAuthErr("Ce compte n'a pas accès à « "+commName(id)+" ». Connectez-vous avec le compte de cette commission.");
           return;
         }
+        if((await testEcriture(id, d.idToken))==="refus"){
+          showAuthErr("Ce compte peut voir « "+commName(id)+" » mais le serveur lui REFUSE toute modification : ce n'est pas le compte de cette commission. Connectez-vous avec le compte de la commission.");
+          return;
+        }
       }
       saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:email });
       saveEmailFor(id, email);
@@ -8854,6 +8890,13 @@
     showTab(id==="parrainage" ? "parrainage" : "guests");
     await loadAll();
     await determineRole(id);
+    if((id==="proclamation" || id==="crimino") && CURRENT_ROLE==="admin"){
+      (async function(){ try{
+        if(!(await ensureAuth(id))) return;
+        var aT=loadAuth(id);
+        if(aT && aT.idToken && (await testEcriture(id, aT.idToken))==="refus"){ _dernierPushRefuse=true; syncRefusee(id, "ce compte n'est pas celui de la commission"); }
+      }catch(e){} })();
+    }
     if(FIXED_ACCOUNTS[id] && CURRENT_ROLE==="admin"){ ensureFixedSetup(id); }
     /* Le réglage de cooptation doit être connu de CET appareil : sans ça, le
        paragraphe du mail et le décompte de l'onglet dépendraient d'un passage
@@ -8922,6 +8965,7 @@
   }
 })();
 </script>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v174</div>
+<div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v175</div>
 </body>
 </html>
