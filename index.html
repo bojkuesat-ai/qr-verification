@@ -2368,7 +2368,7 @@
     var token = normalize(raw);
     if(!token) return;
     var now = Date.now();
-    if(token===lastTok && (now-lastAt)<3000) return; // anti-rebond caméra
+    if(token===lastTok && (now-lastAt)<3000){ lastAt=now; return; } // anti-rebond GLISSANT (v178) : QR tenu devant la caméra = ignoré, plus de rouge après le vert
     lastTok=token; lastAt=now;
 
     var guest = null;
@@ -3014,7 +3014,7 @@
 
   async function gVerify(raw){
     var token=normalize(raw); if(!token) return;
-    var now=Date.now(); if(token===gLastTok && (now-gLastAt)<2500) return; gLastTok=token; gLastAt=now;
+    var now=Date.now(); if(token===gLastTok && (now-gLastAt)<2500){ gLastAt=now; return; } gLastTok=token; gLastAt=now;   // v178 : anti-rebond glissant
     hideGAmbig();
     var matches=gIndex[token]||[];
     if(matches.length===0){
@@ -3818,6 +3818,38 @@
     renderList();
     flash(fail ? (ok+" renvoyé(s), "+fail+" encore en échec.") : (ok+" billet(s) renvoyé(s) ✓"));
   };
+  /* v178 — Billets envoyés AVANT l'activation du QR lunch : ils ne contiennent pas
+     le QR repas. Liste + renvoi groupé (le nouveau billet contient les deux QR). */
+  function billetsSansLunch(){
+    var e=lunchEtat("proclamation"), q=e&&e.qr;
+    if(currentCommId()!=="proclamation" || !q || !q.on) return [];
+    var t=Date.parse(q.at||"")||0; if(!t) return [];
+    return roster.filter(function(g){ return g && emailOf(g) && g.mailEnvoye && g.mailEnvoye < t; });
+  }
+  window.renvoyerSansLunch = async function(){
+    if(!lunchActif("qr")){ uiAlert("Activez d'abord « QR lunch dans les billets »."); return; }
+    var liste = billetsSansLunch();
+    if(!liste.length){ uiAlert("Tous les billets envoyés contiennent déjà le QR lunch."); return; }
+    if(ENVOI_EN_COURS){ uiAlert("Un envoi est déjà en cours. Attendez qu'il se termine."); return; }
+    if(!(await uiConfirm("Renvoyer le billet (avec le QR lunch) à "+liste.length+" personne(s) ?\n\nLeur billet d'entrée ne change pas : il reste valable."))) return;
+    ENVOI_EN_COURS=true;
+    var ok=0, fail=0;
+    try{
+      for(var i=0;i<liste.length;i++){
+        var g=liste[i];
+        flash("Renvoi "+(i+1)+"/"+liste.length+"…");
+        try{
+          var r= await envoiBillet(g, (vouvoyerG(g)?"Votre billet pour ":"Ton billet pour ")+(eventName||"notre événement"));
+          if(r && r.ok){ ok++; g.mailEnvoye=Date.now(); } else { fail++; g.mailEnvoye=0; }
+        }catch(e){ fail++; g.mailEnvoye=0; }
+        await new Promise(function(res){ setTimeout(res,600); });
+      }
+    } finally { ENVOI_EN_COURS=false; }
+    try{ await Store.set("roster", JSON.stringify(roster)); }catch(e){}
+    cloudPushRoster(currentCommId());
+    renderList(); try{ renderLunchUI(); }catch(e){}
+    uiAlert(fail ? (ok+" billet(s) renvoyé(s), "+fail+" en échec (à renvoyer avec « Renvoyer les échecs »).") : (ok+" billet(s) renvoyé(s) avec le QR lunch ✓"));
+  };
   window.exportNoShow = function(){
     var ns = roster.filter(function(g){ return !usedSet.has(g.token); });
     if(!ns.length){ flash("Tout le monde est entré 🎉"); return; }
@@ -4257,6 +4289,7 @@
   function renderLunchUI(){
     var cid=currentCommId();
     var z=$("suLunch"); if(z) z.style.display = (cid==="proclamation") ? "block" : "none";
+    var zv=$("suVerif"); if(zv) zv.style.display = (cid==="proclamation") ? "block" : "none";
     var zb=$("suBillets"); if(zb) zb.style.display = "block";
     if(cid!=="proclamation"){ if($("lscanOpenBtn")) $("lscanOpenBtn").style.display="none"; }
     var e=lunchEtat(cid);
@@ -4271,13 +4304,109 @@
     });
     var av=$("suLunchAvert");
     if(av){
-      var envoyes = roster.filter(function(g){ return g.mailEnvoye; }).length;
-      av.textContent = (e.qr && e.qr.on && envoyes)
-        ? (envoyes+" billet(s) déjà envoyé(s) ne contiennent pas le QR lunch — il faudra les renvoyer.")
-        : "Le QR lunch n'est ajouté qu'aux billets envoyés après activation.";
+      var sansL = billetsSansLunch().length;     // v178 : seulement ceux envoyés AVANT l'activation
+      if(e.qr && e.qr.on && sansL){
+        av.innerHTML = escapeHtml(sansL+" billet(s) envoyé(s) avant l'activation ne contiennent pas le QR lunch.")
+          + ' <button class="btn gold xs" type="button" onclick="renvoyerSansLunch()">📨 Les renvoyer</button>';
+      } else {
+        av.textContent = (e.qr && e.qr.on) ? "Tous les billets envoyés contiennent le QR lunch." : "Le QR lunch n'est ajouté qu'aux billets envoyés après activation.";
+      }
     }
     if($("lscanOpenBtn")) $("lscanOpenBtn").style.display = (e.scan && e.scan.on) ? "inline-flex" : "none";
   }
+  /* v178 — « Vérifier avant le jour J » (proclamation, admin uniquement).
+     Lecture seule : relit le document sur le serveur et affiche ce qui est prêt
+     (✅), à surveiller (⚠️) ou à corriger (❌). Seule écriture : la date technique
+     « updatedAt », pour prouver que le compte scanner a le droit d'écrire. */
+  window.verifJourJ = async function(){
+    var box=$("suVerifRes"); if(!box) return;
+    var cid="proclamation";
+    if(currentCommId()!==cid) return;
+    box.innerHTML='<p class="hint">Vérification en cours…</p>';
+    var L=[];
+    function ligne(etat, txt, detail){
+      var ic = etat==="ok" ? "✅" : (etat==="warn" ? "⚠️" : "❌");
+      var col = etat==="ok" ? "var(--text)" : (etat==="warn" ? "var(--amber,#d8b45a)" : "#ff8a8a");
+      L.push('<div style="display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);color:'+col+'"><span>'+ic+'</span><span>'
+        +escapeHtml(txt)+(detail?'<br><span class="hint">'+escapeHtml(detail)+'</span>':'')+'</span></div>');
+    }
+    function jour(d){ try{ return new Date(d).toLocaleDateString("fr-BE",{day:"2-digit",month:"2-digit"}); }catch(e){ return String(d); } }
+    // 1. Cet appareil
+    var f=null;
+    try{
+      var okA = await ensureAuth(cid), a = okA ? loadAuth(cid) : null;
+      var lec = (a && a.idToken) ? await fsGetDocStatut(ticketDocPath(cid), a.idToken) : {data:null,status:0};
+      f = lec.data ? (lec.data.fields||{}) : null;
+      if(!f) ligne("ko","Cet appareil ne lit pas le serveur", estRefusDroits(lec.status,lec.code) ? "Compte refusé : reconnectez-vous avec le compte de la proclamation." : "Pas de réseau ou session expirée : réessayez.");
+      else {
+        var t = await testEcriture(cid, a.idToken);
+        if(t==="ok") ligne("ok","Cet appareil est connecté avec le bon compte");
+        else ligne("ko","Cet appareil ne peut pas enregistrer", t==="refus" ? "Ce n'est pas le compte de la proclamation : déconnectez-vous et reconnectez-vous." : "Réseau indisponible : réessayez.");
+      }
+    }catch(e){ ligne("ko","Vérification impossible (réseau)"); }
+    if(!f){ box.innerHTML=L.join(""); return; }
+    var srvRoster=[]; try{ srvRoster=JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e){}
+    var used={}; try{ used=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
+    var lunch={}; try{ lunch=JSON.parse((f.lunch&&f.lunch.stringValue)||"{}")||{}; }catch(e){}
+    var su=[]; try{ su=JSON.parse((f.signups&&f.signups.stringValue)||"[]"); }catch(e){}
+    // 2. Billets identiques sur cet appareil et sur le serveur
+    if(srvRoster.length===roster.length) ligne("ok", srvRoster.length+" billets en ligne", "Les autres appareils doivent afficher le même nombre.");
+    else ligne("warn", srvRoster.length+" billets en ligne, "+roster.length+" sur cet appareil", "Attendez quelques secondes puis relancez la vérification.");
+    // 3. Compte scanner (portes + stand repas)
+    try{
+      if(!(await gEnsureAuth())) ligne("ko","Compte scanner : connexion impossible", "Les téléphones de la porte et du stand ne pourront pas se synchroniser.");
+      else {
+        var ls = await fsGetDocStatut(ticketDocPath(cid), gAuth.idToken, ["roster"]);
+        if(!ls.data) ligne("ko","Compte scanner : lecture refusée", "Les scanners diront « Billet inconnu ».");
+        else {
+          var ws = await fsPatchFields(ticketDocPath(cid), { updatedAt: fsField(new Date().toISOString()) }, gAuth.idToken);
+          if(ws && ws.ok) ligne("ok","Compte scanner : lecture et écriture OK", "Les scanners global et lunch fonctionneront, sans mot de passe.");
+          else ligne("ko","Compte scanner : écriture refusée", "Les entrées et repas scannés ne seront pas partagés entre téléphones.");
+        }
+      }
+    }catch(e){ ligne("ko","Compte scanner : vérification impossible (réseau)"); }
+    // 4. Lunch
+    var qrOn = !!(lunch.qr && lunch.qr.on), scanOn = !!(lunch.scan && lunch.scan.on);
+    ligne(qrOn?"ok":"ko", "QR lunch dans les billets : "+(qrOn?"activé":"désactivé"));
+    ligne(scanOn?"ok":"ko", "Écran de scan lunch : "+(scanOn?"activé":"désactivé"), scanOn ? "" : "Le bouton « Scanner lunch » n'apparaîtra pas sur les téléphones.");
+    // 5. Billets envoyés
+    var avecMail = srvRoster.filter(function(g){ return g && emailOf(g); });
+    var jamais = avecMail.filter(function(g){ return !g.mailEnvoye; });
+    if(jamais.length) ligne("ko", jamais.length+" billet(s) jamais reçu(s) ou en échec", jamais.slice(0,8).map(function(g){ return g.name; }).join(", ")+(jamais.length>8?"…":""));
+    else ligne("ok","Tous les billets avec e-mail ont été envoyés");
+    var sansMail = srvRoster.filter(function(g){ return g && !emailOf(g); });
+    if(sansMail.length) ligne("warn", sansMail.length+" billet(s) sans e-mail", "Ces personnes n'ont pas reçu de billet par mail.");
+    if(qrOn){
+      var tQr = Date.parse((lunch.qr && lunch.qr.at) || "") || 0;
+      var sansLunch = avecMail.filter(function(g){ return g.mailEnvoye && tQr && g.mailEnvoye < tQr; });
+      if(sansLunch.length){
+        ligne("ko", sansLunch.length+" billet(s) envoyé(s) avant l'activation du QR lunch", "Ils ne contiennent pas le QR lunch : à renvoyer. "+sansLunch.slice(0,8).map(function(g){ return g.name; }).join(", ")+(sansLunch.length>8?"…":""));
+        L.push('<div style="padding:6px 0 8px 26px"><button class="btn gold xs" type="button" onclick="renvoyerSansLunch()">📨 Les renvoyer maintenant</button></div>');
+      }
+      else ligne("ok","Tous les billets envoyés contiennent le QR lunch");
+    }
+    // 6. Inscriptions non traitées
+    var nonTraitees = su.filter(function(x){ return x && ["acarte","acorriger","avalider","apayer","nouveau"].indexOf(x.statut)>=0; }).length;
+    var nonConf = su.filter(function(x){ return x && x.statut==="apreconfirmer"; }).length;
+    if(nonTraitees) ligne("warn", nonTraitees+" inscription(s) encore à traiter");
+    else ligne("ok","Aucune inscription en attente de traitement");
+    if(nonConf) ligne("warn", nonConf+" étudiant·e(s) n'ont jamais confirmé leur e-mail");
+    // 7. Clôture et date
+    var clo = (f.cloture&&f.cloture.stringValue)||"";
+    if(!clo) ligne("warn","Aucune date de clôture des inscriptions", "Le formulaire reste ouvert.");
+    else ligne("ok","Clôture des inscriptions : "+jour(clo)+(new Date()>new Date(clo+"T23:59:59")?" (fermées)":""));
+    var dEv = getEvDate();
+    if(dEv) ligne("ok","Date de l'événement : "+jour(dEv)); else ligne("warn","Date de l'événement non renseignée", "Le rappel de la veille ne peut pas partir.");
+    // 8. Entrées / repas déjà marqués (essai à effacer ?)
+    var entrees=0, repas=0;
+    srvRoster.forEach(function(g){ if(!g||!g.token) return; if(used[g.token]) entrees++; if(used[codeLunch(g.token)]) repas++; });
+    if(entrees||repas) ligne("warn", entrees+" entrée(s) et "+repas+" repas déjà enregistré(s)", "Si c'était un essai : « Réinitialiser les entrées » avant le jour J.");
+    else ligne("ok","Aucune entrée ni repas enregistrés (compteurs à zéro)");
+    // 9. Taille du document
+    var oct = tailleOctets(JSON.stringify(f));
+    ligne(oct>SEUIL_ALERTE?"ko":"ok", "Taille des données : "+Math.round(oct/1024)+" Ko sur 1024 Ko");
+    box.innerHTML = '<p class="hint" style="margin:0 0 4px">Vérifié à '+new Date().toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"})+'</p>' + L.join("");
+  };
   /* Bouton « Scanner lunch » de l'accueil. Il n'était rendu visible que par
      renderLunchUI(), qui ne tourne que dans le parcours admin de la proclamation :
      un téléphone dédié au stand repas ne le voyait donc jamais. On lit ici le
@@ -7268,6 +7397,10 @@
         </div>
       </div>
 
+      <div id="suVerif" style="display:none;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
+        <button class="btn gold sm" type="button" onclick="verifJourJ()" style="width:100%;padding:12px">✅ Vérifier avant le jour J</button>
+        <div id="suVerifRes" style="margin-top:10px"></div>
+      </div>
       <div id="suLunch" style="display:none;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">
         <p class="fld" style="margin:0 0 2px">Lunch</p>
         <p class="hint" id="suLunchAvert" style="margin:0 0 8px"></p>
@@ -8217,7 +8350,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v177" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v179" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8238,8 +8371,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v177"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v177") : ("☁️ Synchronisation… · v177"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v179"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v179") : ("☁️ Synchronisation… · v179"));
     }
   }
   function syncReussie(cid){
@@ -9051,6 +9184,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v177</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v179</div>
 </body>
 </html>
