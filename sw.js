@@ -1,5 +1,5 @@
 /* Service worker — contrôle d'entrée QR (mode hors-ligne) */
-const CACHE = "qrentry-v172";
+const CACHE = "qrentry-v173";
 const PRECACHE = [
   "./",
   "https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js",

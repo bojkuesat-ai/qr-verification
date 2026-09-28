@@ -122,9 +122,9 @@
   #torchBtn.on{background:linear-gradient(150deg,var(--gold),var(--gold-dim));color:#241100;border-color:var(--gold-dim)}
   .card .sub{color:var(--muted);font-size:12.5px;margin:0 0 13px}
   label.fld{display:block;font-size:12px;color:var(--muted);margin:0 0 6px;font-weight:600;letter-spacing:.02em;text-transform:uppercase}
-  input[type=text],input[type=email],input[type=date],textarea{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);
+  input[type=text],input[type=email],input[type=date],textarea,#suMaxInsc,#suPlaces{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);
     border-radius:11px;padding:12px 13px;font:inherit;font-size:15px;outline:none;transition:.15s}
-  input[type=text]:focus,input[type=email]:focus,input[type=date]:focus,textarea:focus{border-color:var(--gold-dim);box-shadow:0 0 0 3px rgba(232,176,75,.13)}
+  input[type=text]:focus,input[type=email]:focus,input[type=date]:focus,textarea:focus,#suMaxInsc:focus,#suPlaces:focus{border-color:var(--gold-dim);box-shadow:0 0 0 3px rgba(232,176,75,.13)}
   textarea{resize:vertical;min-height:120px;line-height:1.55}
   .hint{color:var(--muted2);font-size:11.5px;margin:6px 2px 0}
   /* Bloc commande (boissons + salé). Les champs numériques n'étaient couverts par
@@ -401,6 +401,7 @@
   </div>
 
   <div class="banner" id="storeBanner"></div>
+  <div id="syncAlert" style="display:none;background:#7a1f1f;color:#fff;border:2px solid #e05555;border-radius:10px;padding:12px 14px;margin:8px 12px;font-size:14px;line-height:1.4"></div>
 
   <div class="tabs" role="tablist">
     <button class="tab" id="t-guests" role="tab" aria-selected="true" onclick="showTab('guests')">
@@ -6391,6 +6392,7 @@
       var r=null;                                                                 // mode protégé refusé : écriture simple d'avant
       try{ r = await fsPatchFields(signupDocPath(cid), champs, a.idToken); }catch(e){ r=null; }
       if(r && r.ok){ if(currentCommId()===cid) SIGNUPS = out; return {ok:true, pris:pris}; }
+      if(r && estRefusDroits(r.status, (r.data && r.data.error && r.data.error.status)||"")) syncRefusee(cid, "inscriptions non enregistrées");
       break;
     }
     flash("⚠️ Enregistrement NON pris en compte (réseau/session) — réessaie.");
@@ -7238,16 +7240,24 @@
     b=$("btnMaxInsc");   if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
       var cidM=currentCommId(); if(cidM!=="proclamation") return;
       var n=parseInt(($("suMaxInsc")&&$("suMaxInsc").value)||"0",10); if(isNaN(n)||n<0) n=0;
-      var ok=false;
-      try{
-        if(await ensureAuth(cidM)){ var a=loadAuth(cidM);
-          if(a && a.idToken){ var r=await fsPatchFields(ticketDocPath(cidM), { maxInscrits: fsField(String(n)) }, a.idToken); ok=!!(r&&r.ok); } }
-      }catch(e){ ok=false; }
-      if(ok){ try{ window.localStorage.setItem("qrentry:maxInsc:"+cidM, String(n)); }catch(e){} }
+      /* Même écriture que « Nom de l'événement » (qui fonctionne) : champ + updatedAt.
+         En cas d'échec, la VRAIE raison renvoyée par le serveur est affichée. */
+      if(!(await ensureAuth(cidM))){ gros("PROBLEME : pas connecte a la commission — reconnectez-vous.", false); return; }
+      var a=loadAuth(cidM);
+      if(!a || !a.idToken){ gros("PROBLEME : session expiree, reconnectez-vous.", false); return; }
+      var r=null;
+      try{ r=await fsPatchFields(ticketDocPath(cidM), { maxInscrits: fsField(String(n)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
+      catch(e){ r=null; }
+      if(!r || r.ok!==true){
+        var err=(r&&r.data&&r.data.error)||{};
+        var raison = !r ? "réseau" : (r.status===0 ? "réseau (pas de réponse)" : ("HTTP "+r.status+" "+(err.status||"")+" — "+(err.message||"refus inconnu")));
+        gros("PROBLEME : la limite n'a pas pu être enregistrée.\n\nRaison du serveur : "+raison, false);
+        return;
+      }
+      try{ window.localStorage.setItem("qrentry:maxInsc:"+cidM, String(n)); }catch(e){}
       majMaxInscUI();
-      uiAlert(ok ? (n ? ("LIMITE ENREGISTREE : "+n+" inscriptions maximum.\n\nUne fois atteinte, le formulaire affiche « inscriptions complètes ».")
-                      : "Limite retirée : le formulaire reste ouvert.")
-                 : "PROBLEME : la limite n'a pas pu être enregistrée.");
+      gros(n ? ("ENREGISTRE : "+n+" inscriptions maximum.\n\nUne fois atteint, le formulaire affiche « inscriptions complètes ».")
+             : "ENREGISTRE : limite retirée, le formulaire reste ouvert.", true);
     }; }
     b=$("btnPlaces");    if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
       var n=parseInt(($("suPlaces")&&$("suPlaces").value)||"0",10); if(isNaN(n)||n<0) n=0;
@@ -8013,6 +8023,7 @@
 
   window.goHome=function(){
     stopCam();
+    try{ SYNC_OK_TS=0; _dernierPushRefuse=false; var _al=$("syncAlert"); if(_al){ _al.style.display="none"; _al.innerHTML=""; } majMarqueSync(); }catch(e){}
     if(cloudPollTimer){ clearInterval(cloudPollTimer); cloudPollTimer=null; }
     arreterAutoSignups();
     if($("scannerBtn")) $("scannerBtn").style.display="none";
@@ -8082,15 +8093,55 @@
   function currentCommId(){ var m=NS.match(/^c:([a-z]+):$/); return m?m[1]:null; }
   function localUsedMapObj(){ var o={}; usedSet.forEach(function(t){ o[t]=usedAt[t]||Date.now(); }); return o; }
   function ticketDocPath(cid){ return "commission_tickets/"+cid; }
-  async function fsGetDoc(path, idToken, champs){
-    // champs = liste facultative de champs à rapatrier (allège fortement les relectures répétées)
+  /* Requête avec délai maximum : une requête bloquée (réseau mobile) ne doit jamais
+     geler la synchronisation (les relectures attendent la fin des envois). */
+  function fetchDelai(url, opts, ms){
+    if(typeof AbortController==="undefined") return fetch(url, opts);
+    var ctl=new AbortController(), t=setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, ms||25000);
+    var o=Object.assign({}, opts||{}, { signal:ctl.signal });
+    return fetch(url, o).then(function(r){ clearTimeout(t); return r; }, function(e){ clearTimeout(t); throw e; });
+  }
+  async function fsGetDocStatut(path, idToken, champs){
     var url = FS_BASE+path;
     if(champs && champs.length){ url += "?" + champs.map(function(c){ return "mask.fieldPaths="+encodeURIComponent(c); }).join("&"); }
-    var r = await fetch(url, { headers:{ "Authorization":"Bearer "+idToken } });
-    if(r.status===404) return null;
-    var data = await r.json(); if(!r.ok) return null;
-    return data;
+    var r;
+    try{ r = await fetchDelai(url, { headers:{ "Authorization":"Bearer "+idToken } }); }catch(e){ return { data:null, status:0 }; }
+    if(r.status===404) return { data:null, status:404 };
+    var data=null; try{ data = await r.json(); }catch(e){}
+    if(!r.ok) return { data:null, status:r.status, code:(data&&data.error&&data.error.status)||"" };
+    return { data:data, status:r.status };
   }
+  async function fsGetDoc(path, idToken, champs){
+    // champs = liste facultative de champs à rapatrier (allège fortement les relectures répétées)
+    var res = await fsGetDocStatut(path, idToken, champs);
+    return res.data;
+  }
+  /* ---------- État de la synchronisation (visible, pour ne plus jamais échouer en silence) ---------- */
+  var SYNC_OK_TS = 0;
+  function majMarqueSync(){
+    var m=$("verMark"); if(!m) return;
+    var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
+    m.textContent = "v173" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+  }
+  function syncReussie(cid){
+    if(cid!==currentCommId()) return;
+    SYNC_OK_TS = Date.now(); majMarqueSync();
+    var al=$("syncAlert"); if(al && al.__cid===cid && al.style.display!=="none"){ al.style.display="none"; al.innerHTML=""; }
+  }
+  /* Refus du serveur (compte sans droit sur CETTE commission) : alerte rouge permanente. */
+  function syncRefusee(cid, quoi){
+    if(cid!==currentCommId()) return;
+    var al=$("syncAlert"); if(!al) return;
+    al.__cid=cid;
+    al.innerHTML = "⛔ <b>SYNCHRONISATION BLOQUÉE sur cet appareil</b> ("+quoi+")<br>"
+      + "Le compte connecté ici n'a pas le droit d'écrire dans « "+escapeHtml(commName(cid))+" » : "
+      + "ce qui est ajouté sur cet appareil n'est <b>PAS</b> visible sur les autres.<br>"
+      + "<b>Ne videz rien</b> : déconnectez-vous puis reconnectez-vous avec le compte de la commission — "
+      + "les ajouts faits ici seront alors envoyés automatiquement.<br>"
+      + '<button class="btn gold sm" type="button" style="margin-top:8px" onclick="commLogout()">Se déconnecter</button>';
+    al.style.display="";
+  }
+  function estRefusDroits(status, code){ return status===401 || status===403 || code==="PERMISSION_DENIED" || code==="UNAUTHENTICATED"; }
   /* Taille du document : Firestore refuse toute écriture au-delà de 1 Mo.
      Sans ce garde-fou, l'échec était silencieux et les billets n'existaient plus que localement. */
   var LIMITE_DOC = 1048576, SEUIL_ALERTE = 800000;
@@ -8104,9 +8155,11 @@
   }
   async function fsPatchFields(path, fieldsObj, idToken){
     var qs = Object.keys(fieldsObj).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");
-    var r = await fetch(FS_BASE+path+"?"+qs, { method:"PATCH", headers:{ "Authorization":"Bearer "+idToken, "Content-Type":"application/json" }, body: JSON.stringify({fields:fieldsObj}) });
+    var r;
+    try{ r = await fetchDelai(FS_BASE+path+"?"+qs, { method:"PATCH", headers:{ "Authorization":"Bearer "+idToken, "Content-Type":"application/json" }, body: JSON.stringify({fields:fieldsObj}) }); }
+    catch(e){ return { ok:false, data:null, status:0 }; }
     var data = await r.json().catch(function(){return null;});
-    return { ok:r.ok, data:data };
+    return { ok:r.ok, data:data, status:r.status };
   }
   /* Écriture SOUS CONDITION : elle n'est acceptée que si le document n'a pas bougé
      depuis la lecture dont provient updateTime. C'est le seul moyen de ne pas
@@ -8118,7 +8171,7 @@
     if(!updateTime) return "refus";
     var url = FS_BASE.replace(/\/documents\/$/, "/documents:commit");
     try{
-      var r = await fetch(url, { method:"POST",
+      var r = await fetchDelai(url, { method:"POST",
         headers:{ "Authorization":"Bearer "+idToken, "Content-Type":"application/json" },
         body: JSON.stringify({ writes:[{
           update: { name: fsDocName(path), fields: fieldsObj },
@@ -8139,8 +8192,9 @@
     var a = loadAuth(cid); if(!a || !a.idToken) return;
     try{
       // Sondage léger : on ne rapatrie la liste complète que si sa version a changé.
-      var leger = await fsGetDoc(ticketDocPath(cid), a.idToken, ["rosterVersion","used"]);
-      if(!leger) return;
+      var lecture = await fsGetDocStatut(ticketDocPath(cid), a.idToken, ["rosterVersion","used"]);
+      var leger = lecture.data;
+      if(!leger){ if(estRefusDroits(lecture.status, lecture.code)) syncRefusee(cid, "lecture refusée"); return; }
       var lf = leger.fields||{};
       var rvLeger = parseInt((lf.rosterVersion&&lf.rosterVersion.stringValue)||"0",10);
       var data;
@@ -8151,6 +8205,7 @@
       else { data = leger; }
       if(!data) return;
       if(currentCommId()!==cid || _pushEnCours>0) return;     // commission changée, ou envoi en cours : on relira au prochain passage
+      if(!_dernierPushRefuse) syncReussie(cid);
       var f = data.fields||{};
       var remoteRV = parseInt((f.rosterVersion&&f.rosterVersion.stringValue)||"0",10);
       if(remoteRV !== localRosterVersion && f.roster){
@@ -8197,6 +8252,7 @@
 
   /* ---------- Poussée du roster : relecture-fusion (deux appareils admin ne s'écrasent plus) ---------- */
   var _fileRoster = Promise.resolve();               // sérialise les poussées successives
+  var _dernierPushRefuse = false;   // dernier envoi refusé par le serveur (compte sans droit)
   var _pushEnCours = 0;    // pendant un envoi, la relecture périodique attend (sinon elle pourrait écraser une modif pas encore partie)
   function cloudPushRoster(cid, remplacer){
     _pushEnCours++;
@@ -8288,6 +8344,9 @@
       }
       if(!(r && r.ok)){
         var msg = (r && r.data && r.data.error && r.data.error.message) || "";
+        if(r && estRefusDroits(r.status, (r.data && r.data.error && r.data.error.status)||"")){
+          _dernierPushRefuse = true; syncRefusee(cid, "enregistrement refusé"); return false;
+        }
         flash(/larger than|exceeds|too large|1048576/i.test(msg)
           ? "❌ Liste trop volumineuse pour Firestore (1 Mo) : les derniers billets ne sont PAS enregistrés en ligne."
           : "❌ Billets NON enregistrés en ligne (réseau/droits) — vérifie ta connexion.");
@@ -8300,6 +8359,7 @@
         }); }catch(e){}
       }
       if(ajoutsDistants){ try{ renderTickets(); renderList(); updateCounts(); }catch(e){} }
+      _dernierPushRefuse = false; syncReussie(cid);
       return true;
     }catch(e){ flash("❌ Billets NON enregistrés en ligne — vérifie ta connexion."); return false; }
   }
@@ -8545,6 +8605,16 @@
           throw e1;
         }
       }
+      /* Proclamation / crimino : un compte qui ne peut pas lire le document de la commission
+         n'est pas le sien. Avant, il entrait quand même : ses ajouts restaient sur l'appareil
+         sans jamais apparaître ailleurs. */
+      if(id==="proclamation" || id==="crimino"){
+        var test = await fsGetDocStatut(ticketDocPath(id), d.idToken, ["rosterVersion"]);
+        if(estRefusDroits(test.status, test.code)){
+          showAuthErr("Ce compte n'a pas accès à « "+commName(id)+" ». Connectez-vous avec le compte de cette commission.");
+          return;
+        }
+      }
       saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:email });
       saveEmailFor(id, email);
       $("authModal").classList.remove("on"); proceedCommission(id);
@@ -8727,6 +8797,7 @@
   }
 
   async function proceedCommission(id){
+    try{ SYNC_OK_TS=0; _dernierPushRefuse=false; var _al0=$("syncAlert"); if(_al0){ _al0.style.display="none"; _al0.innerHTML=""; } }catch(e){}
     NS = "c:"+id+":";
     saveComm(id);
     document.body.classList.remove("home-mode");
@@ -8807,6 +8878,6 @@
   }
 })();
 </script>
-<div style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.35;pointer-events:none;z-index:1">v172</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v173</div>
 </body>
 </html>
