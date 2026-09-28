@@ -396,7 +396,7 @@
     <div>
       <h1>Contrôle d'entrée</h1>
       <p>Un billet QR unique par personne · valable une seule fois</p>
-      <span class="comm-tag" id="commTag" style="display:none"><span id="commTagName"></span><button id="btnChangeComm" onclick="goHome()">Changer de commission</button><button id="btnMyAccount" onclick="openAccount()">Mon compte</button><button onclick="commLogout()">Se déconnecter</button></span>
+      <span class="comm-tag" id="commTag" style="display:none"><span id="commTagName"></span><span id="syncEtat" style="display:block;width:100%;font-size:12px;font-weight:600;color:var(--muted,#a9a3c9);margin:-4px 0 2px"></span><button id="btnChangeComm" onclick="goHome()">Changer de commission</button><button id="btnMyAccount" onclick="openAccount()">Mon compte</button><button onclick="commLogout()">Se déconnecter</button></span>
     </div>
   </div>
 
@@ -6302,7 +6302,7 @@
       }
       /* Limite d'inscriptions (proclamation) : la valeur du serveur fait foi. */
       if(d&&d.fields&&cid==="proclamation"){
-        var _mx=(d.fields.maxInscrits && d.fields.maxInscrits.stringValue)||"0";
+        var _mx=(d.fields.places && d.fields.places.stringValue) || (d.fields.maxInscrits && d.fields.maxInscrits.stringValue) || "0";
         try{ window.localStorage.setItem("qrentry:maxInsc:proclamation", String(parseInt(_mx,10)||0)); }catch(e){}
         var _mxE=$("suMaxInsc");
         if(_mxE && document.activeElement!==_mxE){ _mxE.value = (parseInt(_mx,10)||"") ? String(parseInt(_mx,10)) : ""; _mxE.__cid=cid; }
@@ -7240,13 +7240,14 @@
     b=$("btnMaxInsc");   if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
       var cidM=currentCommId(); if(cidM!=="proclamation") return;
       var n=parseInt(($("suMaxInsc")&&$("suMaxInsc").value)||"0",10); if(isNaN(n)||n<0) n=0;
-      /* Même écriture que « Nom de l'événement » (qui fonctionne) : champ + updatedAt.
-         En cas d'échec, la VRAIE raison renvoyée par le serveur est affichée. */
+      /* Les règles du serveur n'acceptent qu'une liste fixe de champs (un champ nouveau
+         → 403). La limite est donc rangée dans « places », champ déjà autorisé et
+         inutilisé par la proclamation (sa jauge n'existe que pour festif/aca/culture). */
       if(!(await ensureAuth(cidM))){ gros("PROBLEME : pas connecte a la commission — reconnectez-vous.", false); return; }
       var a=loadAuth(cidM);
       if(!a || !a.idToken){ gros("PROBLEME : session expiree, reconnectez-vous.", false); return; }
       var r=null;
-      try{ r=await fsPatchFields(ticketDocPath(cidM), { maxInscrits: fsField(String(n)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
+      try{ r=await fsPatchFields(ticketDocPath(cidM), { places: fsField(String(n)), updatedAt: fsField(new Date().toISOString()) }, a.idToken); }
       catch(e){ r=null; }
       if(!r || r.ok!==true){
         var err=(r&&r.data&&r.data.error)||{};
@@ -8060,21 +8061,29 @@
   }
   async function fbRefreshToken(refreshToken){
     var r = await fetch("https://securetoken.googleapis.com/v1/token?key="+FIREBASE_API_KEY, { method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:"grant_type=refresh_token&refresh_token="+encodeURIComponent(refreshToken) });
-    var data = await r.json();
-    if(!r.ok){ throw new Error("refresh_failed"); }
+    var data = await r.json().catch(function(){ return null; });
+    if(!r.ok){ var e=new Error("refresh_failed"); e.definitif = (r.status===400 || r.status===401 || r.status===403); throw e; }
     return data;
   }
   async function ensureAuth(id){
     var a = loadAuth(id);
-    if(!a) return false;
+    if(!a){ try{ syncSessionPerdue(id); }catch(_){} return false; }
     if(a.expiresAt && Date.now() < a.expiresAt - 90000) return true;
     if(a.refreshToken){
       try{
         var d = await fbRefreshToken(a.refreshToken);
         saveAuthTok(id, { idToken:d.id_token, refreshToken:d.refresh_token, expiresAt: Date.now()+parseInt(d.expires_in,10)*1000, uid:a.uid, email:a.email });
         return true;
-      }catch(e){ clearAuthTok(id); return false; }
+      }catch(e){
+        /* Avant : la moindre coupure réseau pendant ce renouvellement déconnectait
+           l'appareil EN SILENCE (il continuait à travailler seul, sans rien envoyer).
+           Maintenant : coupure réseau = on garde la session et on réessaiera ;
+           session réellement expirée (mot de passe changé…) = alerte rouge visible. */
+        if(e && e.definitif){ clearAuthTok(id); try{ syncSessionPerdue(id); }catch(_){} }
+        return false;
+      }
     }
+    try{ syncSessionPerdue(id); }catch(_){}
     return false;
   }
   function cleanFbErr(msg){
@@ -8117,11 +8126,18 @@
     return res.data;
   }
   /* ---------- État de la synchronisation (visible, pour ne plus jamais échouer en silence) ---------- */
-  var SYNC_OK_TS = 0;
+  var SYNC_OK_TS = 0, SYNC_NB = -1;
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v173" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v174" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    var e=$("syncEtat");
+    if(e){
+      var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
+      e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v174"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v174") : ("☁️ Synchronisation… · v174"));
+    }
   }
   function syncReussie(cid){
     if(cid!==currentCommId()) return;
@@ -8140,6 +8156,19 @@
       + "les ajouts faits ici seront alors envoyés automatiquement.<br>"
       + '<button class="btn gold sm" type="button" style="margin-top:8px" onclick="commLogout()">Se déconnecter</button>';
     al.style.display="";
+    try{ majMarqueSync(); }catch(e){}
+  }
+  /* Session expirée (ex. mot de passe du compte changé ailleurs) : même alerte rouge. */
+  function syncSessionPerdue(cid){
+    if(!cid || cid!==currentCommId()) return;
+    var al=$("syncAlert"); if(!al) return;
+    al.__cid=cid;
+    al.innerHTML = "⛔ <b>SESSION EXPIRÉE sur cet appareil</b><br>"
+      + "Plus rien n'est envoyé ni reçu : ce qui est ajouté ici n'est <b>PAS</b> visible sur les autres appareils.<br>"
+      + "<b>Ne videz rien</b> : reconnectez-vous — les ajouts faits ici seront alors envoyés automatiquement.<br>"
+      + '<button class="btn gold sm" type="button" style="margin-top:8px" onclick="commLogout()">Se reconnecter</button>';
+    al.style.display="";
+    try{ majMarqueSync(); }catch(e){}
   }
   function estRefusDroits(status, code){ return status===401 || status===403 || code==="PERMISSION_DENIED" || code==="UNAUTHENTICATED"; }
   /* Taille du document : Firestore refuse toute écriture au-delà de 1 Mo.
@@ -8205,6 +8234,7 @@
       else { data = leger; }
       if(!data) return;
       if(currentCommId()!==cid || _pushEnCours>0) return;     // commission changée, ou envoi en cours : on relira au prochain passage
+      try{ if(data.fields && data.fields.roster){ SYNC_NB = JSON.parse(data.fields.roster.stringValue||"[]").length; } }catch(e){}
       if(!_dernierPushRefuse) syncReussie(cid);
       var f = data.fields||{};
       var remoteRV = parseInt((f.rosterVersion&&f.rosterVersion.stringValue)||"0",10);
@@ -8359,7 +8389,7 @@
         }); }catch(e){}
       }
       if(ajoutsDistants){ try{ renderTickets(); renderList(); updateCounts(); }catch(e){} }
-      _dernierPushRefuse = false; syncReussie(cid);
+      _dernierPushRefuse = false; SYNC_NB = roster.length; syncReussie(cid);
       return true;
     }catch(e){ flash("❌ Billets NON enregistrés en ligne — vérifie ta connexion."); return false; }
   }
@@ -8462,6 +8492,20 @@
   window.__syncProclaFromCloud = syncProclaFromCloud;
 
   var cloudPollTimer=null;
+  /* Safari / téléphones mettent en pause les minuteries d'un onglet en arrière-plan :
+     dès qu'on revient sur l'app, on relit tout de suite (liste + inscriptions). */
+  var _dernierRetour=0;
+  function relireAuRetour(){
+    if(document.hidden) return;
+    var cid=currentCommId(); if(!cid) return;
+    if(Date.now()-_dernierRetour < 2000) return; _dernierRetour=Date.now();
+    try{ cloudPull(cid); }catch(e){}
+    try{ if(CURRENT_ROLE==="admin" && typeof window.refreshSignups==="function") window.refreshSignups(true); }catch(e){}
+  }
+  document.addEventListener("visibilitychange", relireAuRetour);
+  window.addEventListener("focus", relireAuRetour);
+  window.addEventListener("pageshow", relireAuRetour);
+  window.addEventListener("online", relireAuRetour);
   function startCloudPoll(){
     if(cloudPollTimer) clearInterval(cloudPollTimer);
     cloudPollTimer = setInterval(function(){
@@ -8797,7 +8841,7 @@
   }
 
   async function proceedCommission(id){
-    try{ SYNC_OK_TS=0; _dernierPushRefuse=false; var _al0=$("syncAlert"); if(_al0){ _al0.style.display="none"; _al0.innerHTML=""; } }catch(e){}
+    try{ SYNC_OK_TS=0; SYNC_NB=-1; _dernierPushRefuse=false; var _al0=$("syncAlert"); if(_al0){ _al0.style.display="none"; _al0.innerHTML=""; } majMarqueSync(); }catch(e){}
     NS = "c:"+id+":";
     saveComm(id);
     document.body.classList.remove("home-mode");
@@ -8878,6 +8922,6 @@
   }
 })();
 </script>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v173</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v174</div>
 </body>
 </html>

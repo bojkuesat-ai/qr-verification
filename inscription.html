@@ -481,7 +481,8 @@
   }
   function maxInscritsDoc(f){
     if(CID!=="proclamation") return 0;
-    return parseInt((f && f.maxInscrits && f.maxInscrits.stringValue)||"0",10)||0;
+    // rangée dans « places » (champ autorisé par les règles du serveur ; la jauge festif/aca/culture ne concerne pas la proclamation)
+    return parseInt((f && ((f.places && f.places.stringValue) || (f.maxInscrits && f.maxInscrits.stringValue)))||"0",10)||0;
   }
   function afficherComplet(){
     cacherEcranRole();
