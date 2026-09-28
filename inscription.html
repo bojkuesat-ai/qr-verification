@@ -734,6 +734,29 @@
   /* Lien « indiquer / modifier mon choix » envoyé avec le billet ou en relance.
      Comme pour le désistement, on ne peut écrire que dans « signups » : on y dépose
      un marqueur que l'app appliquera au billet. */
+  /* v180 — Date limite (même valeur que index.html) : les personnes informées du menu
+     halal et restées végétariennes ne peuvent plus changer à partir du 6/10/2026 à
+     00h01, heure de Bruxelles. L'heure vient du SERVEUR (Firestore), pas du téléphone. */
+  var LIMITE_MENU_MS = Date.parse("2026-10-05T22:01:00Z");
+  function verrouHalal(g){ return !!(g && g.infoHalalTs && g.repas==="sansviande"); }
+  /* Heure du serveur Google : batchGet renvoie « readTime ». 0 si injoignable. */
+  async function heureServeur(tok){
+    try{
+      var url = FS_BASE.replace(/\/documents\/$/, "/documents:batchGet");
+      var nomDoc = FS_BASE.replace(/^https:\/\/firestore\.googleapis\.com\/v1\//, "") + "commission_tickets/" + CID;
+      var r = await fetch(url, { method:"POST", headers:{ "Authorization":"Bearer "+tok, "Content-Type":"application/json" },
+                                 body: JSON.stringify({ documents:[nomDoc], mask:{ fieldPaths:["updatedAt"] } }) });
+      if(!r.ok) return 0;
+      var j = await r.json();
+      var rt = (Array.isArray(j) && j[0] && j[0].readTime) || "";
+      return Date.parse(rt) || 0;
+    }catch(e){ return 0; }
+  }
+  function messageDelaiDepasse(vous){
+    q("msg").innerHTML='<div class="card"><p class="big">🔒</p><p><b>Date limite dépassée</b></p>'
+      + '<p class="hint">La date limite pour modifier '+(vous?'votre':'ton')+' choix de menu était le <b>lundi 5 octobre 2026 à minuit</b>.</p>'
+      + '<p class="hint">Pour toute question, '+(vous?'contactez':'contacte')+' <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a>.</p></div>';
+  }
   var REPAS_TOK = par("choix") || par("repas");   // « repas » : ancien nom du paramètre
   if(REPAS_TOK){
     if(q("form")) q("form").style.display="none"; cacherEcranRole();
@@ -751,6 +774,19 @@
       if(!el){ alert("Merci de choisir d'abord une option."); return; }
       enregistrerChoixRepas(REPAS_TOK, el.value);
     };
+    /* Dès l'ouverture : si la date limite est passée pour cette personne, on le dit tout de suite. */
+    (async function(){
+      try{
+        var tok0 = await assurerTokenEcriture();
+        var rc0 = await fetch(FS_BASE+"commission_tickets/"+CID+"?mask.fieldPaths=roster", { headers:{ "Authorization":"Bearer "+tok0 } });
+        var d0 = rc0.ok ? await rc0.json() : null;
+        var ros0=[]; try{ ros0=JSON.parse((d0&&d0.fields&&d0.fields.roster&&d0.fields.roster.stringValue)||"[]"); }catch(e){}
+        var g0 = ros0.filter(function(x){ return x && x.token===REPAS_TOK; })[0];
+        if(!verrouHalal(g0)) return;
+        var h0 = await heureServeur(tok0);
+        if(h0 && h0 >= LIMITE_MENU_MS) messageDelaiDepasse(g0.role && g0.role!=="etudiant");
+      }catch(e){}
+    })();
   }
   async function enregistrerChoixRepas(token, choix){
     var btn=q("btnRepas"); if(btn){ btn.disabled=true; btn.textContent="Enregistrement…"; }
@@ -772,9 +808,17 @@
           + '<p class="hint">Merci d\'utiliser le lien reçu par e-mail, ou de prévenir l\'équipe.</p></div>';
         return;
       }
+      // v180 : heure du serveur, jamais celle du téléphone
+      var hServ = await heureServeur(tok);
+      if(verrouHalal(trouve) && choix!==trouve.repas){
+        if(!hServ) throw new Error("heure serveur indisponible");     // on ne décide pas sans le serveur
+        if(hServ >= LIMITE_MENU_MS){ messageDelaiDepasse(trouve.role && trouve.role!=="etudiant"); return; }
+      }
       // Un seul marqueur par billet : on remplace le précédent s'il n'a pas encore été appliqué
       list = list.filter(function(x){ return !(x && x.statut==="repas" && x.repasToken===token && !x.traite); });
-      list.push({ statut:"repas", repasToken:token, repas:choix, name:trouve.name||"", ts:Date.now() });
+      var marq = { statut:"repas", repasToken:token, repas:choix, name:trouve.name||"", ts:Date.now() };
+      if(hServ) marq.tsServeur = hServ;
+      list.push(marq);
 
       var fields = { signups:{ stringValue: JSON.stringify(list) }, updatedAt:{ stringValue:new Date().toISOString() } };
       var qs = Object.keys(fields).map(function(k){ return "updateMask.fieldPaths="+encodeURIComponent(k); }).join("&");

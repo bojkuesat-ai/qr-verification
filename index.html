@@ -1008,6 +1008,27 @@
 <script>
 (function(){
   "use strict";
+  /* v180 — Accents dans les mails. Le service d'envoi (send-email) retire les
+     caractères accentués en route : « événement » arrivait « evenement ». On écrit
+     donc chaque caractère non ASCII du TEXTE HTML en code HTML (« é » → &#233;),
+     qui passe le filtre et que toutes les messageries affichent comme « é ».
+     L'objet du mail n'est pas touché (pas de code HTML possible dans un objet). */
+  (function(){
+    var f0 = window.fetch;
+    if(!f0) return;
+    window.fetch = function(u, o){
+      try{
+        if(typeof u==="string" && /\/functions\/v1\/send-email/.test(u) && o && typeof o.body==="string"){
+          var b = JSON.parse(o.body);
+          if(b && typeof b.html==="string"){
+            b.html = b.html.replace(/[^\x00-\x7F]/gu, function(c){ return "&#"+c.codePointAt(0)+";"; });
+            o = Object.assign({}, o, { body: JSON.stringify(b) });
+          }
+        }
+      }catch(e){}
+      return f0.call(window, u, o);
+    };
+  })();
   var ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // pas de I,L,O,0,1
   /* Tirage aléatoire cryptographique (imprévisible), avec repli sur Math.random
      si le navigateur ne fournit pas crypto — l'app doit continuer à fonctionner.
@@ -1080,6 +1101,11 @@
       ? '<p style="background:#f6f4fb;border:1px solid #e2ddf0;border-radius:10px;padding:12px;margin:16px 0;font-size:13.5px;color:#555">'
         + 'Régime alimentaire : <b>'+mailEsc(lbl)+'</b>.</p>'
       : "";
+    if(verrouHalal(g)){
+      rappel += '<p style="font-size:13.5px;color:#555">'+(vous
+        ? 'Vous avez été informé·e que le menu est halal ; votre choix végétarien a été maintenu.'
+        : 'Tu as été informé·e que le menu est halal ; ton choix végétarien a été maintenu.')+'</p>';
+    }
     var html='<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
       +corps+rappel
       +'<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail(LCID)+'</p></div>';
@@ -3320,6 +3346,7 @@
     /* Fraction de milliseconde aléatoire : signature de CE téléphone. */
     var at=Date.now()+Math.round(Math.random()*998+1)/1000;
     var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
+    if(verrouHalal(g)) reg += " · ✉ Informé·e du menu halal — pas de réponse";
     function accorder(){
       lUsed[cle]=at; lCompte();
       lReponse(true,"Repas accordé","Repas accordé", g.name+" · "+reg, g, reg);
@@ -5953,6 +5980,13 @@
      « Précision » : second mail indiquant le traiteur, pour les personnes informées
      avant que son nom ne figure dans le mail (qu'elles aient changé ou non). */
   var TRAITEUR_HALAL = "Salt (Brussels)", TRAITEUR_HALAL_URL = "https://saltbrussels.com";
+  /* v180 — Date limite pour les personnes informées du menu halal et restées
+     végétariennes : plus de changement à partir du 6/10/2026 à 00h01 (Bruxelles,
+     heure d'été = UTC+2 → 22h01 UTC le 5/10). L'heure qui compte est celle du
+     serveur (Google), pas celle du téléphone. Même valeur dans inscription.html. */
+  var LIMITE_MENU_MS = Date.parse("2026-10-05T22:01:00Z");
+  var LIMITE_MENU_TXT = "lundi 5 octobre 2026 à minuit (heure de Bruxelles)";
+  function verrouHalal(g){ return !!(g && g.infoHalalTs && g.repas==="sansviande"); }   // informé·e, pas de réponse
   function fmtQuand(ts){ try{ var d=new Date(ts); return d.toLocaleDateString("fr-BE",{day:"2-digit",month:"2-digit"})+" à "+d.toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){ return ""; } }
   function aChangeDeVege(g){ return g && g.regimeAvant==="sansviande" && g.repas!=="sansviande"; }
   /* Précision utile seulement si le premier mail ne nommait pas le traiteur. */
@@ -5976,6 +6010,7 @@
         boutons = bPre;
       } else {
         etat = g.infoHalalTs ? ('✉ Informé·e le '+escapeHtml(fmtQuand(g.infoHalalTs))+' · pas de changement') : 'Pas encore informé·e';
+        if(g.infoHalalTs && Date.now()>=LIMITE_MENU_MS) etat += ' · <b>🔒 Modification fermée depuis le 6/10</b>';
         boutons = mail ? ('<button class="btn '+(g.infoHalalTs?'ghost':'gold')+' xs" type="button" onclick="ouvrirMailHalal(\''+tk+'\',\'info\')">📨 '+(g.infoHalalTs?'Relancer':'Informer')+'</button>' + bPre)
                        : '<span class="hint">pas d\'e-mail</span>';
       }
@@ -6024,6 +6059,8 @@
       + '<h2 style="margin:0 0 12px">'+mailEsc(eventName||"Proclamation")+'</h2>'
       + corps
       + '<p style="text-align:center;margin:24px 0 10px"><a href="'+lien+'" style="background:#c9a227;color:#241100;padding:13px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block">Modifier mon choix de menu</a></p>'
+      + '<p style="background:#fff6e0;border:1px solid #e8d4a0;border-radius:8px;padding:10px 12px;font-size:14px">⏰ <b>Date limite : '+mailEsc(LIMITE_MENU_TXT)+'.</b> '
+        + (vous?'Passé ce délai, votre choix ne pourra plus être modifié.':'Passé ce délai, ton choix ne pourra plus être modifié.')+'</p>'
       + '<p style="color:#666;font-size:13px">'+(vous?'Si le bouton ne fonctionne pas, ouvrez ce lien :':'Si le bouton ne fonctionne pas, ouvre ce lien :')+'<br><a href="'+lien+'">'+lien+'</a></p>'
       + '<p style="color:#666;font-size:13px">'+(vous
           ? 'Après un changement, vous recevrez automatiquement votre billet à jour. Votre billet actuel reste valable en attendant.'
@@ -6101,10 +6138,11 @@
           || nomDeFamille(a).localeCompare(nomDeFamille(b), "fr", {sensitivity:"base"});
     });
     return gens.map(function(g){
+      var halal = verrouHalal(g) ? "Informé·e — pas de réponse" : (aChangeDeVege(g) ? "A changé" : "");
       var p=prenomDe(g), doublon = compte[sansAccents(p)]>1;
       var pM = p ? (p.charAt(0).toUpperCase()+p.slice(1)) : p;          // « amina » → « Amina »
       var affiche = (doublon && nomDeFamille(g)) ? (pM+" "+nomDeFamille(g)) : pM;
-      return [affiche, REPAS_LBL[g.repas||""]||"Sans préférence indiquée"];
+      return [affiche, REPAS_LBL[g.repas||""]||"Sans préférence indiquée", halal];
     });
   }
   window.exportChoixRepas = async function(){
@@ -6112,11 +6150,11 @@
     flash("Synchronisation…"); await syncAvantExport();
     var lignes = lignesChoixRepas();
     if(!lignes.length){ uiAlert("Aucune personne avec un billet pour l'instant."); return; }
-    var rows = [["Prénom","Régime alimentaire"]].concat(lignes);
+    var rows = [["Prénom","Régime alimentaire","Mail halal"]].concat(lignes);
     var nom = sanitize(eventName||"proclamation")+"_choix_repas";
     var XLSX=null; XLSX=await chargerXLSX();
     if(!XLSX){ telechargerCSV(rows, nom+".csv"); flash("CSV téléchargé (module Excel indisponible)."); return; }
-    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:32},{wch:36}];
+    var ws=XLSX.utils.aoa_to_sheet(rows); ws["!cols"]=[{wch:32},{wch:36},{wch:28}];
     var wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Choix repas");
     XLSX.writeFile(wb, nom+".xlsx");
     flash(lignes.length+" personne(s) exportée(s).");
@@ -7221,14 +7259,21 @@
     if(!marquesPrises){ marques.forEach(function(m){ m.traite=false; m.traiteTs=0; }); return false; }
     marques = marquesPrises;
     var change=false, aPrevenir=[];
+    var tardives=[];
     marques.forEach(function(m){
       var g = roster.filter(function(x){ return x.token===m.repasToken; })[0];
+      /* v180 : informé·e du halal, resté·e végétarien·ne, demande arrivée après la
+         date limite (heure du serveur notée par la page) → ignorée. */
+      if(g && verrouHalal(g) && g.repas!==m.repas && ((m.tsServeur||m.ts||0) >= LIMITE_MENU_MS)){
+        m.horsDelai=true; tardives.push(g.name||""); return;
+      }
       if(g && REPAS_LBL[m.repas] && g.repas!==m.repas){
         g.regimeAvant=g.repas||""; g.regimeChangeTs=Date.now();      // suivi affiché dans l'onglet Traiteur
         g.repas=m.repas; change=true; aPrevenir.push(g);
       }
       m.traite=true; m.traiteTs=Date.now();
     });
+    if(tardives.length){ flash("🔒 Changement de menu refusé (après la date limite) : "+tardives.join(", ")); }
     if(change){
       localRosterVersion=Date.now();
       await Store.set("roster", JSON.stringify(roster));
@@ -8350,7 +8395,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v179" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v180" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8371,8 +8416,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v179"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v179") : ("☁️ Synchronisation… · v179"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v180"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v180") : ("☁️ Synchronisation… · v180"));
     }
   }
   function syncReussie(cid){
@@ -9184,6 +9229,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v179</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v180</div>
 </body>
 </html>
