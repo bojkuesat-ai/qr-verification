@@ -2690,6 +2690,7 @@
         }
         var usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
         usedParCid[c.id]=usedMap;
+        try{ _gAjourMiennes(c.id, usedMap); }catch(e){}
         okC++; chargee=true;
         for(var j=0;j<roster.length;j++){
           var g=roster[j]; if(!g||!g.token) continue;
@@ -2709,10 +2710,10 @@
       for(var cr in gMiennes){
         var u0=usedParCid[cr]; if(!u0) continue;
         var existe=function(tk){ return (idx[normalize(tk)]||[]).some(function(e){ return e.cid===cr; }); };
-        if(!Object.keys(gMiennes[cr]||{}).some(function(tk){ return !u0[tk] && existe(tk); })) continue;
+        if(!Object.keys(gMiennes[cr]||{}).some(function(tk){ return !u0[tk] && existe(tk) && !_gEstConf(cr,tk); })) continue;
         await gCommitUsed(cr, function(usedMap){
           var map=Object.assign({}, usedMap), ajout=0;
-          Object.keys(gMiennes[cr]||{}).forEach(function(tk){ if(!map[tk] && existe(tk)){ map[tk]=gMiennes[cr][tk]; ajout++; } });
+          Object.keys(gMiennes[cr]||{}).forEach(function(tk){ if(!map[tk] && existe(tk) && !_gEstConf(cr,tk)){ map[tk]=gMiennes[cr][tk]; ajout++; } });
           return ajout ? {map:map} : {stop:{etat:"ok"}};
         });
       }
@@ -2810,20 +2811,45 @@
     try{ COMMISSIONS.forEach(function(c){ out.push("qrentry:c:"+c.id+":"+base); }); }catch(e){}
     return out;
   }
+  /* v176 — Entrées « confirmées » : déjà vues sur le serveur. Si l'une d'elles y
+     disparaît ensuite, c'est l'admin qui l'a effacée (« Réinitialiser les entrées »,
+     « Annuler l'entrée ») : on ne la renvoie plus. Avant, un essai fait avec de vrais
+     billets revenait après la remise à zéro. Seules les entrées jamais vues sur le
+     serveur (réseau coupé) sont renvoyées, et au plus 12 h. */
+  var GCONF_CLE="qrentry:gscanConfirmees", gConf={}, MIENNE_MAX_MS=12*3600*1000;
+  function _gSaveConf(){ try{ window.localStorage.setItem(GCONF_CLE, JSON.stringify(gConf)); }catch(e){} }
+  function _gEstConf(cid, tk){ return !!(gConf[cid] && gConf[cid][tk]); }
+  function _gConfirmer(cid, tk){ if(!cid||!tk) return; (gConf[cid]=gConf[cid]||{})[tk]=1; _gSaveConf(); }
+  /* À chaque lecture du serveur : confirme ce qui y est, oublie ce que l'admin a effacé. */
+  function _gAjourMiennes(cid, usedMap){
+    var m=gMiennes[cid]; if(!m) return;
+    var ch=false;
+    Object.keys(m).forEach(function(tk){
+      if(usedMap[tk]){ if(!_gEstConf(cid,tk)){ (gConf[cid]=gConf[cid]||{})[tk]=1; ch=true; } return; }
+      if(_gEstConf(cid,tk) || (Date.now()-Number(m[tk]||0))>MIENNE_MAX_MS){
+        delete m[tk]; if(gConf[cid]) delete gConf[cid][tk]; ch=true;
+      }
+    });
+    if(ch){ _gEcrireCle(GMIENNES_CLE, gMiennes); _gSaveConf(); }
+  }
   async function _gLoadMiennes(){
     var v=_gLireCle(GMIENNES_CLE, _gAnciennes("gscanMiennes"));
     if(v===null){ try{ var s=await Store.get("gscanMiennes"); v = s?JSON.parse(s):{}; }catch(e){ v={}; } }
     gMiennes = v || {};
+    try{ gConf=JSON.parse(window.localStorage.getItem(GCONF_CLE)||"{}")||{}; }catch(e){ gConf={}; }
     _gEcrireCle(GMIENNES_CLE, gMiennes);
   }
   async function _gNoterMienne(cid, token, at){
     if(!cid||!token) return;
     gMiennes[cid]=gMiennes[cid]||{}; gMiennes[cid][token]=at;
+    if(gConf[cid] && gConf[cid][token]){ delete gConf[cid][token]; _gSaveConf(); }   // nouvelle écriture, pas encore vue
     if(!_gEcrireCle(GMIENNES_CLE, gMiennes)){ try{ await Store.set("gscanMiennes", JSON.stringify(gMiennes)); }catch(e){} }
   }
   function _gFusionMiennes(cid, usedMap){
-    // les entrées de ce téléphone priment : une écriture concurrente perdue se répare au scan suivant
-    return Object.assign({}, usedMap, gMiennes[cid]||{});
+    // les entrées de ce téléphone pas encore vues sur le serveur priment : une écriture perdue se répare
+    var add={}, m=gMiennes[cid]||{};
+    Object.keys(m).forEach(function(tk){ if(!_gEstConf(cid,tk)) add[tk]=m[tk]; });
+    return Object.assign({}, usedMap, add);
   }
   var gQueue=[]; // entrées en attente de synchro (hors-ligne) : {cid, token, at, name}
   async function _gLoadQueue(){
@@ -2870,6 +2896,7 @@
       lu=true;
       var f=data.fields||{}, usedMap={}; try{ usedMap=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){}
       var p=preparer(usedMap, f);
+      try{ _gAjourMiennes(cid, usedMap); }catch(e){}
       if(p.stop) return Object.assign({f:f, lu:true}, p.stop);
       var champs={ used: fsField(JSON.stringify(p.map)), updatedAt: fsField(new Date().toISOString()) };
       var res=await fsCommitSiInchange(ticketDocPath(cid), champs, data.updateTime, gAuth.idToken);
@@ -2924,6 +2951,7 @@
       cloudLibre = !!res.lu;
       if(res.etat!=="ok"){ _gQueueAdmit(m, token, at, cloudLibre); return; }      // échec écriture -> file d'attente
       if(!m.usedAt){ gUsed++; } m.usedAt=at; gUpdateCounts();
+      _gConfirmer(cid, tkStored);
       try{ envoyerBienvenue(guest, cid, (f.event&&f.event.stringValue)||""); }catch(e){}
       // Proclamation : vert pour les étudiant·e·s diplômé·e·s, bleu pour les autres (profs, doyen, PATGS…)
       var kindOk = (cid==="proclamation" && guest.role && guest.role!=="etudiant") ? "validbleu" : "valid";
@@ -2952,6 +2980,7 @@
         var f=resF.f||{};
         if(resF.etat==="deja") continue;
         if(resF.etat!=="ok"){ rest.push(it); continue; }
+        _gConfirmer(it.cid, it.token);
         if(it.cid==="parrainage"){                                     // mail table (best-effort) une fois en ligne
           var pl=gIndex[normalize(it.token)], gg=null;
           if(pl){ for(var k=0;k<pl.length;k++){ if(pl[k].cid===it.cid){ gg=pl[k].guest; break; } } }
@@ -3113,6 +3142,7 @@
       }catch(e){}
     });
     lMiennes=acc;
+    try{ lConf=JSON.parse(window.localStorage.getItem(LCONF_CLE)||"{}")||{}; }catch(e){ lConf={}; }
     await _lSauverMiennes();
   }
   async function _lSauverMiennes(){
@@ -3121,7 +3151,23 @@
   }
   /* Deux téléphones écrivent le même champ : on réinjecte toujours nos propres
      marquages avant d'écrire, sinon le dernier écrivain effacerait ceux de l'autre. */
-  function _lFusion(map){ Object.keys(lMiennes).forEach(function(k){ if(!map[k]) map[k]=lMiennes[k]; }); return map; }
+  function _lFusion(map){ Object.keys(lMiennes).forEach(function(k){ if(!map[k] && !lConf[k]) map[k]=lMiennes[k]; }); return map; }
+  /* v176 — Repas « confirmés » (déjà vus sur le serveur) : s'ils y disparaissent,
+     c'est l'admin qui les a effacés (« Réinitialiser les entrées ») → on ne les
+     renvoie plus. Avant, les repas d'un essai revenaient après la remise à zéro.
+     Seuls les repas jamais vus sur le serveur (coupure) repartent, et au plus 12 h. */
+  var LCONF_CLE="qrentry:lscanConfirmees:proclamation", lConf={};
+  function _lSauverConf(){ try{ window.localStorage.setItem(LCONF_CLE, JSON.stringify(lConf)); }catch(e){} }
+  function _lConfirmer(k){ lConf[k]=1; _lSauverConf(); }
+  function _lAjourMiennes(map){
+    var ch=false;
+    Object.keys(lMiennes).forEach(function(k){
+      if(map[k]){ if(!lConf[k]){ lConf[k]=1; ch=true; } return; }
+      if(lConf[k] || (Date.now()-Number(lMiennes[k]||0))>MIENNE_MAX_MS){ delete lMiennes[k]; delete lConf[k]; ch=true; }
+    });
+    if(ch){ _lSauverConf(); _lSauverMiennes(); }
+  }
+  function _lNonConfirmees(){ var o={}; Object.keys(lMiennes).forEach(function(k){ if(!lConf[k]) o[k]=lMiennes[k]; }); return o; }
 
   /* Même chose au stand repas : sans copie locale, un rechargement sans réseau
      donnait « Billet inconnu » à tout le monde. */
@@ -3153,18 +3199,20 @@
       try{ lRoster=JSON.parse((f.roster&&f.roster.stringValue)||"[]"); }catch(e){}
       _lSauverRoster();
       try{ lUsed=JSON.parse((f.used&&f.used.stringValue)||"{}"); }catch(e){ lUsed={}; }
+      _lAjourMiennes(lUsed);
       /* Repas marqués ici mais absents du serveur : scannés pendant une coupure.
          Sans ce rattrapage, le dernier repas d'une soirée hors ligne ne
          remonterait jamais, personne ne scannant plus après lui. */
-      var enRetard = Object.keys(lMiennes).filter(function(k){ return !lUsed[k]; });
+      var enRetard = Object.keys(_lNonConfirmees()).filter(function(k){ return !lUsed[k]; });
       lUsed=_lFusion(lUsed);
       if(enRetard.length){
-        var rattrape = await lEcrireUsed(lMiennes);
+        var rattrape = await lEcrireUsed(_lNonConfirmees());
         if(!rattrape){
           lStatus("⏳ "+enRetard.length+" repas en attente de synchronisation.");
           lCompte(); return false;
         }
         lUsed = rattrape;
+        enRetard.forEach(function(k){ lConf[k]=1; }); _lSauverConf();
       }
       lDernier=Date.now();
       lStatus(lRoster.length+" participant(s) · liste à jour"+(enRetard.length?(" · "+enRetard.length+" repas rattrapé(s)"):""));
@@ -3183,6 +3231,7 @@
      l'écriture simple : au pire, on se comporte comme avant. */
   async function lEcrireUsed(marques){
     function fusionner(map){
+      _lAjourMiennes(map);
       map=_lFusion(map);
       Object.keys(marques||{}).forEach(function(k){ map[k]=marques[k]; });
       return map;
@@ -3214,14 +3263,39 @@
     }catch(e){ return null; }
   }
 
+  /* v176 — Réservation EN DIRECT du repas, comme au contrôle d'entrée : on relit
+     « used » et on n'écrit que si le document n'a pas bougé. Deux stands qui
+     scannent le même QR (capture d'écran partagée) : un seul obtient « accordé ».
+     Renvoie {etat:"ok",map} | {etat:"deja",at} | {etat:"echec"} (réseau). */
+  async function lReserver(cle, at){
+    for(var essai=0; essai<10; essai++){
+      var lu=null;
+      try{ lu = await fsGetDoc(ticketDocPath(LCID), gAuth.idToken, ["used"]); }catch(e){ lu=null; }
+      if(!lu) return {etat:"echec"};
+      var map={}; try{ map=JSON.parse(((lu.fields&&lu.fields.used)||{}).stringValue||"{}"); }catch(e){}
+      if(map[cle] && map[cle]!==at) return {etat:"deja", at:map[cle]};
+      _lAjourMiennes(map);
+      map=_lFusion(map); map[cle]=at;
+      var champs={ used: fsField(JSON.stringify(map)), updatedAt: fsField(new Date().toISOString()) };
+      var res = lu.updateTime ? await fsCommitSiInchange(ticketDocPath(LCID), champs, lu.updateTime, gAuth.idToken) : "refus";
+      if(res==="ok") return {etat:"ok", map:map};
+      if(res!=="conflit"){
+        var r2=await fsPatchFields(ticketDocPath(LCID), champs, gAuth.idToken);
+        return (r2&&r2.ok) ? {etat:"ok", map:map} : {etat:"echec"};
+      }
+      await new Promise(function(r){ setTimeout(r, 80+Math.floor(Math.random()*320)); });
+    }
+    return {etat:"echec"};
+  }
+
   async function lServir(code){
     var brut=String(code||"").trim();
     if(!brut) return;
-    /* Anti-rebond : la caméra relit le même QR plusieurs fois par seconde. Sans ça,
-       « Repas accordé » était suivi 100 ms plus tard de « Repas déjà retiré » et du
-       bip d'erreur. Même garde que le scanner d'entrée. */
+    /* Anti-rebond GLISSANT : tant que le même QR reste devant la caméra, on l'ignore.
+       Avant (v175), un QR tenu plus de 2,5 s passait au rouge « déjà retiré » juste
+       après le vert. Il faut l'écarter 2,5 s pour qu'il soit relu. */
     var _now=Date.now(), _cle0=brut.toUpperCase();
-    if(_cle0===lLastCode && (_now-lLastAt)<2500) return;
+    if(_cle0===lLastCode && (_now-lLastAt)<2500){ lLastAt=_now; return; }
     lLastCode=_cle0; lLastAt=_now;
     if(!estCodeLunch(brut)){
       var t0=brut.toUpperCase();
@@ -3237,30 +3311,39 @@
     }
     if(!g){ lReponse(false,"Billet inconnu","Billet inconnu","Ce code ne correspond à aucun participant."); return; }
     var cle=codeLunch(g.token);            // toujours la casse réelle du billet
-    if(lUsed[cle]){
-      var q=""; try{ q=new Date(lUsed[cle]).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){}
+    function refusDeja(quand){
+      var q=""; try{ q=new Date(quand).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit"}); }catch(e){}
       /* Pas de régime sur l'écran rouge : il ne faut pas qu'il serve quand même. */
       lReponse(false,"Déjà servi","Repas déjà retiré", g.name+(q?(" — à "+q):""), g);
+    }
+    if(lUsed[cle]){ refusDeja(lUsed[cle]); return; }
+    /* Fraction de milliseconde aléatoire : signature de CE téléphone. */
+    var at=Date.now()+Math.round(Math.random()*998+1)/1000;
+    var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
+    function accorder(){
+      lUsed[cle]=at; lCompte();
+      lReponse(true,"Repas accordé","Repas accordé", g.name+" · "+reg, g, reg);
+    }
+    lMiennes[cle]=at; if(lConf[cle]){ delete lConf[cle]; _lSauverConf(); }
+    await _lSauverMiennes();
+    function enAttente(){ lStatus("⏳ "+Object.keys(_lNonConfirmees()).length+" repas en attente de synchronisation."); }
+    if(!(await gEnsureAuth())){ accorder(); lStatus("⏳ Hors ligne : "+Object.keys(_lNonConfirmees()).length+" repas en attente de synchronisation."); return; }
+    lStat("idle","Vérification…", g.name||"");
+    var r; try{ r=await lReserver(cle, at); }catch(e){ r={etat:"echec"}; }
+    if(r.etat==="deja"){
+      /* Servi sur un autre stand : ce n'est pas notre repas, on l'oublie ici. */
+      delete lMiennes[cle]; await _lSauverMiennes();
+      lUsed[cle]=r.at; lCompte(); refusDeja(r.at); return;
+    }
+    if(r.etat==="ok"){
+      lUsed=r.map; _lConfirmer(cle); accorder();
+      lStatus(lRoster.length+" participant(s) · à jour");
+      /* Le mail ne part qu'une fois le repas réellement enregistré. */
+      try{ envoyerBonAppetit(g); }catch(e){}
       return;
     }
-    var at=Date.now();
-    lUsed[cle]=at; lMiennes[cle]=at; await _lSauverMiennes(); lCompte();
-    var reg=REPAS_LBL[g.repas||""]||"Sans préférence indiquée";
-    lReponse(true,"Repas accordé","Repas accordé", g.name+" · "+reg, g, reg);
-
-    if(!(await gEnsureAuth())){ lStatus("⏳ Hors ligne : "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); return; }
-    try{
-      var marques={}; marques[cle]=at;
-      var map = await lEcrireUsed(marques);
-      if(map){
-        lUsed=map; lCompte(); lStatus(lRoster.length+" participant(s) · à jour");
-        /* Le mail ne part qu'une fois le repas réellement enregistré : sinon la
-           personne avait son « Bon appétit » sans que le retrait soit noté, et
-           pouvait repasser au stand. */
-        try{ envoyerBonAppetit(g); }catch(e){}
-      }
-      else { lStatus("⏳ "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); }
-    }catch(e){ lStatus("⏳ "+Object.keys(lMiennes).length+" repas en attente de synchronisation."); }
+    /* Réseau défaillant : on sert (comme hors ligne), le repas repartira au prochain rechargement. */
+    accorder(); enAttente();
   }
   window.lCheckManual=function(){
     var i=$("lmanual"); if(!i) return;
@@ -8132,7 +8215,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v175" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v176" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8153,8 +8236,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v175"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v175") : ("☁️ Synchronisation… · v175"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v176"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v176") : ("☁️ Synchronisation… · v176"));
     }
   }
   function syncReussie(cid){
@@ -8966,6 +9049,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v175</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v176</div>
 </body>
 </html>
