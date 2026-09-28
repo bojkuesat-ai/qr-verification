@@ -1189,7 +1189,15 @@
         afficherFermeture(clCloud); return;
       }
       var estEtu = (isPro && q("f_role").value==="etudiant");
-      if(list.some(function(x){ return String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut!=="apreconfirmer"; })){
+      /* Proclamation : une personne refusée ne peut pas se réinscrire. On lui dit
+         clairement pourquoi, avec le contact, plutôt que « déjà inscrite ». */
+      var _memeMail = list.filter(function(x){ return x && String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut!=="apreconfirmer"; });
+      if(isPro && _memeMail.length && _memeMail.every(function(x){ return x.statut==="refuse"; })){
+        var _tu = (q("f_role").value==="etudiant");
+        msg.innerHTML='<p class="err"><b>'+(_tu?'Ta':'Votre')+' demande a été refusée.</b><br>Pour plus d\'informations, '+(_tu?'contacte':'contactez')+' <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a>.</p>';
+        btn.disabled=false; btn.textContent="Je m'inscris"; return;
+      }
+      if(_memeMail.length){
         msg.innerHTML='<p class="err">Cette adresse est déjà inscrite. Vérifiez votre boîte mail (et vos spams).</p>';
         btn.disabled=false; btn.textContent="Je m'inscris"; return;
       }

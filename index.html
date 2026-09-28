@@ -5208,6 +5208,7 @@
   function getSeenAval(){ try{ return parseInt(window.localStorage.getItem(seenAvalKey())||"0",10)||0; }catch(e){ return 0; } }
   function setSeenAval(n){ try{ window.localStorage.setItem(seenAvalKey(), String(n)); }catch(e){} }
   async function alerterNouvellesAValider(){
+    if(currentCommId()!=="crimino") return;        // v177 : alerte Lamia réservée à la crimino, jamais la proclamation
     var aval=SIGNUPS.filter(function(x){return x.statut==="avalider";});
     var n=aval.length, vus=getSeenAval();
     if(n>vus){
@@ -6830,6 +6831,7 @@
         + '<p>Bonjour '+escapeHtml(salutNom(x))+',</p>'
         + '<p>'+(vs?'Votre':'Ton')+' inscription à <b>'+escapeHtml(nomEv)+'</b> n\'a pas pu être retenue.</p>'
         + (motif ? '<p style="background:#fdf3f3;border:1px solid #eccfcf;border-radius:8px;padding:12px"><b>Motif :</b><br>'+escapeHtml(motif)+'</p>' : '')
+        + (cid==="proclamation" ? '<p>Pour plus d\'informations, '+(vs?'contactez':'contacte')+' <a href="mailto:esat.bojku@ulb.be" style="color:#8a6d1f;font-weight:bold">esat.bojku@ulb.be</a>.</p>' : '')
         + '<p style="text-align:center;font-size:13px;color:#666;margin-top:16px">Une question ? <a href="'+contact+'" style="color:#8a6d1f;font-weight:bold">'+(vs?'Contactez-nous':'Contacte-nous')+' directement</a>.</p>'
         + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0"><p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
       try{ await fetch(SEND_FN,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+SUPA_ANON,"apikey":SUPA_ANON},
@@ -8215,7 +8217,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v176" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v177" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8236,8 +8238,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v176"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v176") : ("☁️ Synchronisation… · v176"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v177"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v177") : ("☁️ Synchronisation… · v177"));
     }
   }
   function syncReussie(cid){
@@ -9049,6 +9051,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v176</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v177</div>
 </body>
 </html>
