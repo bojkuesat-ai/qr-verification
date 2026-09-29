@@ -372,13 +372,13 @@
   .lst-row.fiche-clic{border-radius:0}
   .role-tag{display:inline-block;font-size:11px;background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:0 6px;margin-left:6px;color:var(--muted);font-weight:500;white-space:nowrap}
   .qr-filtre{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 12px}
-  #ficheModal,#halalModal{position:fixed;inset:0;z-index:9999;background:rgba(8,6,20,.72);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}
-  #ficheModal.on,#halalModal.on{display:flex}
-  #halalModal textarea{width:100%;min-height:230px;background:var(--bg);border:1.5px solid var(--line);color:var(--text);border-radius:10px;padding:11px;font:inherit;font-size:15px;line-height:1.5}
-  #halalModal textarea:focus{outline:none;border-color:var(--gold)}
+  #ficheModal,#halalModal,#supprModal{position:fixed;inset:0;z-index:9999;background:rgba(8,6,20,.72);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}
+  #ficheModal.on,#halalModal.on,#supprModal.on{display:flex}
+  #halalModal textarea,#supprModal textarea{width:100%;min-height:230px;background:var(--bg);border:1.5px solid var(--line);color:var(--text);border-radius:10px;padding:11px;font:inherit;font-size:15px;line-height:1.5}
+  #halalModal textarea:focus,#supprModal textarea:focus{outline:none;border-color:var(--gold)}
   #traiteurVege .vg-l{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
   #traiteurVege .vg-l .nm{flex:1;min-width:0;font-size:15px}
-  #ficheModal .fiche-box,#halalModal .fiche-box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);width:100%;max-width:560px;padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  #ficheModal .fiche-box,#halalModal .fiche-box,#supprModal .fiche-box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);width:100%;max-width:560px;padding:18px 18px 16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
   #ficheModal .fiche-l{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
   #ficheModal .fiche-l span:first-child{flex:0 0 120px;color:var(--muted)}
   #ficheModal .fiche-l span:last-child{flex:1;min-width:0;word-break:break-word}
@@ -3720,11 +3720,70 @@
     updateCounts(); renderList(); if(syncCode){ syncPush(); } cloudRemoveUsed(currentCommId(), token);
     flash("Entrée annulée pour "+nom+".");
   };
+  /* v181 — Proclamation : message de suppression écrit par l'admin, envoyé au nom du
+     contrôle d'accès (accord du service), signature « DAF - ULB - Sécurité ».
+     Renvoie le texte saisi, "" pour supprimer sans mail, ou null pour annuler. */
+  var FROM_ACCES = "Accès Contrôle ULB <proclamation@bureauetuidant.xyz>";
+  var SIG_ACCES = "DAF - ULB - Sécurité";
+  function demanderMotifSuppression(g){
+    return new Promise(function(res){
+      var m=$("supprModal");
+      if(!m){
+        m=document.createElement("div"); m.id="supprModal";
+        m.innerHTML='<div class="fiche-box"><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+          + '<h2 id="supprTitre" style="margin:0;flex:1;font-size:18px"></h2></div>'
+          + '<p class="hint" id="supprA" style="margin:0 0 10px"></p>'
+          + '<label class="fld" for="supprTexte">Raison de la suppression (envoyée à la personne)</label>'
+          + '<textarea id="supprTexte" placeholder="Ex. : inscription non conforme, place non nominative…"></textarea>'
+          + '<p class="hint" style="margin:8px 0 12px">Expéditeur : <b>Accès Contrôle ULB</b> · signature : <b>'+escapeHtml(SIG_ACCES)+'</b>.</p>'
+          + '<div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn danger sm" type="button" id="supprOk">Supprimer et envoyer le mail</button>'
+          + '<button class="btn ghost sm" type="button" id="supprSansMail">Supprimer sans mail</button>'
+          + '<button class="btn ghost sm" type="button" id="supprAnnuler">Annuler</button></div></div>';
+        document.body.appendChild(m);
+      }
+      $("supprTitre").textContent = "Supprimer le billet de "+(g.name||"");
+      $("supprA").textContent = "À : "+emailOf(g)+(vouvoyerG(g)?" · vouvoiement":" · tutoiement");
+      $("supprTexte").value = "";
+      function fin(v){ m.classList.remove("on"); $("supprOk").onclick=$("supprSansMail").onclick=$("supprAnnuler").onclick=null; m.onclick=null; res(v); }
+      $("supprOk").onclick=function(){
+        var t=($("supprTexte").value||"").trim();
+        if(!t){ $("supprTexte").focus(); $("supprTexte").placeholder="Écrivez la raison (obligatoire pour envoyer le mail)."; return; }
+        fin(t);
+      };
+      $("supprSansMail").onclick=function(){ fin(""); };
+      $("supprAnnuler").onclick=function(){ fin(null); };
+      m.onclick=function(e){ if(e.target===m) fin(null); };
+      m.classList.add("on");
+      setTimeout(function(){ try{ $("supprTexte").focus(); }catch(e){} }, 60);
+    });
+  }
+  function mailSuppressionHtml(g, motif, avecLunch){
+    var vous=vouvoyerG(g), ev=eventName||"Proclamation";
+    var quoi = avecLunch
+      ? (vous?"votre billet d'entrée et votre billet repas":"ton billet d'entrée et ton billet repas")
+      : (vous?"votre billet d'entrée":"ton billet d'entrée");
+    var corps = String(motif||"").trim().split(/\n\s*\n/).map(function(p){ return '<p style="margin:0 0 8px">'+mailEsc(p).replace(/\n/g,"<br>")+'</p>'; }).join("");
+    return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + '<h2 style="margin:0 0 12px">'+mailEsc(ev)+'</h2>'
+      + '<p>Bonjour '+mailEsc(salutNom(g))+',</p>'
+      + '<p>Nous '+(vous?'vous ':'t\'')+'informons que '+quoi+' pour <b>'+mailEsc(ev)+'</b> '+(avecLunch?'ont été supprimés':'a été supprimé')
+      + '. '+(avecLunch?'Ils ne sont plus valables':'Il n\'est plus valable')+' et seront refusés au contrôle.</p>'
+      + '<div style="background:#fdf3f3;border:1px solid #eccfcf;border-radius:8px;padding:12px;margin:14px 0"><b>Motif :</b><br>'+corps+'</div>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+      + '<p style="color:#999;font-size:12px">'+mailEsc(SIG_ACCES)+'</p></div>';
+  }
   window.deleteGuest = async function(token){
     var idx=-1; for(var i=0;i<roster.length;i++){ if(roster[i].token===token){ idx=i; break; } }
     if(idx<0) return;
     var g=roster[idx];
-    if(!(await uiConfirm("Supprimer définitivement « "+g.name+" » de la liste ? Son billet ne sera plus valide. Action définitive."))) return;
+    var motifSuppr=null, mailSuppr=(currentCommId()==="proclamation" && !!emailOf(g));
+    if(mailSuppr){
+      motifSuppr = await demanderMotifSuppression(g);
+      if(motifSuppr===null) return;                                   // annulé : rien n'est supprimé
+      if(!(await uiConfirm("Supprimer définitivement le billet de « "+g.name+" » ?"+(motifSuppr?"\n\nUn mail lui sera envoyé (expéditeur : Accès Contrôle ULB).":"\n\nAucun mail ne sera envoyé.")))) return;
+    }
+    else if(!(await uiConfirm("Supprimer définitivement « "+g.name+" » de la liste ? Son billet ne sera plus valide. Action définitive."))) return;
+    var avecLunchSuppr = lunchActif("qr");
     // Parrainage : délier les filleuls éventuellement rattachés à cette personne
     roster.forEach(function(f){ if(f.parrain===token){ delete f.parrain; delete f.table; } });
     roster.splice(idx,1);
@@ -3742,6 +3801,13 @@
     try{ if(typeof renderTickets==="function") renderTickets(); }catch(e){}
     try{ if($("suList")) renderSignups(); }catch(e){}
     flash("« "+g.name+" » supprimé·e.");
+    if(mailSuppr && motifSuppr){
+      var vs=vouvoyerG(g);
+      var okM = await sendMailQR(emailOf(g), (vs?"Suppression de votre billet — ":"Suppression de ton billet — ")+(eventName||"Proclamation"),
+                                 mailSuppressionHtml(g, motifSuppr, avecLunchSuppr), FROM_ACCES);
+      if(okM) uiAlert("✉️ Mail envoyé à "+(g.name||"")+" ("+emailOf(g)+")\nExpéditeur : Accès Contrôle ULB.");
+      else uiAlert("⚠️ Billet supprimé, mais le mail n'a PAS pu être envoyé à "+(g.name||"")+" ("+emailOf(g)+"). Prévenez la personne autrement.");
+    }
   };
   async function _appliquerSuppression(tokensSet, libelle){
     if(!tokensSet.size) return;
@@ -4513,7 +4579,7 @@
   function boutonsBillet(lienEntree, lienLunch, vous){
     var st='padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;margin:6px';
     var h='<p style="text-align:center;margin:26px 0">'
-      + '<a href="'+lienEntree+'" style="background:#e0b64d;color:#181233;'+st+'">Mon billet d entree</a>';
+      + '<a href="'+lienEntree+'" style="background:#e0b64d;color:#181233;'+st+'">Mon billet d\'entrée</a>';
     if(lienLunch) h += '<a href="'+lienLunch+'" style="background:#3fae7a;color:#0b2418;'+st+'">Mon billet lunch</a>';
     return h+'</p>';
   }
@@ -5086,7 +5152,7 @@
         +'<b style="color:#8a6d1f">Invitation strictement personnelle</b>'
         +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">Cette invitation est nominative et donne accès à <b>une seule personne</b>. '
         +'Elle ne peut être ni partagée, ni transmise, ni utilisée par un accompagnant : chaque billet ne peut être scanné qu\'une seule fois.</p>'
-        +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">La capacité de la salle ne nous permet malheureusement pas d\'accueillir de personnes supplémentaires. Merci de votre compréhension.</p></div>';
+        +'<p style="margin:6px 0 0;font-size:13.5px;color:#555">La capacité de la salle ne nous permet malheureusement pas d\'accueillir de personnes supplémentaires. Merci de ta compréhension.</p></div>';
     }
     return bloc
       +'<hr style="border:none;border-top:1px solid #eee;margin:18px 0">'
@@ -5205,6 +5271,17 @@
   }
   function dateKey(){ return "qrentry:evdate:"+(currentCommId()||""); }
   function getEvDate(){ try{ return window.localStorage.getItem(dateKey())||""; }catch(e){ return ""; } }
+  /* v182 — Rappels proclamation : encadré bien visible pour les étudiant·e·s
+     (soirée réservée aux diplômé·e·s, pas d'accompagnant·e). Placé juste après
+     « Bonjour », avant le billet. Rien pour les autres rôles ni commissions. */
+  function encadreEtudiantRappel(g){
+    if(currentCommId()!=="proclamation" || !g || g.role!=="etudiant") return "";
+    return '<div style="background:#fff4d6;border:3px solid #c9a227;border-radius:12px;padding:14px 16px;margin:14px 0 16px">'
+      + '<p style="margin:0 0 6px;font-size:18px;font-weight:bold;color:#7a5a00">🎓 Petit rappel important</p>'
+      + '<p style="margin:0;font-size:15px;line-height:1.5;color:#181233">La soirée est réservée aux <b>étudiant·e·s diplômé·e·s</b>. '
+      + 'Ton billet est <b>personnel</b> : nous ne pourrons malheureusement pas accueillir d\'accompagnant·e. '
+      + 'Merci de ta compréhension, on se réjouit de fêter ça avec toi !</p></div>';
+  }
   window.rappelNonEntres = async function(){
     var cibles = roster.filter(function(g){ return emailOf(g) && !usedSet.has(g.token); });
     if(!cibles.length){ uiAlert("Personne à relancer (tout le monde est entré, ou pas d'e-mail)."); return; }
@@ -5214,6 +5291,7 @@
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       var entete='<h2 style="margin:0 0 10px">'+(vouvoyerG(g)?'Nous vous attendons !':'On t\'attend !')+'</h2>'
         +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
+        +encadreEtudiantRappel(g)
         +(vouvoyerG(g)
             ? '<p>Nous ne vous avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau votre billet :</p>'
             : '<p>Nous ne t\'avons pas encore vu·e à <b>'+escapeHtml(eventName||"notre événement")+'</b>. Voici à nouveau ton billet :</p>');
@@ -5242,6 +5320,7 @@
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       var entete='<h2 style="margin:0 0 10px">Rappel — c\'est '+escapeHtml(quand)+'</h2>'
         +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
+        +encadreEtudiantRappel(g)
         +(vouvoyerG(g)
             ? '<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
             : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>');
@@ -8395,7 +8474,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v180" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v183" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8416,8 +8495,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v180"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v180") : ("☁️ Synchronisation… · v180"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v183"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v183") : ("☁️ Synchronisation… · v183"));
     }
   }
   function syncReussie(cid){
@@ -9229,6 +9308,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v180</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v183</div>
 </body>
 </html>
