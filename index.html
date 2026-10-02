@@ -7360,7 +7360,12 @@
     flash(ok ? ("Mail envoyé à "+(g.name||"")+" ✓") : "⚠️ Échec de l'envoi — réessayez.");
   };
   function boutonDesinscUn(g){
-    if(currentCommId()!=="proclamation" || !g || !emailOf(g) || g.presence==="non") return "";
+    if(currentCommId()!=="proclamation" || !g) return "";
+    if(g.presence==="non"){        // désinscrit·e : on le montre sur SA ligne, avec la suppression à côté
+      return '<span class="hint" style="color:var(--red);font-weight:700;white-space:nowrap">❌ Désinscrit·e</span>'
+        + '<button class="btn ghost xs" type="button" style="color:var(--red);border-color:var(--red)" onclick="supprimerAbsent(\''+escapeHtml(g.token)+'\')">✕ Supprimer</button>';
+    }
+    if(!emailOf(g)) return "";
     return '<button class="btn ghost xs" type="button" title="Envoyer à cette personne seulement le mail « si vous ne venez pas, désinscrivez-vous »" onclick="demanderDesinscriptionUn(\''+escapeHtml(g.token)+'\')">📨 Désinscription'+(g.desinscDemandee?' ✓':'')+'</button>';
   }
   function ciblesDesinsc(){
@@ -8586,7 +8591,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v184" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v185" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8607,8 +8612,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v184"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v184") : ("☁️ Synchronisation… · v184"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v185"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v185") : ("☁️ Synchronisation… · v185"));
     }
   }
   function syncReussie(cid){
@@ -9420,6 +9425,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v184</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v185</div>
 </body>
 </html>
