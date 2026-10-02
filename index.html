@@ -7235,7 +7235,7 @@
       await cloudPushRoster(cid);
       try{ renderList(); }catch(e){}
       var non = marques.filter(function(m){ return m.reponse==="non"; }).length;
-      if(non) flash("❌ "+non+" personne(s) ont indiqué qu'elles ne seront pas présentes — voir « Ajoutés manuellement ».");
+      if(non) flash("❌ "+non+" personne(s) ont indiqué qu'elles ne viendront pas — voir « Se sont désinscrit·e·s » en haut des inscriptions.");
     }
     await saveSignups(marques);
     return change;
@@ -7313,6 +7313,113 @@
     uiAlert(ok+" demande(s) envoyée(s)."+(ko ? " ⚠️ "+ko+" échec(s) : reclique plus tard pour réessayer." : ""));
   };
   window.supprimerAbsent = function(tok){ return deleteGuest(tok); };
+  /* ---------- Demande de désinscription (proclamation, TOUS les billets) ----------
+     Mail : « si vous ne venez pas, cliquez ici ». Le bouton mène à la page de présence
+     déjà existante (inscription.html?presence=…&r=non). La réponse revient en marqueur
+     « presence » → g.presence="non" → liste « Se sont désinscrit·e·s », où l'équipe
+     supprime le billet elle-même (pas de suppression automatique : décision du 03/09). */
+  function mailDesinscHtml(g){
+    var lien=lienPresence(g), non=lien+"&r=non", tu=!vouvoyerG(g);
+    var ev=mailEsc(eventName||"la proclamation");
+    return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + '<h2 style="margin:0 0 12px">'+ev+'</h2>'
+      + '<p>Bonjour '+mailEsc(salutNom(g))+',</p>'
+      + (tu ? '<p>Tu es inscrit·e à <b>'+ev+'</b> et ton billet t\'a été envoyé.</p>'
+              + '<p>Si tu <b>ne peux finalement pas venir</b>, merci de cliquer sur le bouton ci-dessous pour te désinscrire : cela nous aide à prévoir l\'accueil et le traiteur.</p>'
+            : '<p>Vous êtes inscrit·e à <b>'+ev+'</b> et votre billet vous a été envoyé.</p>'
+              + '<p>Si vous <b>ne pouvez finalement pas venir</b>, merci de cliquer sur le bouton ci-dessous pour vous désinscrire : cela nous aide à prévoir l\'accueil et le traiteur.</p>')
+      + infosPratiquesHtml()
+      + '<p style="text-align:center;margin:24px 0 10px">'
+      + '<a href="'+non+'" style="background:#c9463d;color:#ffffff;padding:13px 22px;border-radius:10px;text-decoration:none;font-weight:bold;display:inline-block;margin:4px">❌ Je ne pourrai pas venir</a>'
+      + '</p>'
+      + '<p style="color:#666;font-size:13px">'+(tu ? 'Si tu viens, tu n\'as rien à faire : ton billet reste valable.' : 'Si vous venez, vous n\'avez rien à faire : votre billet reste valable.')+'</p>'
+      + '<p style="color:#666;font-size:13px">'+(tu ? 'Si le bouton ne fonctionne pas, ouvre ce lien' : 'Si le bouton ne fonctionne pas, ouvrez ce lien')+' :<br><a href="'+non+'">'+non+'</a></p>'
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+      + '<p style="color:#999;font-size:12px">'+signatureMail()+'</p></div>';
+  }
+  async function envoyerMailDesinsc(g){
+    try{
+      var r = await fetch(SEND_FN, { method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+        body: JSON.stringify({ to:emailOf(g), subject:(vouvoyerG(g)?"Vous ne pouvez pas venir ? — ":"Tu ne peux pas venir ? — ")+(eventName||"Proclamation"),
+                               html:mailDesinscHtml(g), from:expediteurPour(g), reply_to:MAIL_REPONSES }) });
+      if(r && r.ok){ g.desinscDemandee=Date.now(); return true; }
+    }catch(e){}
+    return false;
+  }
+  /* Envoi à UNE personne (bouton « 📨 Désinscription » sur sa ligne) : pour tester sur soi, ou relancer quelqu'un. */
+  window.demanderDesinscriptionUn = async function(tok){
+    if(currentCommId()!=="proclamation") return;
+    var g = roster.filter(function(x){ return x.token===tok; })[0]; if(!g) return;
+    if(!emailOf(g)){ uiAlert("Pas d'adresse e-mail pour "+(g.name||"cette personne")+"."); return; }
+    if(!(await uiConfirm((g.desinscDemandee ? "RENVOYER" : "Envoyer")+" le mail « si vous ne venez pas, désinscrivez-vous » à "
+        +(g.name||"cette personne")+" ("+emailOf(g)+") ?\n\nSeule cette personne le recevra."))) return;
+    flash("Envoi…");
+    var ok = await envoyerMailDesinsc(g);
+    await enregistrerDemandesPresence();
+    flash(ok ? ("Mail envoyé à "+(g.name||"")+" ✓") : "⚠️ Échec de l'envoi — réessayez.");
+  };
+  function boutonDesinscUn(g){
+    if(currentCommId()!=="proclamation" || !g || !emailOf(g) || g.presence==="non") return "";
+    return '<button class="btn ghost xs" type="button" title="Envoyer à cette personne seulement le mail « si vous ne venez pas, désinscrivez-vous »" onclick="demanderDesinscriptionUn(\''+escapeHtml(g.token)+'\')">📨 Désinscription'+(g.desinscDemandee?' ✓':'')+'</button>';
+  }
+  function ciblesDesinsc(){
+    return roster.filter(function(g){ return g && g.token && emailOf(g) && g.presence!=="non"; });
+  }
+  var ENVOI_DESINSC=false;
+  window.demanderDesinscription = async function(){
+    if(currentCommId()!=="proclamation" || ENVOI_DESINSC) return;
+    var toutes = ciblesDesinsc();
+    var nouvelles = toutes.filter(function(g){ return !g.desinscDemandee; });
+    var cibles = nouvelles;
+    if(!toutes.length){ uiAlert("Personne à qui envoyer (aucun billet avec adresse e-mail)."); return; }
+    if(!nouvelles.length){
+      if(!(await uiConfirm("Tout le monde a déjà reçu ce mail.\n\nLe RENVOYER aux "+toutes.length+" personne(s) qui ne se sont pas désinscrites ?"))) return;
+      cibles = toutes;
+    } else {
+      var deja = toutes.length - nouvelles.length;
+      if(!(await uiConfirm("Envoyer le mail « si vous ne venez pas, désinscrivez-vous » à "+nouvelles.length+" personne(s) ?"
+          + (deja ? "\n\n("+deja+" l'ont déjà reçu : ils ne le recevront pas une 2e fois.)" : "")
+          + "\n\nDurée : environ "+Math.max(1, Math.round(nouvelles.length*0.9/60))+" min. Gardez la page ouverte pendant l'envoi."))) return;
+    }
+    ENVOI_DESINSC=true;
+    var ok=0, ko=0;
+    try{
+      for(var i=0;i<cibles.length;i++){
+        var g=cibles[i];
+        flash("Envoi "+(i+1)+"/"+cibles.length+"…");
+        var reussi = await envoyerMailDesinsc(g);
+        if(reussi) ok++; else ko++;
+        if((i+1)%20===0) await enregistrerDemandesPresence();     // sauvegarde en cours de route
+        if(i<cibles.length-1) await new Promise(function(res){ setTimeout(res,600); });
+      }
+    } finally {
+      ENVOI_DESINSC=false;
+      await enregistrerDemandesPresence();
+    }
+    uiAlert(ok+" mail(s) envoyé(s)."+(ko ? "\n⚠️ "+ko+" échec(s) : recliquez plus tard, seuls ceux-là seront renvoyés." : ""));
+  };
+  function blocDesinscHtml(){
+    if(currentCommId()!=="proclamation") return "";
+    var toutes=ciblesDesinsc();
+    var envoyes=roster.filter(function(g){ return g && g.desinscDemandee; }).length;
+    var nouv=toutes.filter(function(g){ return !g.desinscDemandee; }).length;
+    var partis=roster.filter(function(g){ return g && g.presence==="non"; });
+    var h='<div style="border:1px solid var(--line);border-radius:12px;padding:12px;margin:12px 0">'
+      + '<button class="btn gold sm" type="button" onclick="demanderDesinscription()">📨 Demander aux inscrits qui ne viennent pas de se désinscrire'
+      + (nouv ? ' ('+nouv+')' : '') + '</button>'
+      + '<p class="hint" style="margin:6px 0 0">'+(envoyes ? ('Déjà envoyé à '+envoyes+' personne(s).'+(nouv?' '+nouv+' ne l\'ont pas encore reçu.':'')) : 'Mail envoyé à tous les billets (tutoiement étudiant·e·s, vouvoiement autres rôles).')+'</p>';
+    if(partis.length){
+      h += '<p class="hint" style="margin:12px 0 4px;font-weight:700;color:var(--red)">❌ Se sont désinscrit·e·s ('+partis.length+') — supprimez leur billet pour mettre à jour le traiteur</p>'
+        + partis.map(function(g){
+            return '<div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid var(--line);background:rgba(214,69,69,.12)">'
+              + '<span style="flex:1;min-width:0"><b>'+escapeHtml(g.name||"?")+'</b><br><span class="hint">'
+              + escapeHtml([g.role?roleCourt(g.role):"", emailOf(g)||""].filter(Boolean).join(" — "))+'</span></span>'
+              + '<button class="btn ghost xs" type="button" style="color:var(--red);border-color:var(--red)" onclick="supprimerAbsent(\''+escapeHtml(g.token)+'\')">✕ Supprimer</button></div>';
+          }).join("");
+    }
+    return h+'</div>';
+  }
   /* La personne a répondu directement par e-mail : on la marque confirmée à la main. */
   window.confirmerParMail = async function(tok){
     var g = roster.filter(function(x){ return x.token===tok; })[0]; if(!g) return;
@@ -7776,6 +7883,7 @@
     }
 
     var html="";
+    try{ html += blocDesinscHtml(); }catch(e){}
     var attente=SIGNUPS.filter(function(x){return x.statut==="attente";});
     if(attente.length){
       var maxJ=getPlaces(), restant=maxJ? Math.max(0, maxJ-placesPrises()) : 0;
@@ -7885,12 +7993,16 @@
            : (autre && !g.presence && emailOf(g) ? '<button class="btn ghost xs" type="button" title="Demander la confirmation de présence" onclick="demanderPresenceUn(\''+escapeHtml(g.token)+'\')">📨 '+(g.presenceDemandee?'Relancer':'Demander')+'</button>' : '')
              + (autre && !g.presence ? '<button class="btn ghost xs" type="button" style="color:var(--green,#4caf7d)" onclick="confirmerParMail(\''+escapeHtml(g.token)+'\')">✅ Confirmé par mail</button>' : '')
              + (autre && g.presence==="oui" && g.presenceVia==="mail" ? '<button class="btn ghost xs" type="button" title="Annuler la confirmation" onclick="annulerConfirmation(\''+escapeHtml(g.token)+'\')">↩</button>' : '')
+             + boutonDesinscUn(g)
              + etat)
         + '</div></div>';
     }
     if(acc.length || manList.length){
-      var ligneAcc = function(x){ return '<div class="fiche-clic" data-fiche-su="'+SIGNUPS.indexOf(x)+'" title="Voir la fiche">'
-        + ligne(x,'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>') + '</div>'; };
+      var ligneAcc = function(x){
+        var _cle=signupKey(x), _g=roster.filter(function(y){ return y.viaFormulaire && y.sigKey===_cle; })[0];
+        if(!_g){ var _m=String(x.email||"").toLowerCase(); _g=roster.filter(function(y){ return y.viaFormulaire && _m && String(emailOf(y)||"").toLowerCase()===_m; })[0]; }
+        return '<div class="fiche-clic" data-fiche-su="'+SIGNUPS.indexOf(x)+'" title="Voir la fiche">'
+        + ligne(x, boutonDesinscUn(_g)+'<span class="hint" style="color:var(--green,#4caf7d)">✓</span>') + '</div>'; };
       var mix = acc.map(function(x){ return { role:x.role, nom:(x.name||""), html:function(){ return ligneAcc(x); } }; })
         .concat(manList.map(function(g){ return { role:g.role, nom:(g.name||""), man:true, g:g, html:function(){ return ligneMan(g); } }; }));
       var accHtml;
@@ -8474,7 +8586,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v183" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v184" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8495,8 +8607,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v183"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v183") : ("☁️ Synchronisation… · v183"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v184"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v184") : ("☁️ Synchronisation… · v184"));
     }
   }
   function syncReussie(cid){
@@ -9308,6 +9420,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v183</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v184</div>
 </body>
 </html>
