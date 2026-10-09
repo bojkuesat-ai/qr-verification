@@ -5287,7 +5287,7 @@
     if(!cibles.length){ uiAlert("Personne à relancer (tout le monde est entré, ou pas d'e-mail)."); return; }
     if(!(await uiConfirm("Envoyer un rappel (avec le billet) aux "+cibles.length+" personne(s) PAS encore entrées ?"))) return;
     flash("Envoi des rappels…");
-    var ok=0;
+    var ok=0, ok2=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       var entete='<h2 style="margin:0 0 10px">'+(vouvoyerG(g)?'Nous vous attendons !':'On t\'attend !')+'</h2>'
         +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
@@ -5300,10 +5300,47 @@
     }
     uiAlert("Rappel envoyé à "+ok+" personne(s) non entrées.");
   };
+  /* v187 — Proclamation : second mail « infos pratiques » envoyé avec le rappel de la veille.
+     Étudiant·e·s : règles d'accès en premier (tutoiement), puis vestiaire et parking.
+     Autres rôles : vestiaire et parking seulement, en vouvoyant. */
+  function mailInfosPratiquesHtml(g){
+    var etu = !!(g && g.role==="etudiant");
+    var regles = etu
+      ? '<div style="background:#fff4d6;border:3px solid #c9a227;border-radius:12px;padding:14px 16px;margin:14px 0 18px">'
+        + '<p style="margin:0 0 8px;font-size:18px;font-weight:bold;color:#7a5a00">⚠️ Règles d\'accès — aucune exception</p>'
+        + '<ul style="margin:0;padding-left:20px;font-size:15px;line-height:1.6;color:#181233">'
+        + '<li>L\'événement est <b>uniquement destiné aux étudiant·e·s diplômé·e·s proclamé·e·s</b>.</li>'
+        + '<li><b>Sans ton QR code, l\'accès te sera refusé.</b> Garde-le prêt sur ton téléphone.</li>'
+        + '<li><b>Il n\'est pas possible de venir accompagné·e</b> d\'un·e ami·e ou d\'un membre de ta famille.</li>'
+        + '<li><b>Aucune exception</b> ne sera faite à ces règles.</li></ul></div>'
+      : '';
+    var vestiaire = '<p style="margin:18px 0 4px;font-size:16px;font-weight:bold">🧥 Vestiaire</p>'
+      + '<p style="margin:0">Un vestiaire sera mis à '+(etu?'ta':'votre')+' disposition sur place. '
+      + 'La Délégation étudiante de la Faculté de Droit et de Criminologie <b>décline toute responsabilité en cas de vol ou de perte</b> des affaires qui y sont déposées.</p>';
+    var parking = '<p style="margin:18px 0 4px;font-size:16px;font-weight:bold">🚗 Parking</p>'
+      + '<p style="margin:0">Le parking de l\'ULB sera ouvert <b>jusqu\'à 21h30</b>.</p>';
+    var fin = etu ? '<p style="margin-top:18px">On se réjouit de fêter ça avec toi demain !</p>'
+                  : '<p style="margin-top:18px">Au plaisir de vous accueillir demain.</p>';
+    return '<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:0 auto;color:#181233">'
+      + '<p>Bonjour '+mailEsc(salutNom(g))+',</p>'
+      + regles + vestiaire + parking + fin
+      + '<hr style="border:none;border-top:1px solid #eee;margin:20px 0">'
+      + '<p style="color:#999;font-size:12px">'+signatureMail("proclamation")+'</p></div>';
+  }
+  async function envoyerInfosPratiques(g){
+    if(!g || !emailOf(g)) return false;
+    try{
+      var r = await fetch(SEND_FN, { method:"POST",
+        headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+SUPA_ANON, "apikey":SUPA_ANON },
+        body: JSON.stringify({ to:emailOf(g), subject:"Infos pratiques — "+(eventName||"Proclamation")+" (demain)",
+                               html:mailInfosPratiquesHtml(g), from:expediteurPour(g), reply_to:MAIL_REPONSES }) });
+      return !!(r && r.ok);
+    }catch(e){ return false; }
+  }
   window.envoyerRappel=async function(auto){
     var cibles = roster.filter(function(g){ return emailOf(g); });
     if(!cibles.length){ if(!auto) uiAlert("Aucun invité avec e-mail."); return; }
-    if(!auto && !(await uiConfirm("Envoyer le rappel avec le billet à "+cibles.length+" personne(s) ?"))) return;
+    if(!auto && !(await uiConfirm("Envoyer le rappel avec le billet à "+cibles.length+" personne(s) ?"+(currentCommId()==="proclamation"?"\n\nUn second mail « infos pratiques » (accès, vestiaire, parking) partira juste après.":"")))) return;
     var d=getEvDate();
     /* Réservation AVANT l'envoi. Le marquage n'avait lieu qu'à la fin de la boucle :
        à 900 personnes et 0,6 s par mail, deux appareils admin ouverts la veille
@@ -5326,10 +5363,16 @@
             : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>');
       try{ var r=await envoiBillet(g, "Rappel — "+(eventName||"notre événement"), {entete:entete, sansCooptation:true}); if(r.ok) ok++; }catch(e){}
       await new Promise(function(res){setTimeout(res,120);});
+      if(currentCommId()==="proclamation"){           // second mail : infos pratiques
+        try{ if(await envoyerInfosPratiques(g)) ok2++; }catch(e){}
+        await new Promise(function(res){setTimeout(res,120);});
+      }
     }
     try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
     await marquerRappelCloud(getEvDate());          // partagé entre appareils : évite un 2e envoi à tout le monde
-    if(!auto) uiAlert("Rappel envoyé à "+ok+" personne(s)."); else flash("Rappel envoyé à "+ok+" personne(s).");
+    var bilanR = "Rappel envoyé à "+ok+" personne(s)."
+      + (currentCommId()==="proclamation" ? "\nMail « infos pratiques » envoyé à "+ok2+" personne(s)." : "");
+    if(!auto) uiAlert(bilanR); else flash(bilanR);
   };
   /* Le marqueur vit dans le cloud (champ rappelFait) : sinon, ouvrir l'app sur un 2e appareil
      la veille renvoyait le rappel à TOUT LE MONDE une seconde fois. */
@@ -8591,7 +8634,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v185" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v187" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8612,8 +8655,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v185"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v185") : ("☁️ Synchronisation… · v185"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v187"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v187") : ("☁️ Synchronisation… · v187"));
     }
   }
   function syncReussie(cid){
@@ -9369,7 +9412,7 @@
        premier billet : la relecture était lancée sans attente depuis refreshSignups,
        donc un envoi déclenché tout de suite partait avec l'ancien état. */
     try{ await lunchSyncDepuisDoc(id); }catch(e){}
-    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); setTimeout(function(){ try{ verifierRappelVeille(); }catch(e){} }, 1500); }
+    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); /* v187 : plus de proposition automatique du rappel — envoi uniquement via le bouton « Envoyer le rappel ». */ }
     startCloudPoll();
   }
   function startApp(){
@@ -9425,6 +9468,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v185</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v187</div>
 </body>
 </html>
