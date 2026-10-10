@@ -5287,7 +5287,7 @@
     if(!cibles.length){ uiAlert("Personne à relancer (tout le monde est entré, ou pas d'e-mail)."); return; }
     if(!(await uiConfirm("Envoyer un rappel (avec le billet) aux "+cibles.length+" personne(s) PAS encore entrées ?"))) return;
     flash("Envoi des rappels…");
-    var ok=0, ok2=0;
+    var ok=0;
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
       var entete='<h2 style="margin:0 0 10px">'+(vouvoyerG(g)?'Nous vous attendons !':'On t\'attend !')+'</h2>'
         +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
@@ -5300,7 +5300,7 @@
     }
     uiAlert("Rappel envoyé à "+ok+" personne(s) non entrées.");
   };
-  /* v188 — Proclamation : second mail « infos pratiques » envoyé avec le rappel de la veille.
+  /* v189 — Proclamation : second mail « infos pratiques » envoyé avec le rappel de la veille.
      Étudiant·e·s : règles d'accès en premier (tutoiement), puis vestiaire et parking.
      Autres rôles : vestiaire et parking seulement, en vouvoyant. */
   /* Plan du campus Solbosch (entrée 12-13 et local AX.1.216 entourés), joint au mail infos pratiques. */
@@ -5343,6 +5343,75 @@
       return !!(r && r.ok);
     }catch(e){ return false; }
   }
+  /* v189 — Rappel : suivi de l'envoi et renvoi aux seules personnes en échec. */
+  function quandRappel(){
+    var d=getEvDate();
+    return d ? new Date(d+"T00:00:00").toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long"}) : "demain";
+  }
+  function enteteRappel(g, quand){
+    return '<h2 style="margin:0 0 10px">Rappel — c\'est '+escapeHtml(quand)+'</h2>'
+      +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
+      +encadreEtudiantRappel(g)
+      +(vouvoyerG(g)
+          ? '<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
+          : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>');
+  }
+  /* Envoie à une personne le rappel (si avecRappel) et le mail infos pratiques (si avecInfos).
+     r1/r2 = réussites, e1/e2 = échecs. */
+  async function envoyerUnRappel(g, quand, avecRappel, avecInfos){
+    var o={r1:false,r2:false,e1:false,e2:false};
+    if(avecRappel){
+      try{ var r=await envoiBillet(g, "Rappel — "+(eventName||"notre événement"), {entete:enteteRappel(g,quand), sansCooptation:true});
+           if(r && r.ok) o.r1=true; else o.e1=true; }catch(e){ o.e1=true; }
+      await new Promise(function(res){setTimeout(res,120);});
+    }
+    if(avecInfos){
+      try{ if(await envoyerInfosPratiques(g)) o.r2=true; else o.e2=true; }catch(e){ o.e2=true; }
+      await new Promise(function(res){setTimeout(res,120);});
+    }
+    return o;
+  }
+  function libelleEchec(e1,e2){ return (e1&&e2) ? " (les 2 mails)" : (e1 ? " (rappel)" : " (infos pratiques)"); }
+  function cleEchecsRappel(){ return "qrentry:rappelEchecs:"+(currentCommId()||""); }
+  function lireEchecsRappel(){ try{ return JSON.parse(window.localStorage.getItem(cleEchecsRappel())||"[]")||[]; }catch(e){ return []; } }
+  function sauverEchecsRappel(l){ try{ window.localStorage.setItem(cleEchecsRappel(), JSON.stringify(l||[])); }catch(e){} }
+  function majBoutonRenvoiRappel(){
+    var w=$("rappelRenvoiWrap"); if(!w) return;
+    var n=lireEchecsRappel().length;
+    if(!n){ w.style.display="none"; w.innerHTML=""; return; }
+    w.style.display="block";
+    w.innerHTML='<button class="btn gold sm" type="button" onclick="renvoyerEchecsRappel()">🔁 Renvoyer aux échecs ('+n+')</button>'
+      +'<span class="hint" style="margin-left:8px">Seuls les mails qui ont échoué sont renvoyés.</span>';
+  }
+  var RENVOI_RAPPEL_EN_COURS=false;
+  window.renvoyerEchecsRappel=async function(){
+    if(RENVOI_RAPPEL_EN_COURS) return;
+    var liste=lireEchecsRappel();
+    if(!liste.length){ uiAlert("Aucun échec à renvoyer."); majBoutonRenvoiRappel(); return; }
+    if(!(await uiConfirm("Renvoyer uniquement les mails qui ont échoué, à "+liste.length+" personne(s) ?"))) return;
+    RENVOI_RAPPEL_EN_COURS=true;
+    if($("rappelRenvoiWrap")) $("rappelRenvoiWrap").style.display="none";
+    try{
+      var quand=quandRappel(), reste=[], okP=0;
+      var suivi=suiviEnvoi("rappelProgress","Renvoi aux échecs"); suivi.debut(liste.length);
+      for(var i=0;i<liste.length;i++){
+        var it=liste[i], g=roster.filter(function(x){ return x && x.token===it.token; })[0];
+        if(!g || !emailOf(g)) continue;                  // billet supprimé entre-temps : on l'oublie
+        suivi.pas(i, liste.length, g.name, okP, reste.length);
+        var res=await envoyerUnRappel(g, quand, !!it.rappel, !!it.infos);
+        if(res.e1 || res.e2){
+          reste.push({ token:g.token, rappel:res.e1, infos:res.e2 });
+          suivi.echec(g.name+libelleEchec(res.e1,res.e2), emailOf(g));
+        } else okP++;
+      }
+      suivi.fin(liste.length, okP, reste.length);
+      sauverEchecsRappel(reste);
+      uiAlert(reste.length ? (okP+" personne(s) rattrapée(s), "+reste.length+" encore en échec.") : ("Tout est rattrapé : "+okP+" personne(s)."));
+    } finally {
+      RENVOI_RAPPEL_EN_COURS=false;
+      majBoutonRenvoiRappel();
+    }
+  };
   window.envoyerRappel=async function(auto){
     var cibles = roster.filter(function(g){ return emailOf(g); });
     if(!cibles.length){ if(!auto) uiAlert("Aucun invité avec e-mail."); return; }
@@ -5357,27 +5426,29 @@
       try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+d,"1"); }catch(e){}
       try{ await marquerRappelCloud(d); }catch(e){}
     }
-    var quand = d ? new Date(d+"T00:00:00").toLocaleDateString("fr-BE",{weekday:"long",day:"numeric",month:"long"}) : "demain";
+    var quand = quandRappel();
     flash("Envoi des rappels…");
-    var ok=0;
+    var ok=0, ok2=0, okP=0, echecs=[];
+    var suivi=suiviEnvoi("rappelProgress","Envoi du rappel"); suivi.debut(cibles.length);
+    if($("rappelRenvoiWrap")) $("rappelRenvoiWrap").style.display="none";
     for(var i=0;i<cibles.length;i++){ var g=cibles[i];
-      var entete='<h2 style="margin:0 0 10px">Rappel — c\'est '+escapeHtml(quand)+'</h2>'
-        +'<p>Bonjour '+escapeHtml(salutNom(g))+',</p>'
-        +encadreEtudiantRappel(g)
-        +(vouvoyerG(g)
-            ? '<p>Nous vous attendons pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau votre billet — présentez-le à l\'entrée :</p>'
-            : '<p>On t\'attend pour <b>'+escapeHtml(eventName||"notre événement")+'</b>.</p><p>Voici à nouveau ton billet — présente-le à l\'entrée :</p>');
-      try{ var r=await envoiBillet(g, "Rappel — "+(eventName||"notre événement"), {entete:entete, sansCooptation:true}); if(r.ok) ok++; }catch(e){}
-      await new Promise(function(res){setTimeout(res,120);});
-      if(currentCommId()==="proclamation"){           // second mail : infos pratiques
-        try{ if(await envoyerInfosPratiques(g)) ok2++; }catch(e){}
-        await new Promise(function(res){setTimeout(res,120);});
-      }
+      suivi.pas(i, cibles.length, g.name, okP, echecs.length);
+      var res=await envoyerUnRappel(g, quand, true, currentCommId()==="proclamation");
+      if(res.r1) ok++;
+      if(res.r2) ok2++;
+      if(res.e1 || res.e2){
+        echecs.push({ token:g.token, rappel:res.e1, infos:res.e2 });
+        suivi.echec(g.name+libelleEchec(res.e1,res.e2), emailOf(g));
+      } else okP++;
     }
+    suivi.fin(cibles.length, okP, echecs.length);
+    sauverEchecsRappel(echecs);
+    majBoutonRenvoiRappel();
     try{ window.localStorage.setItem("qrentry:rappelfait:"+(currentCommId()||"")+":"+getEvDate(),"1"); }catch(e){}
     await marquerRappelCloud(getEvDate());          // partagé entre appareils : évite un 2e envoi à tout le monde
     var bilanR = "Rappel envoyé à "+ok+" personne(s)."
-      + (currentCommId()==="proclamation" ? "\nMail « infos pratiques » envoyé à "+ok2+" personne(s)." : "");
+      + (currentCommId()==="proclamation" ? "\nMail « infos pratiques » envoyé à "+ok2+" personne(s)." : "")
+      + (echecs.length ? "\n\n⚠️ "+echecs.length+" personne(s) en échec : utilise « Renvoyer aux échecs »." : "");
     if(!auto) uiAlert(bilanR); else flash(bilanR);
   };
   /* Le marqueur vit dans le cloud (champ rappelFait) : sinon, ouvrir l'app sur un 2e appareil
@@ -7613,6 +7684,8 @@
         <button class="btn ghost sm" id="btnRappel" type="button">Envoyer le rappel</button>
         <button class="btn ghost sm" id="btnRappelNon" type="button" onclick="rappelNonEntres()">Rappel aux non-entré·e·s</button>
       </div>
+      <div id="rappelProgress" style="display:none"></div>
+      <div id="rappelRenvoiWrap" style="display:none;margin-top:8px"></div>
       <div style="height:10px"></div>
       <label class="fld" for="suCloture">Clôture des inscriptions (le formulaire se ferme après cette date)</label>
       <div class="row" style="gap:8px;align-items:center">
@@ -7731,6 +7804,7 @@
     var b, cid=currentCommId();
     b=$("btnSaveEv");    if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ saveEvName(); }; }
     b=$("btnRappel");    if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ envoyerRappel(false); }; }
+    try{ majBoutonRenvoiRappel(); }catch(e){}
     b=$("btnResetInsc"); if(b && !b.__ok){ b.__ok=1; b.onclick=function(){ resetInscriptions(); }; }
     b=$("btnCloture");   if(b && !b.__ok){ b.__ok=1; b.onclick=async function(){
       var v=($("suCloture")&&$("suCloture").value)||"";
@@ -8640,7 +8714,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v188" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v189" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8661,8 +8735,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v188"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v188") : ("☁️ Synchronisation… · v188"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v189"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v189") : ("☁️ Synchronisation… · v189"));
     }
   }
   function syncReussie(cid){
@@ -9418,7 +9492,7 @@
        premier billet : la relecture était lancée sans attente depuis refreshSignups,
        donc un envoi déclenché tout de suite partait avec l'ancien état. */
     try{ await lunchSyncDepuisDoc(id); }catch(e){}
-    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); /* v188 : plus de proposition automatique du rappel — envoi uniquement via le bouton « Envoyer le rappel ». */ }
+    if(CURRENT_ROLE==="admin"){ try{ refreshSignups(true); }catch(e){} demarrerAutoSignups(); /* v189 : plus de proposition automatique du rappel — envoi uniquement via le bouton « Envoyer le rappel ». */ }
     startCloudPoll();
   }
   function startApp(){
@@ -9474,6 +9548,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v188</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v189</div>
 </body>
 </html>
