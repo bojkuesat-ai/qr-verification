@@ -954,13 +954,19 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v141</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v191</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
     <p class="sub" id="admInfo">—</p>
     <button class="btn ghost xs" type="button" onclick="admChanger()">Changer le mot de passe</button>
     <p class="hint" id="admChangeEtat" style="margin-top:6px;min-height:14px"></p>
+    <div style="margin-top:14px;border:1px solid #5c2530;border-radius:12px;padding:12px">
+      <b style="color:var(--red)">Déconnecter tous les appareils</b>
+      <p class="hint" style="margin:4px 0 10px">Tous les ordinateurs et téléphones connectés à une commission sont déconnectés (dans les 30 secondes s'ils sont ouverts, sinon à la prochaine ouverture). Ils devront se reconnecter avec le mot de passe actuel. Cet appareil-ci reste connecté.</p>
+      <button class="btn danger sm" type="button" onclick="decoPartout()">🔒 Déconnecter partout</button>
+      <p class="hint" id="decoEtat" style="margin-top:6px;min-height:14px"></p>
+    </div>
     <h2 style="margin-top:18px">Co-organisateurs</h2>
     <p class="sub">Associations partenaires à mentionner, commission par commission. Elles <b>s'ajoutent</b> au Bureau étudiant et à la Délégation, sans jamais les remplacer. Une fois cochées, elles apparaissent dans l'en-tête du formulaire d'inscription, dans la signature de tous les mails et dans l'encadré RGPD.</p>
     <div id="coorgList" class="coorg-grid" style="margin-top:10px"></div>
@@ -1413,6 +1419,7 @@
   function mapPropre(m){
     var out={};
     COMMISSIONS.forEach(function(c){ if(m && m[c.id]==="0") out[c.id]="0"; });
+    if(m && /^\d+$/.test(String(m._deco||""))) out._deco=String(m._deco);   // v191 : « Déconnecter partout »
     return out;
   }
   function commActive(cid){ return mapAccueil()[cid]!=="0"; }
@@ -1476,12 +1483,69 @@
       var v = d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
       if(!v) return;                           // champ absent : on ne touche à rien
       var m=mapPropre(JSON.parse(v));
+      verifierDeco(m._deco);
       if(JSON.stringify(m)===JSON.stringify(mapAccueil())) return;
       setMapAccueil(m);
       renderCommActif();
       if(typeof renderHome==="function") renderHome();
     }catch(e){}
   }
+  /* ---------- v191 : « Déconnecter partout » ----------
+     L'heure de la demande est publiée dans le champ `accueil` du document du
+     parrainage (clé `_deco`), déjà lu régulièrement par chaque appareil. Toute
+     session ouverte AVANT cette heure est effacée. */
+  function heureSession(a){ return (a && a.since) || 0; }   // sessions d'avant v191 : 0 → déconnectées
+  function verifierDeco(deco){
+    var t=parseInt(deco||"0",10); if(!t) return;
+    var vu=0; try{ vu=parseInt(window.localStorage.getItem("qrentry:decoVu")||"0",10)||0; }catch(e){}
+    if(t<=vu) return;                                           // demande déjà appliquée sur cet appareil
+    try{ window.localStorage.setItem("qrentry:decoVu", String(t)); }catch(e){}
+    var cid=currentCommId(), ejecte=false;
+    COMMISSIONS.forEach(function(c){
+      var a=loadAuth(c.id);
+      if(a && heureSession(a) < t){ clearAuthTok(c.id); if(c.id===cid) ejecte=true; }
+    });
+    var adm=admLocal();                                         // l'ancien mot de passe ne marche plus hors-ligne
+    if(adm && adm.hash && (adm.at||0) < t){ setAdmLocal({}); admTok=null; }
+    if(reglTok && reglTokAt < t){ reglTok=null; reglTokAt=0; }
+    if(ejecte){
+      try{ $("settingsModal").classList.remove("on"); }catch(e){}
+      goHome();
+      try{ uiAlert("Vous avez été déconnecté·e.\n\nUn administrateur a déconnecté tous les appareils. Reconnectez-vous avec le mot de passe actuel."); }catch(e){}
+    }
+  }
+  window.decoPartout = async function(){
+    var et=$("decoEtat");
+    if(!(await uiConfirm("Déconnecter TOUS les appareils (ordinateurs et téléphones), toutes commissions confondues ?\n\nIls devront se reconnecter avec le mot de passe actuel. Cet appareil-ci reste connecté."))) return;
+    if(et){ et.textContent="Enregistrement…"; et.style.color=""; }
+    var t=Date.now(), ok=false, souci="";
+    try{
+      var tok=await jetonReglages();
+      if(!tok) souci="compte de réglages inaccessible";
+      else{
+        var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);   // relu pour ne pas écraser les commissions masquées
+        var m={}; try{ m=mapPropre(JSON.parse((d&&d.fields&&d.fields.accueil&&d.fields.accueil.stringValue)||"{}")); }catch(e){ m={}; }
+        m._deco=String(t);
+        var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
+        ok=!!(r&&r.ok);
+        if(ok){ setMapAccueil(m); }
+        else souci="refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
+      }
+    }catch(e){ souci="pas de connexion"; }
+    if(ok){
+      /* cet appareil reste connecté : ses sessions passent après la demande */
+      var apres=t+1;
+      COMMISSIONS.forEach(function(c){ var a=loadAuth(c.id); if(a){ a.since=apres; saveAuthTok(c.id,a); } });
+      var adm=admLocal(); if(adm && adm.hash){ adm.at=apres; setAdmLocal(adm); }
+      reglTokAt=apres;
+      try{ window.localStorage.setItem("qrentry:decoVu", String(t)); }catch(e){}
+    }
+    if(et){
+      et.textContent = ok ? "✅ Demande envoyée. Les autres appareils seront déconnectés dans les 30 secondes (ou à leur prochaine ouverture)."
+                          : ("❌ Non enregistré — "+souci+". Rien n'a changé.");
+      et.style.color = ok ? "var(--green,#7ddc9a)" : "#e88";
+    }
+  };
   /* Prénoms signant les mails de la proclamation, dans cet ordre. */
   var SIGNATAIRES_PROCLA = ["Esat", "Najwa", "Waled", "Shekinah", "Anaïs", "Charlotte"];
   function signatureMail(cid){
@@ -4790,7 +4854,7 @@
       var d = await fbCall("signInWithPassword", { email:mail, password:p, returnSecureToken:true });
       admTok = d.idToken || null;
       var h = await empreinte(mail, p);        // empreinte gardée sur l'appareil, pour le hors-ligne
-      setAdmLocal({ mail:mail, hash:h, okUntil: Date.now()+ADMIN_JOURS*86400000 });
+      setAdmLocal({ mail:mail, hash:h, okUntil: Date.now()+ADMIN_JOURS*86400000, at: Date.now() });
       admErr("settingsPwdErr","");
       ouvrirReglages();
     }catch(e){
@@ -4835,7 +4899,7 @@
       if(d.idToken) admTok=d.idToken;
       var lm=admLocal();
       var h=await empreinte(lm.mail||"", p);
-      setAdmLocal({ mail:lm.mail, hash:h, okUntil: Date.now()+ADMIN_JOURS*86400000 });
+      setAdmLocal({ mail:lm.mail, hash:h, okUntil: Date.now()+ADMIN_JOURS*86400000, at: Date.now() });
       dire("✅ Mot de passe changé.", true);
     }catch(e){ dire(admMsg(e), false); }
   };
@@ -8666,7 +8730,12 @@
   }
   function validEmail(s){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); }
   function loadAuth(id){ try{ var v=window.localStorage.getItem("qrentry:auth:"+id); return v?JSON.parse(v):null; }catch(e){ return null; } }
-  function saveAuthTok(id,d){ try{ window.localStorage.setItem("qrentry:auth:"+id, JSON.stringify(d)); }catch(e){} }
+  function saveAuthTok(id,d){
+    try{
+      if(d && !d.since){ var old=loadAuth(id); d.since = (old && old.since) || Date.now(); }   // v191 : heure d'ouverture de la session
+      window.localStorage.setItem("qrentry:auth:"+id, JSON.stringify(d));
+    }catch(e){}
+  }
   function clearAuthTok(id){ try{ window.localStorage.removeItem("qrentry:auth:"+id); }catch(e){} }
   async function fbCall(path, body, ms){
     var u="https://identitytoolkit.googleapis.com/v1/accounts:"+path+"?key="+FIREBASE_API_KEY, o={ method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) };
@@ -8747,7 +8816,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v190" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v191" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8768,8 +8837,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v190"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v190") : ("☁️ Synchronisation… · v190"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v191"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v191") : ("☁️ Synchronisation… · v191"));
     }
   }
   function syncReussie(cid){
@@ -9148,6 +9217,7 @@
     if(Date.now()-_dernierRetour < 2000) return; _dernierRetour=Date.now();
     try{ cloudPull(cid); }catch(e){}
     try{ if(CURRENT_ROLE==="admin" && typeof window.refreshSignups==="function") window.refreshSignups(true); }catch(e){}
+    try{ syncCommActifs(true); }catch(e){}
   }
   document.addEventListener("visibilitychange", relireAuRetour);
   window.addEventListener("focus", relireAuRetour);
@@ -9160,6 +9230,7 @@
       /* Tous les onglets de gestion : un ajout manuel fait sur un autre appareil doit
          apparaître aussi dans Invités et Traiteur, pas seulement dans Suivi et Scanner. */
       if(cid && ["scan","list","guests","traiteur","parrainage","coopt"].indexOf(currentTab)>=0) cloudPull(cid);
+      try{ syncCommActifs(); }catch(e){}          // v191 : relit aussi « Déconnecter partout » (au plus toutes les 30 s)
     }, 6000);
   }
 
@@ -9310,7 +9381,7 @@
           return;
         }
       }
-      saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:email });
+      saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:email, since:Date.now() });
       saveEmailFor(id, email);
       $("authModal").classList.remove("on"); proceedCommission(id);
       if(hadNone){ setTimeout(function(){ showWelcome(id); }, 350); }
@@ -9331,7 +9402,7 @@
           catch(e2){ if((e2.message||"").indexOf("EMAIL_EXISTS")>=0){ return false; } throw e2; }
         } else { throw e1; }
       }
-      saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:acc.email });
+      saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:acc.email, since:Date.now() });
       saveEmailFor(id, acc.email);
       return true;
     }catch(e){ return false; }
@@ -9581,6 +9652,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v190</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v191</div>
 </body>
 </html>
