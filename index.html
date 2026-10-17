@@ -461,6 +461,7 @@
 
   <!-- INVITÉS -->
   <section id="tab-guests" class="on">
+    <div id="fermeBandeauG" style="display:none;background:#7a1f1f;color:#fff;border:2px solid #e05555;border-radius:12px;padding:12px 14px;margin:12px 0;font-size:14.5px;line-height:1.45">⛔ <b>Inscriptions fermées.</b> Quota dépassé — impossible d'ajouter, en ligne comme à la main. Rouvre-les dans les Réglages (⚙).</div>
     <div class="card gen-card">
       <div class="gen-head">
         <h2>Créer les billets</h2>
@@ -631,6 +632,7 @@
 
   <!-- PARRAINAGE -->
   <section id="tab-parrainage">
+    <div id="fermeBandeauP" style="display:none;background:#7a1f1f;color:#fff;border:2px solid #e05555;border-radius:12px;padding:12px 14px;margin:12px 0;font-size:14.5px;line-height:1.45">⛔ <b>Inscriptions fermées.</b> Quota dépassé — impossible d'ajouter, en ligne comme à la main. Rouvre-les dans les Réglages (⚙).</div>
     <div class="card gen-card">
       <div class="gen-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>Parrainage — créer les billets</h2><button class="btn ghost sm" onclick="newEvent()">Nouvel événement</button><button class="btn ghost sm" id="scannerBtnP" onclick="openScannerModal()" style="display:none">Compte scanner</button></div>
       <p class="sub">Crée les QR par groupe : choisis le rôle, l'année et la section, colle la liste (Nom + e-mail), puis « Ajouter ce groupe ». Répète pour chaque groupe.</p>
@@ -944,6 +946,13 @@
     <div id="commActifList" class="coorg-grid" style="margin-top:10px"></div>
     <p class="hint" style="margin-top:8px">Le changement est enregistré tout de suite, pour tous les appareils. Reclique pour revenir en arrière.</p>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
+    <h2 style="margin-top:18px">Formulaire d'inscription</h2>
+    <p class="sub">Ouvre ou ferme les inscriptions, commission par commission. Fermé : le formulaire en ligne <b>et</b> l'ajout manuel affichent « Quota dépassé — impossible d'ajouter ». Les inscriptions déjà en cours (validation, confirmation par mail) se terminent normalement.</p>
+    <div id="formOuvertList" class="coorg-grid" style="margin-top:10px"></div>
+    <div class="row" style="margin-top:11px"><button class="btn gold sm" type="button" id="formOuvertSave" onclick="enregistrerFormOuvert()">Enregistrer</button></div>
+    <p class="hint" id="formOuvertEtat" style="margin-top:6px;min-height:14px">Clique sur un bouton pour préparer le changement, puis sur « Enregistrer ».</p>
+
+    <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Infos pratiques (dans les mails)</h2>
     <p class="sub">Date, heure et lieu de l'événement. Ces informations sont ajoutées automatiquement aux e-mails (billet et confirmation).</p>
     <div class="prow">
@@ -954,7 +963,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v191</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v192</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1420,6 +1429,10 @@
     var out={};
     COMMISSIONS.forEach(function(c){ if(m && m[c.id]==="0") out[c.id]="0"; });
     if(m && /^\d+$/.test(String(m._deco||""))) out._deco=String(m._deco);   // v191 : « Déconnecter partout »
+    if(m && m._form && typeof m._form==="object"){                         // v192 : formulaires fermés
+      var fo={}; COMM_FORM.forEach(function(id){ if(m._form[id]==="0") fo[id]="0"; });
+      if(Object.keys(fo).length) out._form=fo;
+    }
     return out;
   }
   function commActive(cid){ return mapAccueil()[cid]!=="0"; }
@@ -1456,6 +1469,11 @@
       var tok=await jetonReglages();
       if(!tok) souci="compte de réglages inaccessible";
       else{
+        var dA=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);          // v192 : relu pour ne pas écraser le reste
+        try{ var mS=mapPropre(JSON.parse((dA&&dA.fields&&dA.fields.accueil&&dA.fields.accueil.stringValue)||"{}"));
+             COMMISSIONS.forEach(function(c){ if(c.id!==cid){ if(mS[c.id]==="0") m[c.id]="0"; else delete m[c.id]; } });
+             if(mS._deco) m._deco=mS._deco; else delete m._deco;
+             if(mS._form) m._form=mS._form; else delete m._form; }catch(e){}
         var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
         ok = !!(r && r.ok);
         if(!ok) souci = "refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
@@ -1487,9 +1505,113 @@
       if(JSON.stringify(m)===JSON.stringify(mapAccueil())) return;
       setMapAccueil(m);
       renderCommActif();
+      try{ majBandeauFerme(); }catch(e){}
       if(typeof renderHome==="function") renderHome();
     }catch(e){}
   }
+  /* ---------- v192 : formulaire d'inscription ouvert / fermé ----------
+     Rangé dans `accueil._form` du document du parrainage : {"festif":"0"} = fermé.
+     Absent = ouvert. Fermé : formulaire en ligne ET ajout manuel bloqués. */
+  var COMM_FORM = ["parrainage","festif","culture","aca","proclamation","crimino"];
+  var MSG_QUOTA = "Quota dépassé — impossible d'ajouter.";
+  function formFerme(cid){ var f=mapAccueil()._form; return !!(f && f[cid]==="0"); }
+  /* Relit le serveur (4 s max) avant un ajout manuel ; sinon dernier état connu. */
+  async function formFermeFrais(cid){
+    if(COMM_FORM.indexOf(cid)<0) return false;
+    try{
+      var lu = await Promise.race([
+        (async function(){
+          var tok=await jetonReglages(); if(!tok) return null;
+          var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"], 4000);
+          var v=d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
+          return v ? mapPropre(JSON.parse(v)) : (d ? {} : null);
+        })(),
+        new Promise(function(r){ setTimeout(function(){ r(null); }, 4500); })
+      ]);
+      if(lu){ var loc=mapAccueil(); if(lu._form) loc._form=lu._form; else delete loc._form; setMapAccueil(loc); }
+    }catch(e){}
+    return formFerme(cid);
+  }
+  /* À appeler au début de chaque ajout manuel. true = bloqué (popup affichée). */
+  async function bloqueSiFerme(){
+    var cid=currentCommId();
+    if(!cid || !(await formFermeFrais(cid))) return false;
+    await uiAlert("⛔ "+MSG_QUOTA+"\n\nLes inscriptions de « "+commName(cid)+" » sont fermées. Rouvre-les dans les Réglages (⚙) pour ajouter quelqu'un.");
+    return true;
+  }
+  var FORM_BROUILLON = null;                 // choix préparés, pas encore enregistrés
+  function renderFormOuvert(){
+    var box=$("formOuvertList"); if(!box) return;
+    if(!FORM_BROUILLON){ FORM_BROUILLON={}; COMM_FORM.forEach(function(id){ FORM_BROUILLON[id]=!formFerme(id); }); }
+    box.innerHTML = COMM_FORM.map(function(id){
+      var on=FORM_BROUILLON[id], change=(on===formFerme(id));
+      return '<div style="border:1px solid '+(change?'var(--gold,#e8b04b)':(on?'var(--gold-dim,#7a641f)':'#5c2530'))+';border-radius:10px;padding:9px 11px;'
+        + (on?'background:rgba(216,180,90,.06)':'background:rgba(242,100,95,.06)')+'">'
+        + '<div style="font-size:13.5px;font-weight:700;margin-bottom:6px">'+escapeHtml(commName(id))+(change?' <span style="color:var(--gold);font-size:11px">· modifié</span>':'')+'</div>'
+        + '<button class="btn '+(on?'gold':'danger')+' xs" type="button" style="width:100%" onclick="preparerFormOuvert(\''+id+'\')">'+(on?'Ouvert':'Fermé')+'</button>'
+        + '</div>';
+    }).join("");
+  }
+  window.preparerFormOuvert = function(id){
+    if(!FORM_BROUILLON) renderFormOuvert();
+    FORM_BROUILLON[id] = !FORM_BROUILLON[id];
+    renderFormOuvert();
+    var et=$("formOuvertEtat"); if(et){ et.textContent="Changement pas encore enregistré : clique sur « Enregistrer »."; et.style.color="var(--gold)"; }
+  };
+  var FORM_SAVE_EN_COURS=false;
+  window.enregistrerFormOuvert = async function(){
+    if(FORM_SAVE_EN_COURS) return;
+    if(!FORM_BROUILLON) renderFormOuvert();
+    var ouvrir=[], fermer=[];
+    COMM_FORM.forEach(function(id){
+      var veut=FORM_BROUILLON[id], est=!formFerme(id);
+      if(veut && !est) ouvrir.push(commName(id));
+      if(!veut && est) fermer.push(commName(id));
+    });
+    if(!ouvrir.length && !fermer.length){ await uiAlert("Aucun changement à enregistrer."); return; }
+    var recap = (fermer.length ? "FERMER : "+fermer.join(", ")+"\n" : "") + (ouvrir.length ? "OUVRIR : "+ouvrir.join(", ")+"\n" : "");
+    if(!(await uiConfirm("Confirmer ces changements ?\n\n"+recap+"\nFermé = formulaire en ligne et ajout manuel bloqués (« "+MSG_QUOTA+" »)."))) return;
+    FORM_SAVE_EN_COURS=true;
+    var btn=$("formOuvertSave"); if(btn){ btn.disabled=true; btn.textContent="Enregistrement…"; }
+    var ok=false, souci="";
+    try{
+      var tok=await jetonReglages();
+      if(!tok) souci="compte de réglages inaccessible";
+      else{
+        var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);   // relu : on ne touche qu'à _form
+        var m={}; try{ m=mapPropre(JSON.parse((d&&d.fields&&d.fields.accueil&&d.fields.accueil.stringValue)||"{}")); }catch(e){ m={}; }
+        var fo={}; COMM_FORM.forEach(function(id){ if(!FORM_BROUILLON[id]) fo[id]="0"; });
+        if(Object.keys(fo).length) m._form=fo; else delete m._form;
+        var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
+        ok=!!(r&&r.ok);
+        if(ok){                                  // vérification : on relit ce qui est vraiment enregistré
+          var d2=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);
+          var m2={}; try{ m2=mapPropre(JSON.parse((d2&&d2.fields&&d2.fields.accueil&&d2.fields.accueil.stringValue)||"{}")); }catch(e){}
+          ok = JSON.stringify(m2._form||{})===JSON.stringify(m._form||{});
+          if(!ok) souci="la relecture ne correspond pas";
+          else setMapAccueil(m2);
+        } else souci="refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
+      }
+    }catch(e){ souci="pas de connexion"; }
+    FORM_SAVE_EN_COURS=false;
+    if(btn){ btn.disabled=false; btn.textContent="Enregistrer"; }
+    if(ok){ FORM_BROUILLON=null; }
+    renderFormOuvert();
+    var et=$("formOuvertEtat");
+    if(et){ et.textContent = ok ? "✅ Enregistré pour tous les appareils." : ("❌ Non enregistré — "+souci+"."); et.style.color = ok ? "var(--green,#7ddc9a)" : "#e88"; }
+    try{ majBandeauFerme(); }catch(e){}
+    await uiAlert(ok ? ("✅ Enregistré.\n\n"+recap+"\nLe changement vaut pour tous les appareils et pour le formulaire en ligne.")
+                     : ("❌ PROBLÈME : rien n'a été enregistré ("+souci+").\n\nRéessaie dans un instant."));
+  };
+  /* Bandeau rouge dans la commission ouverte quand ses inscriptions sont fermées. */
+  function majBandeauFerme(){
+    var cid=currentCommId(), ferme = !!(cid && COMM_FORM.indexOf(cid)>=0 && formFerme(cid) && CURRENT_ROLE!=="scanner");
+    ["fermeBandeauG","fermeBandeauP"].forEach(function(id){
+      var el=$(id); if(!el) return;
+      el.style.display = ferme ? "" : "none";
+    });
+  }
+
   /* ---------- v191 : « Déconnecter partout » ----------
      L'heure de la demande est publiée dans le champ `accueil` du document du
      parrainage (clé `_deco`), déjà lu régulièrement par chaque appareil. Toute
@@ -1687,6 +1809,8 @@
   var ADDING_ONE=false;
   window.addOnePerson = async function(){
     if(ADDING_ONE) return;                       // verrou anti double-clic pendant l'envoi
+    ADDING_ONE=true;
+    try{ if(await bloqueSiFerme()) return; } finally { ADDING_ONE=false; }   // v192 : inscriptions fermées
     var nom=($("g1Nom")&&$("g1Nom").value||"").trim();
     var prenom=($("g1Prenom")&&$("g1Prenom").value||"").trim();
     var mail=($("g1Mail")&&$("g1Mail").value||"").trim();
@@ -1732,6 +1856,7 @@
     var name = $("evName").value.trim();
     var lines = $("names").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
     if(!lines.length){ flash("Ajoute au moins un nom dans la liste."); return; }
+    if(await bloqueSiFerme()) return;                                       // v192
     var existing = new Set(roster.map(function(g){return g.token;}));
     var EMAIL_RE = /[^\s,;\t]+@[^\s,;\t]+\.[^\s,;\t]+/;
     lines.forEach(function(line){
@@ -1832,6 +1957,7 @@
     var exPass = !!($("pExPass") && $("pExPass").checked);
     var lines = $("pNames").value.split("\n").map(function(s){return s.trim();}).filter(Boolean);
     if(!lines.length){ flash("Colle au moins un nom."); return; }
+    if(await bloqueSiFerme()) return;                                       // v192
     var existing = new Set(roster.map(function(g){return g.token;}));
     var nouveaux = [];
     lines.forEach(function(line){
@@ -1866,6 +1992,7 @@
     var prenom = ($("pPrenom") ? $("pPrenom").value.trim() : "");
     var email = ($("pEmail") ? $("pEmail").value.trim() : "");
     if(!nom && !prenom && !email){ flash("Remplis au moins le nom ou l'e-mail."); return; }
+    if(await bloqueSiFerme()) return;                                       // v192
     var existing = new Set(roster.map(function(g){return g.token;}));
     var tok = genToken(existing);
     var name = (nom+" "+prenom).trim() || email;
@@ -4303,8 +4430,9 @@
     var data={ v:1, event:eventName, roster:roster, used:used };
     downloadBlob(new Blob([JSON.stringify(data)],{type:"application/json"}), sanitize(eventName||"evenement")+"_transfert.json");
   };
-  window.importData = function(ev){
+  window.importData = async function(ev){
     var f = ev.target.files && ev.target.files[0]; if(!f) return;
+    if(await bloqueSiFerme()){ ev.target.value=""; return; }               // v192
     var reader = new FileReader();
     reader.onload = async function(){
       try{
@@ -4917,11 +5045,14 @@
     $("gScannerResult").innerHTML="";
     renderCoorg();                                   // co-organisateurs : boutons à jour
     renderCommActif();                               // commissions actives : boutons à jour
+    FORM_BROUILLON=null; renderFormOuvert();         // v192 : formulaires ouverts / fermés
+    if($("formOuvertEtat")){ $("formOuvertEtat").textContent="Clique sur un bouton pour préparer le changement, puis sur « Enregistrer »."; $("formOuvertEtat").style.color=""; }
     renderCoopt();                                   // cooptation : boutons à jour
 
     (async function(){                               // rafraîchit depuis le cloud sans bloquer l'ouverture
       try{ await syncCommActifs(true); }catch(e){}
       renderCommActif();
+      if(!FORM_SAVE_EN_COURS){ var _brPropre=true; COMM_FORM.forEach(function(id){ if(FORM_BROUILLON && FORM_BROUILLON[id]===formFerme(id)) _brPropre=false; }); if(_brPropre){ FORM_BROUILLON=null; renderFormOuvert(); } }
       for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
       renderCoorg();
       try{ await chargerCooptCloud(); renderCoopt(); }catch(e){}
@@ -5274,7 +5405,7 @@
   function getCloture(){ try{ return window.localStorage.getItem(clotureKey())||""; }catch(e){ return ""; } }
 
   /* ---------- Jauge de places (festif, aca, culture uniquement) ---------- */
-  var COMM_JAUGE = ["festif","aca","culture"];
+  var COMM_JAUGE = [];                     // v192 : jauge supprimée (remplacée par Ouvert / Fermé dans les Réglages)
   function jaugeActive(){ return COMM_JAUGE.indexOf(currentCommId())>=0; }
   function placesKey(){ return "qrentry:places:"+(currentCommId()||""); }
   function getPlaces(){ try{ return parseInt(window.localStorage.getItem(placesKey())||"0",10)||0; }catch(e){ return 0; } }
@@ -5296,7 +5427,7 @@
   /* ---------- Limite d'inscriptions (proclamation uniquement) ----------
      Même règle que le formulaire : toutes les inscriptions en ligne sauf refusées
      (hors marqueurs régime / présence). Les ajouts manuels ne comptent pas. */
-  function maxInscActive(){ return currentCommId()==="proclamation"; }
+  function maxInscActive(){ return false; }   // v192 : limite supprimée
   function maxInscKey(){ return "qrentry:maxInsc:"+(currentCommId()||""); }
   function getMaxInsc(){ try{ return parseInt(window.localStorage.getItem(maxInscKey())||"0",10)||0; }catch(e){ return 0; } }
   function nbInscritsLimite(){
@@ -7788,23 +7919,6 @@
         <button class="btn ghost sm" id="btnCloture" type="button">Enregistrer</button>
       </div>
       <div style="height:10px"></div>
-      <div id="wrapJauge">
-        <label class="fld" for="suPlaces">Nombre de places (0 ou vide = illimité)</label>
-        <div class="row" style="gap:8px;align-items:center">
-          <input type="number" id="suPlaces" min="0" step="1" placeholder="Ex. 200" style="flex:1">
-          <button class="btn ghost sm" id="btnPlaces" type="button">Enregistrer</button>
-        </div>
-        <div id="jaugeInfo" class="hint" style="margin-top:6px"></div>
-      </div>
-      <div id="wrapMaxInsc" style="display:none">
-        <div style="height:10px"></div>
-        <label class="fld" for="suMaxInsc">Inscriptions maximum (0 ou vide = aucune limite)</label>
-        <div class="row" style="gap:8px;align-items:center">
-          <input type="number" id="suMaxInsc" min="0" step="1" placeholder="Ex. 120" style="flex:1">
-          <button class="btn ghost sm" id="btnMaxInsc" type="button">Enregistrer</button>
-        </div>
-        <div id="maxInscInfo" class="hint" style="margin-top:6px"></div>
-      </div>
       <div style="height:12px"></div>
       <details class="menu zone">
         <summary><span class="btn ghost sm menu-tit">Actions irréversibles</span></summary>
@@ -8816,7 +8930,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v191" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v192" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8837,8 +8951,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v191"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v191") : ("☁️ Synchronisation… · v191"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v192"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v192") : ("☁️ Synchronisation… · v192"));
     }
   }
   function syncReussie(cid){
@@ -9576,6 +9690,7 @@
     showTab(id==="parrainage" ? "parrainage" : "guests");
     await loadAll();
     await determineRole(id);
+    try{ majBandeauFerme(); formFermeFrais(id).then(function(){ try{ majBandeauFerme(); }catch(e){} }); }catch(e){}
     if((id==="proclamation" || id==="crimino") && CURRENT_ROLE==="admin"){
       (async function(){ try{
         if(!(await ensureAuth(id))) return;
@@ -9652,6 +9767,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v191</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v192</div>
 </body>
 </html>

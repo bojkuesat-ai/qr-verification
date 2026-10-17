@@ -457,7 +457,7 @@
   }
 
   /* ---------- Jauge de places ---------- */
-  var COMM_JAUGE = ["festif","aca","culture"];
+  var COMM_JAUGE = [];                     // v192 : jauge et liste d'attente supprimées
   var PLACES = 0, PRIS = 0;
   function placesPrisesDoc(f){
     var billets = 0, enCours = 0;
@@ -480,6 +480,7 @@
     }).length;
   }
   function maxInscritsDoc(f){
+    return 0;                              // v192 : limite supprimée (remplacée par Ouvert / Fermé dans les Réglages)
     if(CID!=="proclamation") return 0;
     // rangée dans « places » (champ autorisé par les règles du serveur ; la jauge festif/aca/culture ne concerne pas la proclamation)
     return parseInt((f && ((f.places && f.places.stringValue) || (f.maxInscrits && f.maxInscrits.stringValue)))||"0",10)||0;
@@ -622,6 +623,28 @@
     q("msg").innerHTML = '<div class="card"><p class="big">🔒</p><p><b>Les inscriptions sont closes</b></p>'
       + '<p class="hint">La date limite était le '+fin+'.</p>'
       + '<p class="hint">Si vous pensez qu\'il s\'agit d\'une erreur, contactez les délégués.</p></div>';
+  }
+  /* v192 : formulaire ouvert / fermé depuis les Réglages de l'app.
+     Lu dans accueil._form du document du parrainage ({"festif":"0"} = fermé).
+     true = fermé, false = ouvert, null = lecture impossible (on laisse passer). */
+  async function formFermeServeur(){
+    try{
+      var tok = (window.__tok && (Date.now()-(window.__tokAt||0) < TOKEN_DUREE)) ? window.__tok : await connexionScanner();
+      var r = await fetch(FS_BASE+"commission_tickets/parrainage?mask.fieldPaths=accueil", { headers:{ "Authorization":"Bearer "+tok } });
+      if(!r.ok) return null;
+      var d = await r.json();
+      var v = d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
+      if(!v) return false;
+      var m = JSON.parse(v);
+      return !!(m && m._form && m._form[CID]==="0");
+    }catch(e){ return null; }
+  }
+  function afficherQuota(){
+    cacherEcranRole();
+    q("form").style.display="none";
+    q("msg").innerHTML = '<div class="card"><p class="big">⛔</p><p><b>Quota dépassé — impossible d\'ajouter</b></p>'
+      + '<p class="hint">Les inscriptions sont fermées pour le moment.</p>'
+      + '<p class="hint">Une question ? Écrivez à <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a>.</p></div>';
   }
   var NOM_LIEN = "";
   try{ NOM_LIEN = decodeURIComponent(par("e")||""); }catch(e){ NOM_LIEN = par("e")||""; }
@@ -1068,6 +1091,7 @@
            la fin des inscriptions ne doit pas masquer leur contenu. */
         var pageLien = !!(par("confirm") || par("choix") || par("repas") || par("presence"));
         if(cl){ CLOTURE = cl; if(!pageLien && inscriptionsFermees(CLOTURE)) afficherFermeture(CLOTURE); }
+        if(!pageLien && !par("corriger") && !par("annuler")){ formFermeServeur().then(function(f){ if(f===true) afficherQuota(); }); }   // v192
         // limite d'inscriptions (proclamation) : formulaire fermé une fois atteinte
         try{
           var _max = maxInscritsDoc(f);
@@ -1217,6 +1241,7 @@
     }
 
     var btn=q("btn"); btn.disabled=true; btn.textContent="Envoi…";
+    if((await formFermeServeur())===true){ afficherQuota(); return; }        // v192 : fermé entre-temps
     try{
       var path = "commission_tickets/"+CID;   // seule collection autorisée
       var lecture = await fsAvecJeton(function(t){
