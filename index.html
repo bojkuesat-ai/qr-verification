@@ -408,7 +408,7 @@
       <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M16 11a4 4 0 1 0-8 0m10 8a6 6 0 0 0-12 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       Invités<span id="payBadge" style="display:none;background:#c0392b;color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:5px">0</span>
     </button>
-    <button class="tab" id="t-scan" role="tab" aria-selected="false" onclick="showTab('scan')">
+    <button class="tab" id="t-scan" role="tab" aria-selected="false" onclick="showTab('scan')" style="display:none!important">
       <svg class="ic" viewBox="0 0 24 24" fill="none"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8m8 0h2.5A1.5 1.5 0 0 1 20 5.5V8m0 8v2.5a1.5 1.5 0 0 1-1.5 1.5H16m-8 0H5.5A1.5 1.5 0 0 1 4 18.5V16M4 12h16" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
       Scanner
     </button>
@@ -466,7 +466,7 @@
       <div class="gen-head">
         <h2>Créer les billets</h2>
         <div style="display:flex;gap:8px">
-          <button class="btn ghost sm" id="scannerBtn" onclick="openScannerModal()" style="display:none">Compte scanner</button>
+          
           <button class="btn ghost sm" id="newEvtBtn" onclick="newEvent()" style="display:none">Nouvel événement</button>
         </div>
       </div>
@@ -634,7 +634,7 @@
   <section id="tab-parrainage">
     <div id="fermeBandeauP" style="display:none;background:#7a1f1f;color:#fff;border:2px solid #e05555;border-radius:12px;padding:12px 14px;margin:12px 0;font-size:14.5px;line-height:1.45">⛔ <b>Inscriptions fermées.</b> Quota dépassé — impossible d'ajouter, en ligne comme à la main. Rouvre-les dans les Réglages (⚙).</div>
     <div class="card gen-card">
-      <div class="gen-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>Parrainage — créer les billets</h2><button class="btn ghost sm" onclick="newEvent()">Nouvel événement</button><button class="btn ghost sm" id="scannerBtnP" onclick="openScannerModal()" style="display:none">Compte scanner</button></div>
+      <div class="gen-head" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><h2>Parrainage — créer les billets</h2><button class="btn ghost sm" onclick="newEvent()">Nouvel événement</button></div>
       <p class="sub">Crée les QR par groupe : choisis le rôle, l'année et la section, colle la liste (Nom + e-mail), puis « Ajouter ce groupe ». Répète pour chaque groupe.</p>
       <label class="fld" for="pEvName">Nom de l'événement</label>
       <input type="text" id="pEvName" placeholder="Parrainage Droit &amp; Crimino 2026" autocomplete="off" onchange="majNomEvent(this.value)" onblur="majNomEvent(this.value)">
@@ -930,15 +930,11 @@
       <h2>Réglages</h2>
       <button class="x-btn" onclick="closeSettings()" aria-label="Fermer">&times;</button>
     </div>
-    <h2 style="margin-top:4px">Compte scanner (toutes les commissions)</h2>
-    <p class="sub">Enregistre un seul compte scanner sur toutes les commissions où tu es déjà connecté sur cet appareil — pas besoin d'entrer dans chacune.</p>
-    <label class="fld" for="gScannerEmail">Adresse mail du compte scanner</label>
-    <input type="email" id="gScannerEmail" placeholder="scan@qrentry.app" autocomplete="off">
-    <div style="height:9px"></div>
-    <label class="fld" for="gScannerPwd">Mot de passe</label>
-    <input type="password" id="gScannerPwd" placeholder="••••••••" autocomplete="off">
-    <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="createScannerAllCommissions()">Activer sur toutes les commissions</button></div>
-    <div id="gScannerResult" style="margin-top:11px;font-size:13px;color:var(--muted);line-height:1.7"></div>
+    <h2 style="margin-top:4px">Scanners</h2>
+    <p class="sub">Active ou désactive le scanner global et le scanner lunch (boutons de l'écran d'accueil). Pour le scanner global, choisis les commissions qu'il peut scanner : un billet d'une commission non autorisée affiche « Billet inconnu ».</p>
+    <div id="scanReglList"></div>
+    <div class="row" style="margin-top:11px"><button class="btn gold sm" type="button" id="scanReglSave" onclick="enregistrerScanRegl()">Enregistrer</button></div>
+    <p class="hint" id="scanReglEtat" style="margin-top:6px;min-height:14px">Clique sur les boutons pour préparer le changement, puis sur « Enregistrer ».</p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Commissions actives</h2>
@@ -963,7 +959,7 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v192</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v193</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
@@ -1433,6 +1429,13 @@
       var fo={}; COMM_FORM.forEach(function(id){ if(m._form[id]==="0") fo[id]="0"; });
       if(Object.keys(fo).length) out._form=fo;
     }
+    if(m && m._scan && typeof m._scan==="object"){                         // v193 : scanners
+      var sc={}, ms=m._scan;
+      if(ms.g==="0"||ms.g==="1") sc.g=ms.g;
+      if(ms.l==="0"||ms.l==="1") sc.l=ms.l;
+      if(ms.c && typeof ms.c==="object"){ var cc={}; COMMISSIONS.forEach(function(c){ if(ms.c[c.id]==="0") cc[c.id]="0"; }); if(Object.keys(cc).length) sc.c=cc; }
+      if(Object.keys(sc).length) out._scan=sc;
+    }
     return out;
   }
   function commActive(cid){ return mapAccueil()[cid]!=="0"; }
@@ -1473,7 +1476,8 @@
         try{ var mS=mapPropre(JSON.parse((dA&&dA.fields&&dA.fields.accueil&&dA.fields.accueil.stringValue)||"{}"));
              COMMISSIONS.forEach(function(c){ if(c.id!==cid){ if(mS[c.id]==="0") m[c.id]="0"; else delete m[c.id]; } });
              if(mS._deco) m._deco=mS._deco; else delete m._deco;
-             if(mS._form) m._form=mS._form; else delete m._form; }catch(e){}
+             if(mS._form) m._form=mS._form; else delete m._form;
+             if(mS._scan) m._scan=mS._scan; else delete m._scan; }catch(e){}
         var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
         ok = !!(r && r.ok);
         if(!ok) souci = "refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
@@ -1506,6 +1510,7 @@
       setMapAccueil(m);
       renderCommActif();
       try{ majBandeauFerme(); }catch(e){}
+      try{ majBoutonsScanAccueil(); }catch(e){}
       if(typeof renderHome==="function") renderHome();
     }catch(e){}
   }
@@ -1611,6 +1616,119 @@
       el.style.display = ferme ? "" : "none";
     });
   }
+
+  /* ---------- v193 : scanners (global, lunch, commissions autorisées) ----------
+     Rangé dans accueil._scan du document du parrainage :
+     {g:"0"|"1", l:"0"|"1", c:{"festif":"0"}}. Absent : global activé, toutes les
+     commissions autorisées ; lunch = ancien réglage « Écran de scan Lunch ». */
+  function scanMap(){ var s=mapAccueil()._scan; return (s && typeof s==="object") ? s : {}; }
+  function scanGlobalActif(){ return scanMap().g!=="0"; }
+  function scanLunchActif(){
+    var s=scanMap(); if(s.l==="1"||s.l==="0") return s.l==="1";
+    var e=lunchEtat("proclamation"); return !!(e && e.scan && e.scan.on);
+  }
+  function scanAutorise(cid){ var c=scanMap().c; return !(c && c[cid]==="0"); }
+  function majBoutonsScanAccueil(){
+    if($("gscanOpenBtn")) $("gscanOpenBtn").style.display = scanGlobalActif() ? "" : "none";
+    if($("lscanOpenBtn")) $("lscanOpenBtn").style.display = scanLunchActif() ? "inline-flex" : "none";
+  }
+  /* Relit le réglage (4 s max) ; sinon dernier état connu. */
+  async function rafraichirScanRegl(){
+    try{
+      var lu = await Promise.race([
+        (async function(){
+          var tok=await jetonReglages(); if(!tok) return null;
+          var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"], 4000);
+          var v=d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
+          return v ? mapPropre(JSON.parse(v)) : (d ? {} : null);
+        })(),
+        new Promise(function(r){ setTimeout(function(){ r(null); }, 4500); })
+      ]);
+      if(lu){ var loc=mapAccueil(); if(lu._scan) loc._scan=lu._scan; else delete loc._scan; setMapAccueil(loc); }
+    }catch(e){}
+    majBoutonsScanAccueil();
+  }
+  var SCAN_BROUILLON=null, SCAN_SAVE_EN_COURS=false;
+  function scanEtatActuel(){ var o={g:scanGlobalActif(), l:scanLunchActif(), c:{}}; COMMISSIONS.forEach(function(c){ o.c[c.id]=scanAutorise(c.id); }); return o; }
+  function scanBrouillonModifie(){
+    if(!SCAN_BROUILLON) return false;
+    var a=scanEtatActuel(), b=SCAN_BROUILLON;
+    if(a.g!==b.g || a.l!==b.l) return true;
+    return COMMISSIONS.some(function(c){ return a.c[c.id]!==b.c[c.id]; });
+  }
+  function renderScanRegl(){
+    var box=$("scanReglList"); if(!box) return;
+    if(!SCAN_BROUILLON) SCAN_BROUILLON=scanEtatActuel();
+    var a=scanEtatActuel(), b=SCAN_BROUILLON;
+    function carte(titre, on, modif, clic, lblOn, lblOff){
+      return '<div style="border:1px solid '+(modif?'var(--gold,#e8b04b)':(on?'var(--gold-dim,#7a641f)':'#5c2530'))+';border-radius:10px;padding:9px 11px;'
+        + (on?'background:rgba(216,180,90,.06)':'background:rgba(242,100,95,.06)')+'">'
+        + '<div style="font-size:13.5px;font-weight:700;margin-bottom:6px">'+titre+(modif?' <span style="color:var(--gold);font-size:11px">· modifié</span>':'')+'</div>'
+        + '<button class="btn '+(on?'gold':'danger')+' xs" type="button" style="width:100%" onclick="'+clic+'">'+(on?(lblOn||'Activé'):(lblOff||'Désactivé'))+'</button></div>';
+    }
+    var h='<div class="coorg-grid">'
+      + carte('🎯 Scanner global', b.g, a.g!==b.g, "preparerScanRegl('g')")
+      + carte('🍽️ Scanner lunch', b.l, a.l!==b.l, "preparerScanRegl('l')")
+      + '</div>';
+    if(b.g){
+      h += '<p class="fld" style="margin:14px 0 6px">Commissions que le scanner global peut scanner</p><div class="coorg-grid">'
+        + COMMISSIONS.map(function(c){ return carte(escapeHtml(c.name), b.c[c.id], a.c[c.id]!==b.c[c.id], "preparerScanRegl('c','"+c.id+"')", 'Autorisée', 'Non autorisée'); }).join("")
+        + '</div>';
+    }
+    box.innerHTML=h;
+  }
+  window.preparerScanRegl=function(quoi, cid){
+    if(!SCAN_BROUILLON) SCAN_BROUILLON=scanEtatActuel();
+    if(quoi==="c") SCAN_BROUILLON.c[cid]=!SCAN_BROUILLON.c[cid];
+    else SCAN_BROUILLON[quoi]=!SCAN_BROUILLON[quoi];
+    renderScanRegl();
+    var et=$("scanReglEtat"); if(et){ et.textContent="Changement pas encore enregistré : clique sur « Enregistrer »."; et.style.color="var(--gold)"; }
+  };
+  window.enregistrerScanRegl=async function(){
+    if(SCAN_SAVE_EN_COURS) return;
+    if(!SCAN_BROUILLON) SCAN_BROUILLON=scanEtatActuel();
+    var a=scanEtatActuel(), b=SCAN_BROUILLON, lignes=[];
+    if(a.g!==b.g) lignes.push("Scanner global : "+(b.g?"ACTIVÉ":"DÉSACTIVÉ"));
+    if(a.l!==b.l) lignes.push("Scanner lunch : "+(b.l?"ACTIVÉ":"DÉSACTIVÉ"));
+    var aut=[], non=[];
+    COMMISSIONS.forEach(function(c){ if(a.c[c.id]!==b.c[c.id]) (b.c[c.id]?aut:non).push(c.name); });
+    if(aut.length) lignes.push("Scanner global — AUTORISER : "+aut.join(", "));
+    if(non.length) lignes.push("Scanner global — NE PLUS AUTORISER : "+non.join(", "));
+    if(!lignes.length){ await uiAlert("Aucun changement à enregistrer."); return; }
+    var recap=lignes.join("\n");
+    if(!(await uiConfirm("Confirmer ces changements ?\n\n"+recap))) return;
+    SCAN_SAVE_EN_COURS=true;
+    var btn=$("scanReglSave"); if(btn){ btn.disabled=true; btn.textContent="Enregistrement…"; }
+    var ok=false, souci="";
+    try{
+      var tok=await jetonReglages();
+      if(!tok) souci="compte de réglages inaccessible";
+      else{
+        var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);   // relu : on ne touche qu'à _scan
+        var m={}; try{ m=mapPropre(JSON.parse((d&&d.fields&&d.fields.accueil&&d.fields.accueil.stringValue)||"{}")); }catch(e){ m={}; }
+        var sc={ g:(b.g?"1":"0"), l:(b.l?"1":"0") }, cc={};
+        COMMISSIONS.forEach(function(c){ if(!b.c[c.id]) cc[c.id]="0"; });
+        if(Object.keys(cc).length) sc.c=cc;
+        m._scan=sc;
+        var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
+        ok=!!(r&&r.ok);
+        if(ok){                                  // vérification : on relit ce qui est vraiment enregistré
+          var d2=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);
+          var m2={}; try{ m2=mapPropre(JSON.parse((d2&&d2.fields&&d2.fields.accueil&&d2.fields.accueil.stringValue)||"{}")); }catch(e){}
+          ok = JSON.stringify(m2._scan||{})===JSON.stringify(sc);
+          if(!ok) souci="la relecture ne correspond pas"; else setMapAccueil(m2);
+        } else souci="refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
+      }
+    }catch(e){ souci="pas de connexion"; }
+    SCAN_SAVE_EN_COURS=false;
+    if(btn){ btn.disabled=false; btn.textContent="Enregistrer"; }
+    if(ok) SCAN_BROUILLON=null;
+    renderScanRegl(); majBoutonsScanAccueil();
+    var et=$("scanReglEtat");
+    if(et){ et.textContent = ok ? "✅ Enregistré pour tous les appareils." : ("❌ Non enregistré — "+souci+"."); et.style.color = ok ? "var(--green,#7ddc9a)" : "#e88"; }
+    await uiAlert(ok ? ("✅ Enregistré.\n\n"+recap+"\n\nLe changement vaut pour tous les appareils.")
+                     : ("❌ PROBLÈME : rien n'a été enregistré ("+souci+").\n\nRéessaie dans un instant."));
+  };
 
   /* ---------- v191 : « Déconnecter partout » ----------
      L'heure de la demande est publiée dans le champ `accueil` du document du
@@ -2868,6 +2986,7 @@
     var enAttente={}; gQueue.forEach(function(it){ enAttente[it.cid+"|"+it.token]=it.at; });
     try{
       COMMISSIONS.forEach(function(c){
+        if(!scanAutorise(c.id)) return;                      // v193 : commission non autorisée
         var e=gCache[c.id]; if(!e || !e.roster) return;
         e.roster.forEach(function(g){
           if(!g||!g.token) return;
@@ -2889,6 +3008,7 @@
     try{ if($("gSync")) $("gSync").textContent = gDerniereMaj ? "🟠 Hors-ligne · dernière synchronisation à "+new Date(gDerniereMaj).toLocaleTimeString("fr-BE") : ""; }catch(e){}
   }
   async function gLoadAll(silent){
+    try{ await syncCommActifs(); }catch(e){}                 // v193 : commissions autorisées à jour (30 s max)
     if(!(await gEnsureAuth())){
       if(gTotal===0){                       // rien en mémoire : on repart de la copie locale
         var at=_gRelireListes();
@@ -2907,6 +3027,7 @@
     }
     for(var i=0;i<COMMISSIONS.length;i++){
       var c=COMMISSIONS[i], chargee=false;
+      if(!scanAutorise(c.id)) continue;                      // v193 : commission non autorisée → « Billet inconnu »
       try{
         // sondage léger : version + entrées ; la liste n'est retéléchargée que si elle a changé
         var data=await fsGetDoc(ticketDocPath(c.id), gAuth.idToken, ["rosterVersion","used"]);
@@ -3261,7 +3382,7 @@
     var token=normalize(raw); if(!token) return;
     var now=Date.now(); if(token===gLastTok && (now-gLastAt)<2500){ gLastAt=now; return; } gLastTok=token; gLastAt=now;   // v178 : anti-rebond glissant
     hideGAmbig();
-    var matches=gIndex[token]||[];
+    var matches=(gIndex[token]||[]).filter(function(m){ return scanAutorise(m.cid); });   // v193
     if(matches.length===0){
       /* normalize() retire le tiret : un QR lunch arrive donc ici sous la forme
          « …L ». Sans ce message, on annonçait « Billet inconnu » à quelqu'un qui
@@ -3535,6 +3656,7 @@
 
   async function lServir(code){
     var brut=String(code||"").trim();
+    if(!scanLunchActif()){ lReponse(false,"Scanner désactivé","Scanner lunch désactivé","Réactive-le dans les Réglages (⚙) → Scanners."); return; }
     if(!brut) return;
     /* Anti-rebond GLISSANT : tant que le même QR reste devant la caméra, on l'ignore.
        Avant (v175), un QR tenu plus de 2,5 s passait au rouge « déjà retiré » juste
@@ -3616,8 +3738,10 @@
     if($("lcamStop")) $("lcamStop").style.display="none";
     veilleMaj();
   };
-  window.lscanOpen=function(){
+  window.lscanOpen=async function(){
     ensureAudio();
+    await rafraichirScanRegl();
+    if(!scanLunchActif()){ await uiAlert("⛔ Le scanner lunch est désactivé.\n\nActive-le dans les Réglages (⚙) → Scanners."); return; }
     $("lscanScreen").classList.add("on"); $("lscanScreen").setAttribute("aria-hidden","false");
     lStat("idle","Prêt à scanner","Démarre la caméra ou saisis un code");
     _lChargerMiennes().then(function(){ lLoad(false); });
@@ -3678,8 +3802,10 @@
      son minuteur de 25 s (le scanner global le faisait déjà). */
   window.addEventListener("online", function(){ if(_ecranOuvert("lscanScreen")) lLoad(true); });
 
-  window.gscanOpen=function(){
+  window.gscanOpen=async function(){
     ensureAudio();
+    await rafraichirScanRegl();
+    if(!scanGlobalActif()){ await uiAlert("⛔ Le scanner global est désactivé.\n\nActive-le dans les Réglages (⚙) → Scanners."); return; }
     if($("gscanSearch")) $("gscanSearch").value=""; if($("gscanSearchRes")) $("gscanSearchRes").innerHTML="";
     $("gscanScreen").classList.add("on"); $("gscanScreen").setAttribute("aria-hidden","false");
     hideGAmbig();
@@ -4607,7 +4733,7 @@
     var z=$("suLunch"); if(z) z.style.display = (cid==="proclamation") ? "block" : "none";
     var zv=$("suVerif"); if(zv) zv.style.display = (cid==="proclamation") ? "block" : "none";
     var zb=$("suBillets"); if(zb) zb.style.display = "block";
-    if(cid!=="proclamation"){ if($("lscanOpenBtn")) $("lscanOpenBtn").style.display="none"; }
+
     var e=lunchEtat(cid);
     [["qr","railLunchQr","etatLunchQr"],["scan","railLunchScan","etatLunchScan"],
      ["images","railImages","etatImages"],["pdf","railPdf","etatPdf"]].forEach(function(t){
@@ -4628,7 +4754,7 @@
         av.textContent = (e.qr && e.qr.on) ? "Tous les billets envoyés contiennent le QR lunch." : "Le QR lunch n'est ajouté qu'aux billets envoyés après activation.";
       }
     }
-    if($("lscanOpenBtn")) $("lscanOpenBtn").style.display = (e.scan && e.scan.on) ? "inline-flex" : "none";
+    try{ majBoutonsScanAccueil(); }catch(e){}
   }
   /* v178 — « Vérifier avant le jour J » (proclamation, admin uniquement).
      Lecture seule : relit le document sur le serveur et affiche ce qui est prêt
@@ -4682,7 +4808,7 @@
       }
     }catch(e){ ligne("ko","Compte scanner : vérification impossible (réseau)"); }
     // 4. Lunch
-    var qrOn = !!(lunch.qr && lunch.qr.on), scanOn = !!(lunch.scan && lunch.scan.on);
+    var qrOn = !!(lunch.qr && lunch.qr.on), scanOn = scanLunchActif();
     ligne(qrOn?"ok":"ko", "QR lunch dans les billets : "+(qrOn?"activé":"désactivé"));
     ligne(scanOn?"ok":"ko", "Écran de scan lunch : "+(scanOn?"activé":"désactivé"), scanOn ? "" : "Le bouton « Scanner lunch » n'apparaîtra pas sur les téléphones.");
     // 5. Billets envoyés
@@ -4727,23 +4853,9 @@
      renderLunchUI(), qui ne tourne que dans le parcours admin de la proclamation :
      un téléphone dédié au stand repas ne le voyait donc jamais. On lit ici le
      réglage avec le compte du scanner global, qui ne demande aucune connexion. */
-  async function lunchBoutonAccueil(){
-    var b=$("lscanOpenBtn"); if(!b) return;
-    function poser(etat){
-      if(!document.body.classList.contains("home-mode")) return;   // on est reparti dans une commission
-      b.style.display = (etat && etat.scan && etat.scan.on) ? "inline-flex" : "none";
-    }
-    poser(lunchEtat("proclamation"));            // dernier état connu : utilisable hors ligne
-    try{
-      if(!(await gEnsureAuth())) return;
-      var data=await fsGetDoc(ticketDocPath("proclamation"), gAuth.idToken, ["lunch"]);
-      var brut=((data&&data.fields&&data.fields.lunch)||{}).stringValue||"";
-      if(!brut) return;
-      var n=JSON.parse(brut);
-      if(!n || !n.scan) return;
-      lunchPoser(n, "proclamation");
-      poser(n);
-    }catch(e){}
+  async function lunchBoutonAccueil(){            // v193 : réglé dans Réglages → Scanners
+    majBoutonsScanAccueil();
+    try{ await rafraichirScanRegl(); }catch(e){}
   }
   window.basculerLunch = async function(quoi){
     var cid=currentCommId();
@@ -5040,9 +5152,8 @@
       $("admInfo").textContent = "Connecté avec " + (lm.mail || "—") + ". Mot de passe géré par Firebase : il n'est écrit ni dans l'app, ni dans la base.";
     }
     if($("admChangeEtat")) $("admChangeEtat").textContent="";
-    if(!$("gScannerEmail").value){ $("gScannerEmail").value="scan@qrentry.app"; }
-    $("gScannerPwd").value="123456";
-    $("gScannerResult").innerHTML="";
+    SCAN_BROUILLON=null; renderScanRegl();          // v193 : scanners
+    if($("scanReglEtat")){ $("scanReglEtat").textContent="Clique sur les boutons pour préparer le changement, puis sur « Enregistrer »."; $("scanReglEtat").style.color=""; }
     renderCoorg();                                   // co-organisateurs : boutons à jour
     renderCommActif();                               // commissions actives : boutons à jour
     FORM_BROUILLON=null; renderFormOuvert();         // v192 : formulaires ouverts / fermés
@@ -5052,6 +5163,7 @@
     (async function(){                               // rafraîchit depuis le cloud sans bloquer l'ouverture
       try{ await syncCommActifs(true); }catch(e){}
       renderCommActif();
+      if(!SCAN_SAVE_EN_COURS && !scanBrouillonModifie()){ SCAN_BROUILLON=null; renderScanRegl(); }
       if(!FORM_SAVE_EN_COURS){ var _brPropre=true; COMM_FORM.forEach(function(id){ if(FORM_BROUILLON && FORM_BROUILLON[id]===formFerme(id)) _brPropre=false; }); if(_brPropre){ FORM_BROUILLON=null; renderFormOuvert(); } }
       for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
       renderCoorg();
@@ -7975,10 +8087,7 @@
           <div class="txt"><b>QR lunch dans les billets</b><span id="etatLunchQr" class="bascule-etat off">Désactivé</span></div>
           <div class="rail" id="railLunchQr" role="switch" aria-checked="false" tabindex="0" onclick="basculerLunch('qr')"></div>
         </div>
-        <div class="bascule">
-          <div class="txt"><b>Écran de scan Lunch</b><span id="etatLunchScan" class="bascule-etat off">Désactivé</span></div>
-          <div class="rail" id="railLunchScan" role="switch" aria-checked="false" tabindex="0" onclick="basculerLunch('scan')"></div>
-        </div>
+        <p class="hint" style="margin:8px 0 0">Le scanner lunch s'active dans les Réglages (⚙) → Scanners.</p>
       </div>
 
       <div id="suExport" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
@@ -8930,7 +9039,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v192" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v193" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -8951,8 +9060,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v192"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v192") : ("☁️ Synchronisation… · v192"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v193"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v193") : ("☁️ Synchronisation… · v193"));
     }
   }
   function syncReussie(cid){
@@ -9495,6 +9604,10 @@
           return;
         }
       }
+      if(email.toLowerCase()==="scan@qrentry.app"){                 // v193 : plus de compte scanner dans les commissions
+        showAuthErr("Ce compte ne permet plus d'entrer dans une commission. Utilise le scanner global depuis l'accueil.");
+        return;
+      }
       saveAuthTok(id, { idToken:d.idToken, refreshToken:d.refreshToken, expiresAt: Date.now()+parseInt(d.expiresIn,10)*1000, uid:d.localId, email:email, since:Date.now() });
       saveEmailFor(id, email);
       $("authModal").classList.remove("on"); proceedCommission(id);
@@ -9673,7 +9786,7 @@
     if(_sc) _sc.style.display = isScanner ? "none" : "";
     if(isScanner){ if($("signupHostP")) $("signupHostP").innerHTML=""; if($("signupHostG")) $("signupHostG").innerHTML=""; }
     if($("newEvtBtn")) $("newEvtBtn").style.display = (isScanner || !roster.length) ? "none" : "inline-flex";
-    if(isScanner && (currentTab==="guests"||currentTab==="list")){ showTab("scan"); }
+
   }
 
   async function proceedCommission(id){
@@ -9690,6 +9803,11 @@
     showTab(id==="parrainage" ? "parrainage" : "guests");
     await loadAll();
     await determineRole(id);
+    if(CURRENT_ROLE==="scanner"){                                   // v193 : compte scanner refusé dans les commissions
+      clearAuthTok(id); goHome();
+      uiAlert("⛔ Le compte scanner ne permet plus d'entrer dans une commission.\n\nUtilise le scanner global depuis l'accueil.");
+      return;
+    }
     try{ majBandeauFerme(); formFermeFrais(id).then(function(){ try{ majBandeauFerme(); }catch(e){} }); }catch(e){}
     if((id==="proclamation" || id==="crimino") && CURRENT_ROLE==="admin"){
       (async function(){ try{
@@ -9698,7 +9816,7 @@
         if(aT && aT.idToken && (await testEcriture(id, aT.idToken))==="refus"){ _dernierPushRefuse=true; syncRefusee(id, "ce compte n'est pas celui de la commission"); }
       }catch(e){} })();
     }
-    if(FIXED_ACCOUNTS[id] && CURRENT_ROLE==="admin"){ ensureFixedSetup(id); }
+    if(CURRENT_ROLE==="admin"){ ensureFixedSetup(id); }   // v193 : le scanner global doit pouvoir lire chaque commission (sans réglage manuel)
     /* Le réglage de cooptation doit être connu de CET appareil : sans ça, le
        paragraphe du mail et le décompte de l'onglet dépendraient d'un passage
        préalable dans les Réglages. */
@@ -9767,6 +9885,6 @@
 })();
 </script>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v192</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v193</div>
 </body>
 </html>
