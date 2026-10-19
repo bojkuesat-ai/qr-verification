@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
+<script>document.documentElement.style.visibility="hidden";setTimeout(function(){document.documentElement.style.visibility="";},3000);</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#120a1e">
@@ -394,8 +395,7 @@
             })){
           popupMaison('<p class="big">⚠️</p><p><b>Ce matricule est déjà confirmé</b></p>'
             +'<p class="hint">Une inscription avec ce numéro de matricule a déjà été validée avec une autre adresse e-mail. '
-            +'L\'invitation est strictement personnelle : une seule place par étudiant·e.</p>'
-            +'<p class="hint">Si c\'est une erreur, contacte l\'équipe organisatrice.</p>');
+            +'L\'invitation est strictement personnelle : une seule place par étudiant·e.</p>');
           return;
         }
         list[idx].statut="acarte";
@@ -490,7 +490,7 @@
     q("form").style.display="none";
     q("msg").innerHTML = '<div class="card"><p class="big">🔒</p><p><b>Les inscriptions sont complètes</b></p>'
       + '<p class="hint">Le nombre maximum d\'inscriptions a été atteint. Il n\'est plus possible de s\'inscrire.</p>'
-      + '<p class="hint">Pour toute question, contactez les délégués.</p></div>';
+      + '</div>';
   }
   function majBandeauJauge(){
     var el=q("jaugeBox"), btn=q("btn");
@@ -531,7 +531,7 @@
       var cur=rc.ok?await rc.json():null;
       var list=[]; try{ if(cur&&cur.fields&&cur.fields.signups) list=JSON.parse(cur.fields.signups.stringValue||"[]"); }catch(e){}
       var rec=null; for(var i=0;i<list.length;i++){ if(list[i]&&list[i].corrToken===token){ rec=list[i]; break; } }
-      if(!rec){ if(cm) cm.innerHTML='<b>Lien invalide ou déjà utilisé.</b><br>Si besoin, contactez les délégués.'; if(q("corrBtn")) q("corrBtn").style.display="none"; return; }
+      if(!rec){ if(cm) cm.innerHTML='<b>Lien invalide ou déjà utilisé.</b>'; if(q("corrBtn")) q("corrBtn").style.display="none"; return; }
       if(rec.statut!=="acorriger"){
         if(cm) cm.innerHTML='<b>Carte déjà renvoyée.</b><br>Elle est en cours de vérification. Tu recevras ton billet QR par e-mail.';
         if(q("corrBtn")) q("corrBtn").style.display="none";
@@ -622,11 +622,49 @@
     q("form").style.display="none";
     q("msg").innerHTML = '<div class="card"><p class="big">🔒</p><p><b>Les inscriptions sont closes</b></p>'
       + '<p class="hint">La date limite était le '+fin+'.</p>'
-      + '<p class="hint">Si vous pensez qu\'il s\'agit d\'une erreur, contactez les délégués.</p></div>';
+      + '</div>';
   }
   /* v192 : formulaire ouvert / fermé depuis les Réglages de l'app.
      Lu dans accueil._form du document du parrainage ({"festif":"0"} = fermé).
      true = fermé, false = ouvert, null = lecture impossible (on laisse passer). */
+  /* v198 : page d'erreur réglée dans l'app (accueil._err = 404 / 500 / 503) : tout le formulaire, liens compris. */
+  var ERR_TXT = {
+    "400": ["400","Requête incorrecte","Le serveur n'a pas pu comprendre la requête.","ERR_BAD_REQUEST"],
+    "401": ["401","Authentification requise","Vous devez être authentifié pour accéder à cette ressource.","ERR_UNAUTHORIZED"],
+    "403": ["403","Accès refusé","Vous n'avez pas l'autorisation d'accéder à cette page.","ERR_ACCESS_DENIED"],
+    "404": ["404","Page introuvable","La page demandée n'existe pas.","ERR_NOT_FOUND"],
+    "408": ["408","Délai d'attente dépassé","Le serveur a mis trop de temps à répondre.","ERR_REQUEST_TIMEOUT"],
+    "429": ["429","Trop de requêtes","Trop de requêtes ont été envoyées. Réessayez plus tard.","ERR_TOO_MANY_REQUESTS"],
+    "500": ["500","Erreur serveur","Une erreur interne est survenue. Réessayez plus tard.","ERR_INTERNAL_SERVER_ERROR"],
+    "502": ["502","Passerelle incorrecte","Le serveur a reçu une réponse invalide.","ERR_BAD_GATEWAY"],
+    "503": ["503","Service indisponible","Le service est temporairement indisponible.","ERR_SERVICE_UNAVAILABLE"],
+    "504": ["504","Délai de la passerelle dépassé","Le serveur n'a pas répondu à temps.","ERR_GATEWAY_TIMEOUT"]
+  };
+  function errRef(){ var h="0123456789ABCDEF",s=""; for(var i=0;i<8;i++){ s+=h[Math.floor(Math.random()*16)]; if(i===3) s+="-"; } return s; }
+  function afficherErreur(c){
+    var t=ERR_TXT[c]||ERR_TXT["404"];
+    document.title=t[0]+" "+t[1];
+    document.body.innerHTML='<div style="position:fixed;inset:0;background:#fff;color:#222;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Helvetica,Arial,sans-serif">'
+      + '<div><div style="font-size:96px;font-weight:300;line-height:1;color:#333">'+t[0]+'</div>'
+      + '<div style="font-size:22px;margin-top:14px;color:#555">'+t[1]+'</div>'
+      + '<div style="font-size:14px;margin-top:10px;color:#999">'+t[2]+'</div>'
+      + '<div style="font-size:12px;margin-top:22px;color:#bbb;font-family:ui-monospace,Menlo,Consolas,monospace">Code d\'erreur : '+t[3]+' · Réf. '+errRef()+'</div></div></div>';
+    document.body.style.background="#fff";
+  }
+  async function erreurServeur(){
+    try{
+      var tok = (window.__tok && (Date.now()-(window.__tokAt||0) < TOKEN_DUREE)) ? window.__tok : await connexionScanner();
+      var r = await fetch(FS_BASE+"commission_tickets/parrainage?mask.fieldPaths=accueil", { headers:{ "Authorization":"Bearer "+tok } });
+      if(!r.ok) return "";
+      var d = await r.json();
+      var v = d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
+      var m = v ? JSON.parse(v) : {};
+      return (m && Object.keys(ERR_TXT).indexOf(m._err)>=0) ? m._err : "";
+    }catch(e){ return ""; }
+  }
+  setTimeout(function(){
+    erreurServeur().then(function(c){ if(c) afficherErreur(c); document.documentElement.style.visibility=""; });
+  }, 0);
   async function formFermeServeur(){
     try{
       var tok = (window.__tok && (Date.now()-(window.__tokAt||0) < TOKEN_DUREE)) ? window.__tok : await connexionScanner();
@@ -636,15 +674,23 @@
       var v = d && d.fields && d.fields.accueil && d.fields.accueil.stringValue;
       if(!v) return false;
       var m = JSON.parse(v);
+      if(m && Object.keys(ERR_TXT).indexOf(m._err)>=0){ afficherErreur(m._err); return true; }   // v198
+      if(m && m._maint==="1"){ window.__maint=true; return true; }     // v194 : mode maintenance
       return !!(m && m._form && m._form[CID]==="0");
     }catch(e){ return null; }
   }
   function afficherQuota(){
+    if(!q("form")) return;                 // v198 : page d'erreur déjà affichée
     cacherEcranRole();
     q("form").style.display="none";
+    if(window.__maint){
+      q("msg").innerHTML = '<div class="card"><p class="big">🛠️</p><p><b>En maintenance</b></p>'
+        + '<p class="hint">Le formulaire est momentanément indisponible. Merci de réessayer un peu plus tard.</p></div>';
+      return;
+    }
     q("msg").innerHTML = '<div class="card"><p class="big">⛔</p><p><b>Quota dépassé — impossible d\'ajouter</b></p>'
       + '<p class="hint">Les inscriptions sont fermées pour le moment.</p>'
-      + '<p class="hint">Une question ? Écrivez à <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a>.</p></div>';
+      + '</div>';
   }
   var NOM_LIEN = "";
   try{ NOM_LIEN = decodeURIComponent(par("e")||""); }catch(e){ NOM_LIEN = par("e")||""; }
@@ -719,9 +765,7 @@
     var MAIL_CONTACT = (CID==="proclamation") ? "esat.bojku@ulb.be" : "esat.bojku@ulb.be";
     if(q("form")) q("form").style.display="none"; cacherEcranRole();
     q("msg").innerHTML='<div class="card"><p class="big">✉️</p><p><b>Un empêchement ?</b></p>'
-      + '<p class="hint">L\'annulation en ligne n\'est plus possible. Écris-nous à '
-      + '<a href="mailto:'+esc(MAIL_CONTACT)+'">'+esc(MAIL_CONTACT)+'</a> et nous libérerons ta place.</p>'
-      + '<p class="hint">Merci de prévenir le plus tôt possible : l\'organisation se prépare à l\'avance.</p></div>';
+      + '<p class="hint">L\'annulation en ligne n\'est plus possible.</p></div>';
   }
 
   /* Choix pour le traiteur : lecture des boutons radio du formulaire. */
@@ -778,7 +822,7 @@
   function messageDelaiDepasse(vous){
     q("msg").innerHTML='<div class="card"><p class="big">🔒</p><p><b>Date limite dépassée</b></p>'
       + '<p class="hint">La date limite pour modifier '+(vous?'votre':'ton')+' choix de menu était le <b>lundi 5 octobre 2026 à minuit</b>.</p>'
-      + '<p class="hint">Pour toute question, '+(vous?'contactez':'contacte')+' <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a>.</p></div>';
+      + '</div>';
   }
   var REPAS_TOK = par("choix") || par("repas");   // « repas » : ancien nom du paramètre
   if(REPAS_TOK){
@@ -1263,7 +1307,7 @@
       var _memeMail = list.filter(function(x){ return x && String(x.email||"").toLowerCase()===m1.toLowerCase() && x.statut!=="apreconfirmer"; });
       if(isPro && _memeMail.length && _memeMail.every(function(x){ return x.statut==="refuse"; })){
         var _tu = (q("f_role").value==="etudiant");
-        msg.innerHTML='<p class="err"><b>'+(_tu?'Ta':'Votre')+' demande a été refusée.</b><br>Pour plus d\'informations, '+(_tu?'contacte':'contactez')+' <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a>.</p>';
+        msg.innerHTML='<p class="err"><b>'+(_tu?'Ta':'Votre')+' demande a été refusée.</b></p>';
         btn.disabled=false; btn.textContent="Je m'inscris"; return;
       }
       if(_memeMail.length){
@@ -1371,7 +1415,7 @@
              laisse pas la personne attendre un e-mail qui n'est jamais parti. */
           okHtml='<p class="big">⚠️</p><p><b>Inscription enregistrée, mais l\'e-mail n\'est pas parti</b></p>'
             + '<p class="hint">Ton inscription est bien enregistrée pour <b>'+esc(m1)+'</b>, mais l\'e-mail contenant le <b>lien de confirmation</b> n\'a pas pu être envoyé.</p>'
-            + '<p class="hint">Attends quelques minutes et <b>recharge cette page pour réessayer</b>. Si rien n\'arrive, écris à <a href="mailto:esat.bojku@ulb.be">esat.bojku@ulb.be</a> : l\'équipe peut te renvoyer le lien à la main.</p>';
+            + '<p class="hint">Attends quelques minutes et <b>recharge cette page pour réessayer</b>.</p>';
           msg.innerHTML='<div class="card">'+okHtml+'</div>';
           popupMaison(okHtml);
           return;
@@ -1422,9 +1466,6 @@
     <button type="button" id="repasAnnBtn" style="margin-top:8px;background:transparent;border:1px solid var(--line);color:var(--text)">Annuler</button>
   </div>
 </div>
-<p id="contact" style="text-align:center;font-size:13px;color:var(--muted);margin:26px 0 4px">
-  Une question ? Écrivez-nous à <a href="mailto:esat.bojku@ulb.be" style="color:var(--gold,#d8b45a);font-weight:600">esat.bojku@ulb.be</a>
-</p>
 <p id="credit" style="text-align:center;font-size:12px;color:var(--muted);opacity:.7;margin:0 0 18px;letter-spacing:.02em">
   Formulaire conçu et développé par Esat
 </p>

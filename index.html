@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
+<script>try{var _a=JSON.parse(localStorage.getItem("qrentry:accueil")||"{}");if(_a&&_a._err&&!/admin/.test(location.hash)){var _ad=JSON.parse(localStorage.getItem("qrentry:admin")||"{}");if(!(_ad&&_ad.hash&&_ad.okUntil>Date.now()))document.documentElement.style.visibility="hidden";}}catch(e){}</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#120a1e">
@@ -959,13 +960,20 @@
     <input type="text" id="evLieu" placeholder="ex. Salle Dupréel, ULB — Av. Jeanne 44" autocomplete="off" onblur="autoSaveMeta('')">
     <div class="row" style="margin-top:11px"><button class="btn gold sm" onclick="saveEventMeta()">Enregistrer les infos pratiques</button></div>
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
-    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v197</b></p>
+    <p class="hint" style="margin-top:-6px;opacity:.65">Version de l'app : <b id="appVersion">v200</b></p>
 
     <div style="height:22px;border-top:1px solid var(--line);margin-top:22px"></div>
     <h2 style="margin-top:18px">Accès aux réglages</h2>
     <p class="sub" id="admInfo">—</p>
     <button class="btn ghost xs" type="button" onclick="admChanger()">Changer le mot de passe</button>
     <p class="hint" id="admChangeEtat" style="margin-top:6px;min-height:14px"></p>
+    <div style="margin-top:14px;border:1px solid #5c2530;border-radius:12px;padding:12px">
+      <b style="color:var(--red)">🚫 Page d'erreur</b>
+      <p class="hint" style="margin:4px 0 10px">Choisis l'erreur à afficher, puis « Enregistrer ». Activée : tout le site (app, formulaire, pages billet, scanners) affiche une page d'erreur, comme s'il n'existait pas. Les appareils où tu es connecté aux Réglages restent utilisables. Pour entrer depuis un autre appareil : ton adresse habituelle suivie de <b>#admin</b>.</p>
+      <div id="errRegl" class="coorg-grid"></div>
+      <div class="row" style="margin-top:10px;gap:8px"><button class="btn gold sm" type="button" id="errSave" onclick="enregistrerErr()">Enregistrer</button><button class="btn ghost sm" type="button" onclick="apercuErr()">👁 Aperçu</button></div>
+      <p class="hint" id="errEtat" style="margin-top:6px;min-height:14px"></p>
+    </div>
     <div style="margin-top:14px;border:1px solid #5c2530;border-radius:12px;padding:12px">
       <b style="color:var(--red)">🛠️ Mode maintenance</b>
       <p class="hint" style="margin:4px 0 10px">Activé : tous les autres appareils affichent « En maintenance » (commissions, scanner global, scanner lunch) et le formulaire en ligne est bloqué. Les appareils où tu es connecté aux Réglages restent utilisables. Les pages billet des invités ne sont pas touchées.</p>
@@ -1407,6 +1415,7 @@
      ni le formulaire public, ni le scanner global ne le lisent. */
   var REGL_CID = "parrainage";
   var CLE_ACCUEIL = "qrentry:accueil";
+  var ERR_CODES = ["400","401","403","404","408","429","500","502","503","504"];   // v200 : pages d'erreur
   /* Jeton du compte de réglages : celui de l'appareil s'il existe, sinon connexion en
      arrière-plan au compte fixe du parrainage. Ce jeton reste EN MÉMOIRE, jamais
      enregistré sur l'appareil : il ne change ni le compte ouvert, ni le rôle
@@ -1444,6 +1453,7 @@
       if(Object.keys(sc).length) out._scan=sc;
     }
     if(m && m._maint==="1") out._maint="1";                                // v194 : mode maintenance
+    if(m && ERR_CODES.indexOf(m._err)>=0) out._err=m._err;     // v198 : page d'erreur
     return out;
   }
   function commActive(cid){ return mapAccueil()[cid]!=="0"; }
@@ -1486,7 +1496,8 @@
              if(mS._deco) m._deco=mS._deco; else delete m._deco;
              if(mS._form) m._form=mS._form; else delete m._form;
              if(mS._scan) m._scan=mS._scan; else delete m._scan;
-             if(mS._maint) m._maint=mS._maint; else delete m._maint; }catch(e){}
+             if(mS._maint) m._maint=mS._maint; else delete m._maint;
+             if(mS._err) m._err=mS._err; else delete m._err; }catch(e){}
         var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
         ok = !!(r && r.ok);
         if(!ok) souci = "refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
@@ -1515,12 +1526,13 @@
       if(!v) return;                           // champ absent : on ne touche à rien
       var m=mapPropre(JSON.parse(v));
       verifierDeco(m._deco);
-      if(JSON.stringify(m)===JSON.stringify(mapAccueil())){ majMaintenance(); return; }
+      if(JSON.stringify(m)===JSON.stringify(mapAccueil())){ majMaintenance(); majErr(); return; }
       setMapAccueil(m);
       renderCommActif();
       try{ majBandeauFerme(); }catch(e){}
       try{ majBoutonsScanAccueil(); }catch(e){}
       try{ majMaintenance(); }catch(e){}
+      try{ majErr(); }catch(e){}
       if(typeof renderHome==="function") renderHome();
     }catch(e){}
   }
@@ -1740,12 +1752,104 @@
                      : ("❌ PROBLÈME : rien n'a été enregistré ("+souci+").\n\nRéessaie dans un instant."));
   };
 
+  /* ---------- v198 : page d'erreur (404 / 500 / 503) ----------
+     accueil._err = "404" | "500" | "503". Tout le site l'affiche, pages billet
+     comprises, sauf les appareils connectés aux Réglages. Entrée : adresse + #admin. */
+  var ERR_TXT = {
+    "400": ["400","Requête incorrecte","Le serveur n'a pas pu comprendre la requête.","ERR_BAD_REQUEST"],
+    "401": ["401","Authentification requise","Vous devez être authentifié pour accéder à cette ressource.","ERR_UNAUTHORIZED"],
+    "403": ["403","Accès refusé","Vous n'avez pas l'autorisation d'accéder à cette page.","ERR_ACCESS_DENIED"],
+    "404": ["404","Page introuvable","La page demandée n'existe pas.","ERR_NOT_FOUND"],
+    "408": ["408","Délai d'attente dépassé","Le serveur a mis trop de temps à répondre.","ERR_REQUEST_TIMEOUT"],
+    "429": ["429","Trop de requêtes","Trop de requêtes ont été envoyées. Réessayez plus tard.","ERR_TOO_MANY_REQUESTS"],
+    "500": ["500","Erreur serveur","Une erreur interne est survenue. Réessayez plus tard.","ERR_INTERNAL_SERVER_ERROR"],
+    "502": ["502","Passerelle incorrecte","Le serveur a reçu une réponse invalide.","ERR_BAD_GATEWAY"],
+    "503": ["503","Service indisponible","Le service est temporairement indisponible.","ERR_SERVICE_UNAVAILABLE"],
+    "504": ["504","Délai de la passerelle dépassé","Le serveur n'a pas répondu à temps.","ERR_GATEWAY_TIMEOUT"]
+  };
+  function errRef(){ var h="0123456789ABCDEF",s=""; for(var i=0;i<8;i++){ s+=h[Math.floor(Math.random()*16)]; if(i===3) s+="-"; } return s; }
+  var ERR_ADMIN_OUVERT = /admin/.test(location.hash||"");
+  var ERR_TITRE0 = document.title;
+  function errActive(){ var v=mapAccueil()._err||""; return ERR_TXT[v] ? v : ""; }
+  window.apercuErr=function(){
+    var v = (ERR_BROUILLON!==null ? ERR_BROUILLON : errActive()) || "404";
+    ERR_APERCU=v; if($("settingsModal")) $("settingsModal").classList.remove("on"); majErr();
+  };
+  window.fermerApercuErr=function(){
+    if(!ERR_APERCU) return;
+    ERR_APERCU=""; majErr(); if($("settingsModal")) $("settingsModal").classList.add("on");
+  };
+  var ERR_APERCU="", ERR_AFFICHE="";
+  function majErr(){
+    var o=$("errOverlay"); if(!o) return;
+    var c=ERR_APERCU || errActive(), bloque = !!ERR_APERCU || (!!c && !estAppareilAdmin() && !ERR_ADMIN_OUVERT);
+    if($("errApercu")) $("errApercu").style.display = ERR_APERCU ? "" : "none";
+    if(bloque){
+      var t=ERR_TXT[c]||ERR_TXT["404"];
+      $("errCode").textContent=t[0]; $("errTxt").textContent=t[1]; $("errSub").textContent=t[2];
+      if(ERR_AFFICHE!==c){ ERR_AFFICHE=c; $("errTech").textContent="Code d'erreur : "+t[3]+" · Réf. "+errRef(); }
+      if(o.style.display!=="flex"){ try{ stopCam(); }catch(e){} try{ gStopCam(); }catch(e){} try{ lStopCam(); }catch(e){} }
+      o.style.display="flex"; document.title=t[0]+" "+t[1];
+    } else { ERR_AFFICHE=""; o.style.display="none"; if(/^\d{3} /.test(document.title)) document.title=ERR_TITRE0; }
+    document.documentElement.style.visibility="";
+  }
+  if(ERR_ADMIN_OUVERT){ setTimeout(function(){ try{ if(!estAppareilAdmin()) openSettings(); }catch(e){} }, 400); }
+  var ERR_BROUILLON=null, ERR_SAVE_EN_COURS=false;
+  function renderErr(){
+    var box=$("errRegl"); if(!box) return;
+    if(ERR_BROUILLON===null) ERR_BROUILLON=errActive();
+    var act=errActive();
+    box.innerHTML=[["","Désactivée"]].concat(ERR_CODES.map(function(k){ return [k, k+" · "+ERR_TXT[k][1]]; })).map(function(x){
+      var sel=(ERR_BROUILLON===x[0]), modif=sel && (x[0]!==act);
+      return '<button class="btn '+(sel?(x[0]?'danger':'gold'):'ghost')+' xs" type="button" style="width:100%" onclick="preparerErr(\''+x[0]+'\')">'
+        + (sel?'● ':'')+x[1]+(modif?' · modifié':'')+'</button>';
+    }).join("");
+  }
+  window.preparerErr=function(v){ ERR_BROUILLON=v; renderErr(); var et=$("errEtat"); if(et){ et.textContent = (v!==errActive()) ? "Pas encore enregistré : clique sur « Enregistrer »." : ""; et.style.color="var(--gold)"; } };
+  function errLib(v){ return v ? (ERR_TXT[v][0]+" · "+ERR_TXT[v][1]) : "désactivée"; }
+  window.enregistrerErr=async function(){
+    if(ERR_SAVE_EN_COURS) return;
+    if(ERR_BROUILLON===null) ERR_BROUILLON=errActive();
+    var veut=ERR_BROUILLON;
+    if(veut===errActive()){ await uiAlert("Aucun changement à enregistrer."); return; }
+    var recap = veut ? ("Page d'erreur : ACTIVÉE ("+errLib(veut)+")\n\nTout le site affichera cette page, sauf tes appareils connectés aux Réglages.\nPour entrer ailleurs : ton adresse habituelle suivie de #admin.")
+                     : "Page d'erreur : DÉSACTIVÉE\n\nLe site redevient normal partout.";
+    if(!(await uiConfirm("Confirmer ce changement ?\n\n"+recap))) return;
+    ERR_SAVE_EN_COURS=true;
+    var btn=$("errSave"); if(btn){ btn.disabled=true; btn.textContent="Enregistrement…"; }
+    var ok=false, souci="";
+    try{
+      var tok=await jetonReglages();
+      if(!tok) souci="compte de réglages inaccessible";
+      else{
+        var d=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);
+        var m={}; try{ m=mapPropre(JSON.parse((d&&d.fields&&d.fields.accueil&&d.fields.accueil.stringValue)||"{}")); }catch(e){ m={}; }
+        if(veut) m._err=veut; else delete m._err;
+        var r=await fsPatchFields(ticketDocPath(REGL_CID), { accueil: fsField(JSON.stringify(m)) }, tok);
+        ok=!!(r&&r.ok);
+        if(ok){
+          var d2=await fsGetDoc(ticketDocPath(REGL_CID), tok, ["accueil"]);
+          var m2={}; try{ m2=mapPropre(JSON.parse((d2&&d2.fields&&d2.fields.accueil&&d2.fields.accueil.stringValue)||"{}")); }catch(e){}
+          ok = ((m2._err||"")===veut);
+          if(!ok) souci="la relecture ne correspond pas"; else setMapAccueil(m2);
+        } else souci="refus du serveur"+((r&&r.data&&r.data.error&&r.data.error.status)?(" ("+r.data.error.status+")"):"");
+      }
+    }catch(e){ souci="pas de connexion"; }
+    ERR_SAVE_EN_COURS=false;
+    if(btn){ btn.disabled=false; btn.textContent="Enregistrer"; }
+    if(ok) ERR_BROUILLON=null;
+    renderErr(); majErr();
+    var et=$("errEtat");
+    if(et){ et.textContent = ok ? ("✅ Page d'erreur "+errLib(veut)+".") : ("❌ Non enregistré — "+souci+"."); et.style.color = ok ? "var(--green,#7ddc9a)" : "#e88"; }
+    await uiAlert(ok ? ("✅ Enregistré.\n\n"+recap) : ("❌ PROBLÈME : rien n'a été enregistré ("+souci+").\n\nRéessaie dans un instant."));
+  };
+
   /* ---------- v194 : mode maintenance ----------
      accueil._maint = "1" (document du parrainage). Les appareils connectés aux
      Réglages (admin) ne sont pas bloqués. Les pages billet des invités non plus. */
   function maintActive(){ return mapAccueil()._maint==="1"; }
   function estAppareilAdmin(){ var a=admLocal(); return !!(a && a.hash && a.okUntil && Date.now()<a.okUntil); }
-  var MAINT_ADMIN_OUVERT=false;
+  var MAINT_ADMIN_OUVERT=/admin/.test(location.hash||"");   // v199 : entrée par l'adresse + #admin
   function majMaintenance(){
     var o=$("maintOverlay"); if(!o) return;
     if(document.body.classList.contains("guest-mode")){ o.style.display="none"; return; }
@@ -1803,7 +1907,7 @@
     await uiAlert(ok ? ("✅ Enregistré.\n\n"+recap) : ("❌ PROBLÈME : rien n'a été enregistré ("+souci+").\n\nRéessaie dans un instant."));
   };
   /* Relecture régulière, même sur l'accueil ou un scanner (30 s max entre deux lectures). */
-  setInterval(function(){ if(!document.body.classList.contains("guest-mode")){ try{ syncCommActifs(); }catch(e){} } }, 10000);
+  setInterval(function(){ try{ syncCommActifs(); }catch(e){} }, 10000);   // v198 : pages billet comprises (page d'erreur)
 
   /* ---------- v191 : « Déconnecter partout » ----------
      L'heure de la demande est publiée dans le champ `accueil` du document du
@@ -5219,7 +5323,7 @@
       dire("✅ Mot de passe changé.", true);
     }catch(e){ dire(admMsg(e), false); }
   };
-  window.closeSettingsPwd=function(){ $("settingsPwdModal").classList.remove("on"); MAINT_ADMIN_OUVERT=false; majMaintenance(); };
+  window.closeSettingsPwd=function(){ $("settingsPwdModal").classList.remove("on"); MAINT_ADMIN_OUVERT=false; majMaintenance(); if(!estAppareilAdmin()){ ERR_ADMIN_OUVERT=false; majErr(); } };
   /* Ouvre le panneau une fois l'identité vérifiée (voir submitSettingsPwd plus haut). */
   function ouvrirReglages(){
     $("settingsPwdModal").classList.remove("on");
@@ -5229,6 +5333,7 @@
     }
     if($("admChangeEtat")) $("admChangeEtat").textContent="";
     SCAN_BROUILLON=null; renderScanRegl();          // v193 : scanners
+    ERR_BROUILLON=null; renderErr(); if($("errEtat")) $("errEtat").textContent="";   // v198
     MAINT_BROUILLON=null; renderMaint(); if($("maintEtat")) $("maintEtat").textContent=""; MAINT_ADMIN_OUVERT=false; majMaintenance();   // v194
     if($("scanReglEtat")){ $("scanReglEtat").textContent="Clique sur les boutons pour préparer le changement, puis sur « Enregistrer »."; $("scanReglEtat").style.color=""; }
     renderCoorg();                                   // co-organisateurs : boutons à jour
@@ -5242,6 +5347,7 @@
       renderCommActif();
       if(!SCAN_SAVE_EN_COURS && !scanBrouillonModifie()){ SCAN_BROUILLON=null; renderScanRegl(); }
       if(!MAINT_SAVE_EN_COURS && MAINT_BROUILLON===maintActive()){ MAINT_BROUILLON=null; renderMaint(); }
+      if(!ERR_SAVE_EN_COURS && ERR_BROUILLON===errActive()){ ERR_BROUILLON=null; renderErr(); }
       if(!FORM_SAVE_EN_COURS){ var _brPropre=true; COMM_FORM.forEach(function(id){ if(FORM_BROUILLON && FORM_BROUILLON[id]===formFerme(id)) _brPropre=false; }); if(_brPropre){ FORM_BROUILLON=null; renderFormOuvert(); } }
       for(var i=0;i<COMMISSIONS.length;i++){ await chargerCoorgCloud(COMMISSIONS[i].id); }
       renderCoorg();
@@ -9116,7 +9222,7 @@
   function majMarqueSync(){
     var m=$("verMark"); if(!m) return;
     var t = SYNC_OK_TS ? new Date(SYNC_OK_TS).toLocaleTimeString("fr-BE",{hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "";
-    m.textContent = "v197" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
+    m.textContent = "v200" + (t && currentCommId() ? " · ☁️ synchro "+t : "");
     /* Bandeau fixe en haut, bien lisible : heure de la dernière synchro réussie + nombre
        de billets sur le serveur. Deux appareils synchronisés affichent le même nombre. */
     var top=$("syncTop");
@@ -9137,8 +9243,8 @@
     if(e){
       var bloque = $("syncAlert") && $("syncAlert").style.display!=="none";
       e.style.color = bloque ? "#ff8a8a" : "#7fd99a";
-      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v197"
-                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v197") : ("☁️ Synchronisation… · v197"));
+      e.textContent = bloque ? "⛔ Synchro bloquée sur cet appareil · v200"
+                             : (t ? ("☁️ Synchronisé à "+t+(SYNC_NB>=0 ? " · "+SYNC_NB+(SYNC_NB>1?" billets":" billet")+" en ligne" : "")+" · v200") : ("☁️ Synchronisation… · v200"));
     }
   }
   function syncReussie(cid){
@@ -9915,7 +10021,9 @@
   }
   (function(){
     if(checkSignupLink()) return;
-    if(checkGuestLink()) return;
+    try{ majErr(); }catch(e){}                                           // v198 : état connu, tout de suite
+    setTimeout(function(){ document.documentElement.style.visibility=""; }, 3000);   // filet : jamais de page blanche
+    if(checkGuestLink()){ try{ syncCommActifs(true); }catch(e){} return; }          // v198 : pages billet aussi
     try{ majMaintenance(); syncCommActifs(true); }catch(e){}          // v194
     startApp();
     var h=location.hash||"";
@@ -9962,15 +10070,21 @@
   }
 })();
 </script>
+<div id="errOverlay" onclick="fermerApercuErr()" style="display:none;position:fixed;inset:0;z-index:2147483000;background:#fff;color:#222;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;align-items:center;justify-content:center;text-align:center;padding:24px">
+  <div><div id="errCode" style="font-size:96px;font-weight:300;line-height:1;color:#333">404</div>
+  <div id="errTxt" style="font-size:22px;margin-top:14px;color:#555">Page introuvable</div>
+  <div id="errSub" style="font-size:14px;margin-top:10px;color:#999">La page demandée n'existe pas.</div>
+  <div id="errTech" style="font-size:12px;margin-top:22px;color:#bbb;font-family:ui-monospace,Menlo,Consolas,monospace"></div></div>
+  <div id="errApercu" style="display:none;position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#222;color:#fff;font-size:13px;padding:8px 14px;border-radius:999px;cursor:pointer">Aperçu — touche pour fermer</div>
+</div>
 <div id="maintOverlay" style="display:none;position:fixed;inset:0;z-index:95;background:radial-gradient(900px 520px at 50% 0%, #241c46, #141026);color:#f4efe6;align-items:center;justify-content:center;padding:26px 18px;text-align:center;font-family:Inter,system-ui,sans-serif">
   <div style="max-width:420px">
     <div style="font-size:64px;line-height:1">🛠️</div>
     <h2 style="font-family:Fraunces,Georgia,serif;font-size:26px;margin:14px 0 8px">En maintenance</h2>
-    <p style="color:#a49dc6;font-size:15px;line-height:1.5;margin:0 0 22px">L'application est momentanément indisponible. Merci de patienter : elle revient automatiquement dès que la maintenance est terminée.</p>
-    <button class="btn ghost sm" type="button" onclick="maintAccesAdmin()">Accès administrateur</button>
+    <p style="color:#a49dc6;font-size:15px;line-height:1.5;margin:0">L'application est momentanément indisponible. Merci de patienter : elle revient automatiquement dès que la maintenance est terminée.</p>
   </div>
 </div>
 <div id="syncTop" style="display:none;position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;pointer-events:none;font-size:16px;font-weight:700;padding:8px 16px;border-radius:999px;white-space:normal;text-align:center;width:max-content;max-width:calc(100vw - 24px);box-shadow:0 4px 14px rgba(0,0,0,.4)"></div>
-<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v197</div>
+<div id="verMark" style="position:fixed;left:6px;bottom:4px;font-size:10px;opacity:.45;pointer-events:none;z-index:1">v200</div>
 </body>
 </html>
