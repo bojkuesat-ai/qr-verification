@@ -1052,6 +1052,19 @@
           }
         }
       }catch(e){}
+      /* v192 — Depuis le 09/11/2026, send-email n'accepte plus de HTML libre avec la
+         seule clé publique (anti-spam). On joint le jeton Firebase du responsable
+         connecté : le serveur le vérifie et traite l'envoi comme celui d'un membre.
+         Sans jeton (page publique), rien ne change : les gabarits passent toujours. */
+      if(typeof u==="string" && /\/functions\/v1\/send-email/.test(u) && o){
+        return (async function(){
+          var tok=null;
+          try{ var cid=currentCommId(); if(cid) tok=await jetonEcriture(cid); }catch(e){}
+          if(!tok){ try{ for(var i=0;i<COMMISSIONS.length&&!tok;i++){ var a=loadAuth(COMMISSIONS[i].id); if(a&&a.idToken&&(!a.expiresAt||Date.now()<a.expiresAt-60000)) tok=a.idToken; } }catch(e){} }
+          if(tok){ var h=Object.assign({}, o.headers||{}); h["Authorization"]="Bearer "+tok; o=Object.assign({}, o, {headers:h}); }
+          return f0.call(window, u, o);
+        })();
+      }
       return f0.call(window, u, o);
     };
   })();
